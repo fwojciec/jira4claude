@@ -547,13 +547,20 @@ func TestIssueService_AddComment(t *testing.T) {
 
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusCreated)
+			// Response uses hardBreak nodes for line breaks (proper ADF format)
 			_, _ = w.Write([]byte(`{
 				"id": "10002",
 				"body": {
 					"type": "doc",
 					"version": 1,
 					"content": [
-						{"type": "paragraph", "content": [{"type": "text", "text": "Line 1\nLine 2\nLine 3"}]}
+						{"type": "paragraph", "content": [
+							{"type": "text", "text": "Line 1"},
+							{"type": "hardBreak"},
+							{"type": "text", "text": "Line 2"},
+							{"type": "hardBreak"},
+							{"type": "text", "text": "Line 3"}
+						]}
 					]
 				},
 				"created": "2024-01-15T10:30:00.000+0000"
@@ -570,15 +577,19 @@ func TestIssueService_AddComment(t *testing.T) {
 		assert.Equal(t, "10002", comment.ID)
 		assert.Equal(t, "Line 1\nLine 2\nLine 3", comment.Body)
 
-		// Verify request body has ADF format
+		// Verify request body has ADF format with hardBreak nodes for line breaks
 		body := receivedRequest["body"].(map[string]any)
 		assert.Equal(t, "doc", body["type"])
 		content := body["content"].([]any)
 		require.Len(t, content, 1)
 		paragraph := content[0].(map[string]any)
 		paragraphContent := paragraph["content"].([]any)
-		textNode := paragraphContent[0].(map[string]any)
-		assert.Equal(t, "Line 1\nLine 2\nLine 3", textNode["text"])
+		require.Len(t, paragraphContent, 5) // text, hardBreak, text, hardBreak, text
+		assert.Equal(t, "Line 1", paragraphContent[0].(map[string]any)["text"])
+		assert.Equal(t, "hardBreak", paragraphContent[1].(map[string]any)["type"])
+		assert.Equal(t, "Line 2", paragraphContent[2].(map[string]any)["text"])
+		assert.Equal(t, "hardBreak", paragraphContent[3].(map[string]any)["type"])
+		assert.Equal(t, "Line 3", paragraphContent[4].(map[string]any)["text"])
 	})
 }
 
