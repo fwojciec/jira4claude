@@ -166,7 +166,9 @@ func (s *IssueService) List(ctx context.Context, filter jira4claude.IssueFilter)
 	}
 
 	// Build request URL with query parameters
-	reqURL := "/rest/api/3/search?jql=" + url.QueryEscape(jql)
+	// The /search/jql endpoint requires explicit field selection
+	fields := "key,summary,status,issuetype,project,priority,assignee,reporter,labels,created,updated,description"
+	reqURL := "/rest/api/3/search/jql?jql=" + url.QueryEscape(jql) + "&fields=" + fields
 	if filter.Limit > 0 {
 		reqURL += "&maxResults=" + strconv.Itoa(filter.Limit)
 	}

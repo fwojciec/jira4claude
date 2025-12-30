@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 
 	"github.com/fwojciec/jira4claude"
@@ -205,7 +204,7 @@ func TestIssueService_List(t *testing.T) {
 
 		var receivedJQL string
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if r.Method != http.MethodGet || !strings.HasPrefix(r.URL.Path, "/rest/api/3/search") {
+			if r.Method != http.MethodGet || r.URL.Path != "/rest/api/3/search/jql" {
 				w.WriteHeader(http.StatusNotFound)
 				return
 			}
