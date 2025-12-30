@@ -45,22 +45,40 @@ For accepted feedback:
 2. Run `make validate`
 3. Commit with clear message referencing the feedback
 
-### 5. Respond to Comments
+### 5. Respond Inline
 
-For each comment:
-- If fixed: Reply with what was done
-- If won't fix: Explain reasoning clearly
-- If needs discussion: Ask clarifying questions
+For EVERY inline code review comment, reply using the `/replies` endpoint.
+
+**Critical syntax rules for `gh api`:**
+- `{owner}/{repo}` is a **literal placeholder** - type it exactly as shown, `gh api` auto-substitutes it
+- Do NOT replace `{owner}/{repo}` with the actual repo name
+- DO replace `$PR_NUM` and `$COMMENT_ID` with actual numeric values
 
 ```bash
-gh pr comment <pr-number> --body "..."
+# CORRECT - {owner}/{repo} is literal, 10 and 2652398654 are actual values
+gh api repos/{owner}/{repo}/pulls/10/comments/2652398654/replies \
+  -f body="Done - description of change"
+
+# WRONG - don't hardcode the repo path
+gh api repos/fwojciec/jira4claude/pulls/10/comments/2652398654/replies ...
 ```
 
-### 6. Request Re-review
+The `$COMMENT_ID` is the numeric `id` field from the comment JSON (e.g., `2652398654`).
 
-After addressing all feedback:
+For general PR comments (not inline code comments):
 ```bash
-gh pr ready
+gh pr comment <PR_NUMBER> --body "Your response"
 ```
 
-Summarize changes made to the user.
+Response format for each comment:
+- **If implemented**: "Done - [brief description of change]"
+- **If partially implemented**: "Partially addressed - [what was done and why]"
+- **If not implemented**: "Not changing - [technical rationale]"
+
+Be professional and constructive. Explain reasoning when declining suggestions.
+
+### 6. Push Updates
+
+After all changes are made:
+1. Push the updated branch
+2. Summarize actions taken for the user
