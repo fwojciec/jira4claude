@@ -14,7 +14,7 @@ bd sync               # Sync with git
 
 ## Landing the Plane (Session Completion)
 
-**When ending a work session**, you MUST complete ALL steps below. Work is NOT complete until `git push` succeeds.
+**When ending a work session**, you MUST complete ALL steps below. Work is NOT complete until both code and beads are pushed.
 
 **MANDATORY WORKFLOW:**
 
@@ -23,18 +23,22 @@ bd sync               # Sync with git
 3. **Update issue status** - Close finished work, update in-progress items
 4. **PUSH TO REMOTE** - This is MANDATORY:
    ```bash
+   # Push code changes (feature branch or main)
    git pull --rebase
-   bd sync
    git push
    git status  # MUST show "up to date with origin"
+
+   # Push beads state (to beads-sync branch)
+   bd sync
    ```
 5. **Clean up** - Clear stashes, prune remote branches
-6. **Verify** - All changes committed AND pushed
+6. **Verify** - Code pushed, beads synced
 7. **Hand off** - Provide context for next session
 
 **CRITICAL RULES:**
-- Work is NOT complete until `git push` succeeds
+- Work is NOT complete until `git push` AND `bd sync` succeed
 - NEVER stop before pushing - that leaves work stranded locally
 - NEVER say "ready to push when you are" - YOU must push
 - If push fails, resolve and retry until it succeeds
+- Beads state syncs to `beads-sync` branch independently of code branches
 

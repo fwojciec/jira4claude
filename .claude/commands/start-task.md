@@ -7,7 +7,6 @@ allowed-tools: Bash(bd:*), Bash(git:*), Bash(make:*)
 
 Branch: !`git branch --show-current`
 Uncommitted changes: !`git status --porcelain`
-Beads uncommitted: !`git status --porcelain .beads/`
 
 ## In-Progress Work
 
@@ -23,7 +22,6 @@ Provided task ID: $1
 
 Before proceeding, verify:
 - [ ] Currently on `main` branch (if not, ask user before proceeding)
-- [ ] No uncommitted changes in `.beads/` directory (if there are, commit and push them first)
 - [ ] Working tree is clean (if not, ask user how to proceed)
 
 If any checks fail, stop and resolve with the user before continuing.
@@ -54,10 +52,10 @@ If there are issues with status `in_progress`:
 Once you have a task ID (either from argument or user selection):
 1. Create branch first: `git checkout -b <task-id>` (e.g., `git checkout -b jira4claude-abc`)
 2. Mark the task as in-progress: `bd update <task-id> -s in_progress`
-3. Commit the beads change: `git add .beads/ && git commit -m "Start work on <task-id>"`
+3. Sync beads to remote: `bd sync`
 4. Show full task details: `bd show <task-id>`
 
-**Note**: All commits happen on the feature branch, keeping main clean.
+**Note**: Code commits happen on the feature branch. Beads state syncs to the `beads-sync` branch independently.
 
 ### 5. Implementation
 
@@ -104,7 +102,7 @@ NEXT: [immediate next step]
 KEY_DECISIONS: [any important choices made]"
 ```
 
-Commit beads changes with your code commits to keep them in sync.
+Run `bd sync` periodically to push beads state to the sync branch.
 
 ### 7. Validation
 

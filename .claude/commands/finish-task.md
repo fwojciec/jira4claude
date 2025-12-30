@@ -7,7 +7,6 @@ allowed-tools: Bash(bd:*), Bash(git:*), Bash(gh:*), Bash(make:*)
 
 Branch: !`git branch --show-current`
 Git status: !`git status --porcelain`
-Beads uncommitted: !`git status --porcelain .beads/`
 
 ## Your Workflow
 
@@ -32,18 +31,14 @@ Ensure all implementation work is committed:
 Extract the task ID from the current branch name (format: `jira4claude-XXX`).
 
 1. Close the issue: `bd update <task-id> -s closed`
-2. Commit beads change immediately:
-   ```bash
-   git add .beads/ && git commit -m "Close <task-id>"
-   ```
+2. Sync beads to remote: `bd sync`
 
-This ensures beads state is committed BEFORE PR creation, so it's not left behind if something fails.
+This syncs beads state to the `beads-sync` branch independently of the PR.
 
 ### 4. Verify Clean State
 
 Before creating PR, verify:
-- [ ] `git status --porcelain .beads/` shows nothing
-- [ ] `git status --porcelain` shows nothing
+- [ ] `git status --porcelain` shows nothing (code changes committed)
 - [ ] All work is committed
 
 ### 5. Create Pull Request
@@ -70,7 +65,6 @@ After PR creation:
 - [ ] Branch is pushed to origin
 - [ ] PR is created and URL is shared with user
 - [ ] `git status` is completely clean
-- [ ] `.beads/` has no uncommitted changes
 - [ ] Beads issue shows as `closed` in `bd show <task-id>`
 
 Report the PR URL to the user.
