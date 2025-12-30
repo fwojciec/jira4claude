@@ -355,22 +355,226 @@ func (s *IssueService) Delete(ctx context.Context, key string) error {
 
 // AddComment adds a comment to an issue.
 func (s *IssueService) AddComment(ctx context.Context, key, body string) (*jira4claude.Comment, error) {
-	return nil, &jira4claude.Error{Code: jira4claude.EInternal, Message: "not implemented"}
+	reqBody := map[string]any{
+		"body": TextToADF(body),
+	}
+	jsonBody, err := json.Marshal(reqBody)
+	if err != nil {
+		return nil, &jira4claude.Error{
+			Code:    jira4claude.EInternal,
+			Message: "failed to marshal request",
+			Inner:   err,
+		}
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "/rest/api/3/issue/"+key+"/comment", bytes.NewReader(jsonBody))
+	if err != nil {
+		return nil, &jira4claude.Error{
+			Code:    jira4claude.EInternal,
+			Message: "failed to create request",
+			Inner:   err,
+		}
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := s.client.Do(req)
+	if err != nil {
+		return nil, &jira4claude.Error{
+			Code:    jira4claude.EInternal,
+			Message: "request failed",
+			Inner:   err,
+		}
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, &jira4claude.Error{
+			Code:    jira4claude.EInternal,
+			Message: "failed to read response",
+			Inner:   err,
+		}
+	}
+
+	if resp.StatusCode != http.StatusCreated {
+		if apiErr := ParseErrorResponse(resp.StatusCode, respBody); apiErr != nil {
+			return nil, apiErr
+		}
+		return nil, &jira4claude.Error{
+			Code:    statusCodeToErrorCode(resp.StatusCode),
+			Message: fmt.Sprintf("unexpected status: %d", resp.StatusCode),
+		}
+	}
+
+	return parseCommentResponse(respBody)
 }
 
 // Transitions returns available workflow transitions for an issue.
 func (s *IssueService) Transitions(ctx context.Context, key string) ([]*jira4claude.Transition, error) {
-	return nil, &jira4claude.Error{Code: jira4claude.EInternal, Message: "not implemented"}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "/rest/api/3/issue/"+key+"/transitions", nil)
+	if err != nil {
+		return nil, &jira4claude.Error{
+			Code:    jira4claude.EInternal,
+			Message: "failed to create request",
+			Inner:   err,
+		}
+	}
+
+	resp, err := s.client.Do(req)
+	if err != nil {
+		return nil, &jira4claude.Error{
+			Code:    jira4claude.EInternal,
+			Message: "request failed",
+			Inner:   err,
+		}
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, &jira4claude.Error{
+			Code:    jira4claude.EInternal,
+			Message: "failed to read response",
+			Inner:   err,
+		}
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		if apiErr := ParseErrorResponse(resp.StatusCode, respBody); apiErr != nil {
+			return nil, apiErr
+		}
+		return nil, &jira4claude.Error{
+			Code:    statusCodeToErrorCode(resp.StatusCode),
+			Message: fmt.Sprintf("unexpected status: %d", resp.StatusCode),
+		}
+	}
+
+	var transitionsResp struct {
+		Transitions []struct {
+			ID   string `json:"id"`
+			Name string `json:"name"`
+		} `json:"transitions"`
+	}
+	if err := json.Unmarshal(respBody, &transitionsResp); err != nil {
+		return nil, &jira4claude.Error{
+			Code:    jira4claude.EInternal,
+			Message: "failed to parse response",
+			Inner:   err,
+		}
+	}
+
+	transitions := make([]*jira4claude.Transition, len(transitionsResp.Transitions))
+	for i, t := range transitionsResp.Transitions {
+		transitions[i] = &jira4claude.Transition{
+			ID:   t.ID,
+			Name: t.Name,
+		}
+	}
+
+	return transitions, nil
 }
 
 // Transition moves an issue to a new status.
 func (s *IssueService) Transition(ctx context.Context, key, transitionID string) error {
-	return &jira4claude.Error{Code: jira4claude.EInternal, Message: "not implemented"}
+	reqBody := map[string]any{
+		"transition": map[string]any{
+			"id": transitionID,
+		},
+	}
+	jsonBody, err := json.Marshal(reqBody)
+	if err != nil {
+		return &jira4claude.Error{
+			Code:    jira4claude.EInternal,
+			Message: "failed to marshal request",
+			Inner:   err,
+		}
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "/rest/api/3/issue/"+key+"/transitions", bytes.NewReader(jsonBody))
+	if err != nil {
+		return &jira4claude.Error{
+			Code:    jira4claude.EInternal,
+			Message: "failed to create request",
+			Inner:   err,
+		}
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := s.client.Do(req)
+	if err != nil {
+		return &jira4claude.Error{
+			Code:    jira4claude.EInternal,
+			Message: "request failed",
+			Inner:   err,
+		}
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusNoContent {
+		respBody, _ := io.ReadAll(resp.Body)
+		if apiErr := ParseErrorResponse(resp.StatusCode, respBody); apiErr != nil {
+			return apiErr
+		}
+		return &jira4claude.Error{
+			Code:    statusCodeToErrorCode(resp.StatusCode),
+			Message: fmt.Sprintf("unexpected status: %d", resp.StatusCode),
+		}
+	}
+
+	return nil
 }
 
 // Assign assigns an issue to a user by account ID.
+// If accountID is empty, the issue is unassigned.
 func (s *IssueService) Assign(ctx context.Context, key, accountID string) error {
-	return &jira4claude.Error{Code: jira4claude.EInternal, Message: "not implemented"}
+	var reqBody map[string]any
+	if accountID == "" {
+		reqBody = map[string]any{"accountId": nil}
+	} else {
+		reqBody = map[string]any{"accountId": accountID}
+	}
+
+	jsonBody, err := json.Marshal(reqBody)
+	if err != nil {
+		return &jira4claude.Error{
+			Code:    jira4claude.EInternal,
+			Message: "failed to marshal request",
+			Inner:   err,
+		}
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPut, "/rest/api/3/issue/"+key+"/assignee", bytes.NewReader(jsonBody))
+	if err != nil {
+		return &jira4claude.Error{
+			Code:    jira4claude.EInternal,
+			Message: "failed to create request",
+			Inner:   err,
+		}
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := s.client.Do(req)
+	if err != nil {
+		return &jira4claude.Error{
+			Code:    jira4claude.EInternal,
+			Message: "request failed",
+			Inner:   err,
+		}
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusNoContent {
+		respBody, _ := io.ReadAll(resp.Body)
+		if apiErr := ParseErrorResponse(resp.StatusCode, respBody); apiErr != nil {
+			return apiErr
+		}
+		return &jira4claude.Error{
+			Code:    statusCodeToErrorCode(resp.StatusCode),
+			Message: fmt.Sprintf("unexpected status: %d", resp.StatusCode),
+		}
+	}
+
+	return nil
 }
 
 // issueResponse represents the JSON structure returned by Jira API for an issue.
@@ -453,4 +657,45 @@ func parseIssueResponse(body []byte) (*jira4claude.Issue, error) {
 // parseJiraTime parses a Jira timestamp string.
 func parseJiraTime(s string) (time.Time, error) {
 	return time.Parse("2006-01-02T15:04:05.000-0700", s)
+}
+
+// commentResponse represents the JSON structure returned by Jira API for a comment.
+type commentResponse struct {
+	ID      string         `json:"id"`
+	Author  *userResponse  `json:"author"`
+	Body    map[string]any `json:"body"`
+	Created string         `json:"created"`
+}
+
+// parseCommentResponse parses the JSON response from Jira into a domain Comment.
+func parseCommentResponse(body []byte) (*jira4claude.Comment, error) {
+	var resp commentResponse
+	if err := json.Unmarshal(body, &resp); err != nil {
+		return nil, &jira4claude.Error{
+			Code:    jira4claude.EInternal,
+			Message: "failed to parse response",
+			Inner:   err,
+		}
+	}
+
+	comment := &jira4claude.Comment{
+		ID:   resp.ID,
+		Body: ADFToText(resp.Body),
+	}
+
+	if resp.Author != nil {
+		comment.Author = &jira4claude.User{
+			AccountID:   resp.Author.AccountID,
+			DisplayName: resp.Author.DisplayName,
+			Email:       resp.Author.EmailAddress,
+		}
+	}
+
+	if resp.Created != "" {
+		if t, err := parseJiraTime(resp.Created); err == nil {
+			comment.Created = t
+		}
+	}
+
+	return comment, nil
 }
