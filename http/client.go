@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/fwojciec/jira4claude"
 	"github.com/jdx/go-netrc"
 )
 
@@ -125,11 +126,16 @@ type ErrorResponse struct {
 }
 
 // ParseErrorResponse parses a Jira API error response body and returns
-// a descriptive error. Returns nil if no errors are present.
-func ParseErrorResponse(body []byte) error {
+// a domain error with the appropriate error code based on the HTTP status.
+// Returns nil if no errors are present in the response body.
+func ParseErrorResponse(statusCode int, body []byte) error {
 	var errResp ErrorResponse
 	if err := json.Unmarshal(body, &errResp); err != nil {
-		return fmt.Errorf("failed to parse error response: %w", err)
+		return &jira4claude.Error{
+			Code:    statusCodeToErrorCode(statusCode),
+			Message: "failed to parse error response",
+			Inner:   err,
+		}
 	}
 
 	// Collect all error messages
@@ -143,5 +149,28 @@ func ParseErrorResponse(body []byte) error {
 		return nil
 	}
 
-	return fmt.Errorf("jira: %s", strings.Join(messages, "; "))
+	return &jira4claude.Error{
+		Code:    statusCodeToErrorCode(statusCode),
+		Message: strings.Join(messages, "; "),
+	}
+}
+
+// statusCodeToErrorCode maps HTTP status codes to domain error codes.
+func statusCodeToErrorCode(statusCode int) string {
+	switch statusCode {
+	case http.StatusBadRequest:
+		return jira4claude.EValidation
+	case http.StatusUnauthorized:
+		return jira4claude.EUnauthorized
+	case http.StatusForbidden:
+		return jira4claude.EForbidden
+	case http.StatusNotFound:
+		return jira4claude.ENotFound
+	case http.StatusConflict:
+		return jira4claude.EConflict
+	case http.StatusTooManyRequests:
+		return jira4claude.ERateLimit
+	default:
+		return jira4claude.EInternal
+	}
 }

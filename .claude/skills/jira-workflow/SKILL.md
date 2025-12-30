@@ -71,19 +71,50 @@ For multi-paragraph descriptions, add multiple paragraph blocks to the content a
 
 ### Link Tasks (Blocks Relationship)
 
-Create a "blocks" dependency between tasks:
+**CRITICAL: Get the direction right or the dependency graph will be wrong!**
+
+The Jira API uses confusing terminology. Here's what the fields mean:
+
+| Field | Meaning | Role |
+|-------|---------|------|
+| `outwardIssue` | The **BLOCKER** | Must be done FIRST |
+| `inwardIssue` | The **BLOCKED** | Cannot start until blocker is done |
+
+**Example:** If J4C-7 (error handling) must be done before J4C-8 (config loading):
 
 ```bash
 curl -s -n -X POST -H "Content-Type: application/json" \
   'https://fwojciec.atlassian.net/rest/api/3/issueLink' \
   -d '{
     "type": {"name": "Blocks"},
-    "inwardIssue": {"key": "J4C-2"},
-    "outwardIssue": {"key": "J4C-1"}
+    "outwardIssue": {"key": "J4C-7"},
+    "inwardIssue": {"key": "J4C-8"}
   }'
 ```
 
-This creates: J4C-1 blocks J4C-2 (J4C-2 is blocked by J4C-1).
+This creates: **J4C-7 blocks J4C-8** (J4C-8 depends on J4C-7).
+
+**Verification:** After creating links, always verify with:
+
+```bash
+curl -s -n 'https://fwojciec.atlassian.net/rest/api/3/issue/J4C-8?fields=issuelinks' | \
+  jq '.fields.issuelinks[] | {type: .type.name, blocks: .outwardIssue.key, blockedBy: .inwardIssue.key}'
+```
+
+You should see `"blockedBy": "J4C-7"` for J4C-8.
+
+### Delete Link
+
+If you created a link with wrong direction, delete and recreate:
+
+```bash
+# First find the link ID
+curl -s -n 'https://fwojciec.atlassian.net/rest/api/3/issue/J4C-8?fields=issuelinks' | \
+  jq '.fields.issuelinks[] | {id, type: .type.name, outward: .outwardIssue.key, inward: .inwardIssue.key}'
+
+# Then delete by ID
+curl -s -n -X DELETE 'https://fwojciec.atlassian.net/rest/api/3/issueLink/LINK_ID'
+```
 
 ### Transition Task
 
@@ -120,6 +151,27 @@ curl -s -n -X POST -H "Content-Type: application/json" \
     }
   }'
 ```
+
+## Planning Dependencies
+
+Before creating tasks with dependencies, draw the dependency graph first:
+
+```
+BLOCKER → BLOCKED (arrow points to what depends on it)
+
+Example for jira4claude:
+  J4C-6 (domain types) ──→ J4C-13 (mocks)
+  J4C-7 (error handling) ──→ J4C-8 (config)
+  J4C-9 (HTTP client) ──→ J4C-11 (IssueService CRUD)
+  J4C-10 (ADF helper) ──→ J4C-11
+  J4C-11 ──→ J4C-12 (other ops)
+  J4C-11, J4C-12, J4C-13 ──→ J4C-14 (CLI)
+```
+
+**Rules:**
+1. Foundation tasks (no dependencies) should be done first
+2. Only link immediate dependencies, not transitive ones
+3. After creating links, run "Show Ready Tasks" to verify correct tasks are unblocked
 
 ## Task Templates
 
