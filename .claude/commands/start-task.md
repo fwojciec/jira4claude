@@ -1,20 +1,12 @@
 ---
-description: Pick a ready beads task, create branch, and implement with behavioral TDD
-allowed-tools: Bash(bd:*), Bash(git:*), Bash(make:*)
+description: Pick a Jira task, create branch, and implement with behavioral TDD
+allowed-tools: Bash(curl:*), Bash(git:*), Bash(make:*), Bash(jq:*)
 ---
 
 ## Current State
 
 Branch: !`git branch --show-current`
 Uncommitted changes: !`git status --porcelain`
-
-## In-Progress Work
-
-!`bd list --status in_progress 2>/dev/null || echo "None"`
-
-## Task Argument
-
-Provided task ID: $1
 
 ## Your Workflow
 
@@ -26,38 +18,32 @@ Before proceeding, verify:
 
 If any checks fail, stop and resolve with the user before continuing.
 
-### 2. Check for Abandoned Work
-
-If there are issues with status `in_progress`:
-- Show them to the user
-- Ask: "Continue with existing in-progress work, or start fresh task?"
-- If continuing: skip to step 4 with existing branch
-- If starting fresh: ask if abandoned work should be reset to `open`
-
-### 3. Task Selection
+### 2. Task Selection
 
 **If a task ID was provided via argument ($1)**:
-- Verify the task exists: run `bd show <task-id>`
-- Skip to step 4 (Branch Setup)
+- Fetch the task from Jira: `curl -s -n https://fwojciec.atlassian.net/rest/api/3/issue/$1 | jq '{key, summary: .fields.summary, status: .fields.status.name}'`
+- Skip to step 3 (Branch Setup)
 
 **If no task ID was provided**:
-- Run `bd ready` to show available tasks
-- Present the ready tasks to the user with a brief recommendation based on:
-  - Task complexity and dependencies
-  - Logical ordering (foundational work before dependent work)
+- List open tasks: `curl -s -n 'https://fwojciec.atlassian.net/rest/api/3/search?jql=project=J4C+AND+status!=Done&fields=key,summary,status' | jq '.issues[] | {key, summary: .fields.summary, status: .fields.status.name}'`
+- Present the tasks to the user
 - Use the AskUserQuestion tool to let the user choose which task to work on
 
-### 4. Branch Setup
+### 3. Branch Setup
 
-Once you have a task ID (either from argument or user selection):
-1. Create branch first: `git checkout -b <task-id>` (e.g., `git checkout -b jira4claude-abc`)
-2. Mark the task as in-progress: `bd update <task-id> -s in_progress`
-3. Sync beads to remote: `bd sync`
-4. Show full task details: `bd show <task-id>`
+Once you have a task ID:
+1. Create branch: `git checkout -b <task-id>` (e.g., `git checkout -b J4C-42`)
+2. Transition to "In Progress" (if workflow supports it):
+   ```bash
+   curl -s -n -X POST -H "Content-Type: application/json" \
+     https://fwojciec.atlassian.net/rest/api/3/issue/<task-id>/transitions \
+     -d '{"transition": {"id": "21"}}'
+   ```
+3. Show task details
 
-**Note**: Code commits happen on the feature branch. Beads state syncs to the `beads-sync` branch independently.
+**Note**: Transition IDs vary by workflow. Use `curl -s -n https://fwojciec.atlassian.net/rest/api/3/issue/<id>/transitions | jq '.'` to find available transitions.
 
-### 5. Implementation
+### 4. Implementation
 
 #### When to Use TDD
 
@@ -92,28 +78,16 @@ If the task involves any of these:
 
 Then **ALSO** use the `go-standard-package-layout` skill for guidance.
 
-### 6. Progress Checkpointing
-
-At major milestones during implementation, update beads notes:
-```bash
-bd update <task-id> --notes "COMPLETED: [what's done]
-IN_PROGRESS: [current work]
-NEXT: [immediate next step]
-KEY_DECISIONS: [any important choices made]"
-```
-
-Run `bd sync` periodically to push beads state to the sync branch.
-
-### 7. Validation
+### 5. Validation
 
 After implementation is complete:
 1. Run `make validate`
 2. Address any issues that arise (linting, test failures, etc.)
 3. Iterate until validation passes
 
-Only proceed to step 8 when `make validate` passes cleanly.
+Only proceed to step 6 when `make validate` passes cleanly.
 
-### 8. Self-Review
+### 6. Self-Review
 
 Before finishing, get an independent perspective on the implementation:
 
@@ -123,7 +97,7 @@ Launch a code review subagent:
 Use `superpowers:receiving-code-review` to evaluate each suggestion on merit. Accept what improves correctness or structural discipline. Push back on stylistic preferences.
 
 **If changes are needed:**
-- Implement fixes (return to step 5 if substantial)
+- Implement fixes (return to step 4 if substantial)
 - Run `make validate` again
 - Repeat self-review if changes were significant
 

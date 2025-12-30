@@ -1,6 +1,6 @@
 ---
-description: Validate, close beads issue, and create PR for current task
-allowed-tools: Bash(bd:*), Bash(git:*), Bash(gh:*), Bash(make:*)
+description: Validate, transition Jira issue to Done, and create PR for current task
+allowed-tools: Bash(curl:*), Bash(git:*), Bash(gh:*), Bash(make:*), Bash(jq:*)
 ---
 
 ## Current State
@@ -26,14 +26,26 @@ Ensure all implementation work is committed:
 - [ ] No temporary files or debug artifacts
 - [ ] All commits have meaningful messages
 
-### 3. Close Beads Issue
+### 3. Transition Jira Issue
 
-Extract the task ID from the current branch name (format: `jira4claude-XXX`).
+Extract the task ID from the current branch name (format: `J4C-XXX`).
 
-1. Close the issue: `bd update <task-id> -s closed`
-2. Sync beads to remote: `bd sync`
+1. Get available transitions:
+   ```bash
+   curl -s -n https://fwojciec.atlassian.net/rest/api/3/issue/<task-id>/transitions | jq '.transitions[] | {id, name}'
+   ```
 
-This syncs beads state to the `beads-sync` branch independently of the PR.
+2. Transition to "Done":
+   ```bash
+   curl -s -n -X POST -H "Content-Type: application/json" \
+     https://fwojciec.atlassian.net/rest/api/3/issue/<task-id>/transitions \
+     -d '{"transition": {"id": "<done-transition-id>"}}'
+   ```
+
+3. Verify status:
+   ```bash
+   curl -s -n https://fwojciec.atlassian.net/rest/api/3/issue/<task-id> | jq '{key, status: .fields.status.name}'
+   ```
 
 ### 4. Verify Clean State
 
@@ -51,6 +63,9 @@ gh pr create --title "<title>" --body "$(cat <<'EOF'
 ## Summary
 <2-3 bullets of what changed>
 
+## Jira
+https://fwojciec.atlassian.net/browse/<task-id>
+
 ## Test Plan
 - [ ] <verification steps>
 
@@ -65,6 +80,6 @@ After PR creation:
 - [ ] Branch is pushed to origin
 - [ ] PR is created and URL is shared with user
 - [ ] `git status` is completely clean
-- [ ] Beads issue shows as `closed` in `bd show <task-id>`
+- [ ] Jira issue shows as "Done"
 
 Report the PR URL to the user.

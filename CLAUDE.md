@@ -21,8 +21,8 @@ Use slash commands for standard development workflows:
 
 | Command | Purpose |
 |---------|---------|
-| `/start-task` | Pick a ready task, create branch, implement with TDD |
-| `/finish-task` | Validate, close beads issue, create PR |
+| `/start-task` | Pick a Jira task, create branch, implement with TDD |
+| `/finish-task` | Validate, transition Jira issue to Done, create PR |
 | `/address-pr-comments` | Fetch, evaluate, and respond to PR feedback |
 
 **Quick reference**:
@@ -63,18 +63,12 @@ When uncertain about where code belongs, use the `go-standard-package-layout` sk
 
 ## Writing Issues
 
-Issues should be easy to complete. Always include a description when creating:
+Issues should be easy to complete. Create via Jira API:
 
 ```bash
-bd create "Title" -p P2 -t task --description "## Problem
-[What needs to be fixed/added]
-
-## Entrypoints
-- [File or function where work starts]
-
-## Validation
-- [ ] Specific testable outcome
-- [ ] make validate passes"
+curl -s -n -X POST -H "Content-Type: application/json" \
+  https://fwojciec.atlassian.net/rest/api/3/issue \
+  -d '{"fields": {"project": {"key": "J4C"}, "summary": "Title", "issuetype": {"id": "10005"}, "description": {"type": "doc", "version": 1, "content": [{"type": "paragraph", "content": [{"type": "text", "text": "Description here"}]}]}}}'
 ```
 
 **Principles**:
