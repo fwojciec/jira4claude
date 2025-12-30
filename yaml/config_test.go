@@ -163,7 +163,6 @@ project: TEST
 
 		require.NoError(t, err)
 		assert.Equal(t, localPath, path)
-		assert.NotEqual(t, globalPath, path)
 	})
 }
 

@@ -127,10 +127,12 @@ func Init(dir, server, project string) (*InitResult, error) {
 		}
 	}
 
-	// Check if already in .gitignore
-	if strings.Contains(string(gitignoreContent), configFileName) {
-		result.GitignoreExists = true
-		return result, nil
+	// Check if already in .gitignore (exact match on its own line)
+	for _, line := range strings.Split(string(gitignoreContent), "\n") {
+		if strings.TrimSpace(line) == configFileName {
+			result.GitignoreExists = true
+			return result, nil
+		}
 	}
 
 	// Append to .gitignore
