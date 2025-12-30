@@ -21,7 +21,7 @@ type Transition struct {
 // Comment represents a comment on an issue.
 type Comment struct {
 	ID      string
-	Author  User
+	Author  *User
 	Body    string
 	Created time.Time
 }
@@ -51,6 +51,7 @@ type IssueFilter struct {
 	Assignee string
 	Labels   []string // Issues must have ALL specified labels
 	JQL      string   // Raw JQL query; overrides other fields if set
+	Limit    int      // Maximum number of issues to return
 }
 
 // IssueUpdate specifies fields to update on an issue.
@@ -67,8 +68,9 @@ type IssueUpdate struct {
 
 // IssueService defines operations for managing Jira issues.
 type IssueService interface {
-	// Create creates a new issue and returns it with Key populated.
-	Create(ctx context.Context, projectKey, issueType, summary, description string) (*Issue, error)
+	// Create creates a new issue and returns it with Key and other
+	// server-assigned fields populated.
+	Create(ctx context.Context, issue *Issue) (*Issue, error)
 
 	// Get retrieves an issue by its key.
 	Get(ctx context.Context, key string) (*Issue, error)
@@ -76,14 +78,17 @@ type IssueService interface {
 	// List returns issues matching the filter criteria.
 	List(ctx context.Context, filter IssueFilter) ([]*Issue, error)
 
-	// Update modifies an existing issue.
-	Update(ctx context.Context, key string, update IssueUpdate) error
+	// Update modifies an existing issue and returns the updated issue.
+	Update(ctx context.Context, key string, update IssueUpdate) (*Issue, error)
+
+	// Delete deletes an issue by its key.
+	Delete(ctx context.Context, key string) error
 
 	// AddComment adds a comment to an issue.
 	AddComment(ctx context.Context, key, body string) (*Comment, error)
 
 	// Transitions returns available workflow transitions for an issue.
-	Transitions(ctx context.Context, key string) ([]Transition, error)
+	Transitions(ctx context.Context, key string) ([]*Transition, error)
 
 	// Transition moves an issue to a new status.
 	Transition(ctx context.Context, key, transitionID string) error
