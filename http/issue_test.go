@@ -470,6 +470,119 @@ func TestIssueService_Update(t *testing.T) {
 	})
 }
 
+func TestIssueService_AddComment(t *testing.T) {
+	t.Parallel()
+
+	t.Run("adds comment and returns it", func(t *testing.T) {
+		t.Parallel()
+
+		var receivedRequest map[string]any
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Method != http.MethodPost || r.URL.Path != "/rest/api/3/issue/TEST-1/comment" {
+				w.WriteHeader(http.StatusNotFound)
+				return
+			}
+
+			_ = json.NewDecoder(r.Body).Decode(&receivedRequest)
+
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusCreated)
+			_, _ = w.Write([]byte(`{
+				"id": "10001",
+				"author": {
+					"accountId": "123",
+					"displayName": "John Doe",
+					"emailAddress": "john@example.com"
+				},
+				"body": {
+					"type": "doc",
+					"version": 1,
+					"content": [{"type": "paragraph", "content": [{"type": "text", "text": "This is a comment"}]}]
+				},
+				"created": "2024-01-15T10:30:00.000+0000"
+			}`))
+		}))
+		defer server.Close()
+
+		client := newTestClient(t, server.URL, "user@example.com", "api-token")
+		svc := jirahttp.NewIssueService(client)
+
+		comment, err := svc.AddComment(context.Background(), "TEST-1", "This is a comment")
+
+		require.NoError(t, err)
+		assert.Equal(t, "10001", comment.ID)
+		assert.Equal(t, "123", comment.Author.AccountID)
+		assert.Equal(t, "John Doe", comment.Author.DisplayName)
+		assert.Equal(t, "This is a comment", comment.Body)
+		assert.False(t, comment.Created.IsZero())
+
+		// Verify request body is in ADF format
+		body := receivedRequest["body"].(map[string]any)
+		assert.Equal(t, "doc", body["type"])
+	})
+
+	t.Run("returns error when issue not found", func(t *testing.T) {
+		t.Parallel()
+
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = w.Write([]byte(`{"errorMessages": ["Issue does not exist"], "errors": {}}`))
+		}))
+		defer server.Close()
+
+		client := newTestClient(t, server.URL, "user@example.com", "api-token")
+		svc := jirahttp.NewIssueService(client)
+
+		_, err := svc.AddComment(context.Background(), "NOTFOUND-1", "Comment text")
+
+		require.Error(t, err)
+		assert.Equal(t, jira4claude.ENotFound, jira4claude.ErrorCode(err))
+	})
+
+	t.Run("handles multiline comment text", func(t *testing.T) {
+		t.Parallel()
+
+		var receivedRequest map[string]any
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			_ = json.NewDecoder(r.Body).Decode(&receivedRequest)
+
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusCreated)
+			_, _ = w.Write([]byte(`{
+				"id": "10002",
+				"body": {
+					"type": "doc",
+					"version": 1,
+					"content": [
+						{"type": "paragraph", "content": [{"type": "text", "text": "Line 1\nLine 2\nLine 3"}]}
+					]
+				},
+				"created": "2024-01-15T10:30:00.000+0000"
+			}`))
+		}))
+		defer server.Close()
+
+		client := newTestClient(t, server.URL, "user@example.com", "api-token")
+		svc := jirahttp.NewIssueService(client)
+
+		comment, err := svc.AddComment(context.Background(), "TEST-1", "Line 1\nLine 2\nLine 3")
+
+		require.NoError(t, err)
+		assert.Equal(t, "10002", comment.ID)
+		assert.Equal(t, "Line 1\nLine 2\nLine 3", comment.Body)
+
+		// Verify request body has ADF format
+		body := receivedRequest["body"].(map[string]any)
+		assert.Equal(t, "doc", body["type"])
+		content := body["content"].([]any)
+		require.Len(t, content, 1)
+		paragraph := content[0].(map[string]any)
+		paragraphContent := paragraph["content"].([]any)
+		textNode := paragraphContent[0].(map[string]any)
+		assert.Equal(t, "Line 1\nLine 2\nLine 3", textNode["text"])
+	})
+}
+
 func TestIssueService_Delete(t *testing.T) {
 	t.Parallel()
 
@@ -509,6 +622,218 @@ func TestIssueService_Delete(t *testing.T) {
 		svc := jirahttp.NewIssueService(client)
 
 		err := svc.Delete(context.Background(), "NOTFOUND-1")
+
+		require.Error(t, err)
+		assert.Equal(t, jira4claude.ENotFound, jira4claude.ErrorCode(err))
+	})
+}
+
+func TestIssueService_Transitions(t *testing.T) {
+	t.Parallel()
+
+	t.Run("returns available transitions", func(t *testing.T) {
+		t.Parallel()
+
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Method != http.MethodGet || r.URL.Path != "/rest/api/3/issue/TEST-1/transitions" {
+				w.WriteHeader(http.StatusNotFound)
+				return
+			}
+
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{
+				"transitions": [
+					{"id": "11", "name": "To Do"},
+					{"id": "21", "name": "In Progress"},
+					{"id": "31", "name": "Done"}
+				]
+			}`))
+		}))
+		defer server.Close()
+
+		client := newTestClient(t, server.URL, "user@example.com", "api-token")
+		svc := jirahttp.NewIssueService(client)
+
+		transitions, err := svc.Transitions(context.Background(), "TEST-1")
+
+		require.NoError(t, err)
+		require.Len(t, transitions, 3)
+		assert.Equal(t, "11", transitions[0].ID)
+		assert.Equal(t, "To Do", transitions[0].Name)
+		assert.Equal(t, "21", transitions[1].ID)
+		assert.Equal(t, "In Progress", transitions[1].Name)
+		assert.Equal(t, "31", transitions[2].ID)
+		assert.Equal(t, "Done", transitions[2].Name)
+	})
+
+	t.Run("returns error when issue not found", func(t *testing.T) {
+		t.Parallel()
+
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = w.Write([]byte(`{"errorMessages": ["Issue does not exist"], "errors": {}}`))
+		}))
+		defer server.Close()
+
+		client := newTestClient(t, server.URL, "user@example.com", "api-token")
+		svc := jirahttp.NewIssueService(client)
+
+		_, err := svc.Transitions(context.Background(), "NOTFOUND-1")
+
+		require.Error(t, err)
+		assert.Equal(t, jira4claude.ENotFound, jira4claude.ErrorCode(err))
+	})
+
+	t.Run("returns empty list when no transitions available", func(t *testing.T) {
+		t.Parallel()
+
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"transitions": []}`))
+		}))
+		defer server.Close()
+
+		client := newTestClient(t, server.URL, "user@example.com", "api-token")
+		svc := jirahttp.NewIssueService(client)
+
+		transitions, err := svc.Transitions(context.Background(), "TEST-1")
+
+		require.NoError(t, err)
+		assert.Empty(t, transitions)
+	})
+}
+
+func TestIssueService_Transition(t *testing.T) {
+	t.Parallel()
+
+	t.Run("transitions issue to new status", func(t *testing.T) {
+		t.Parallel()
+
+		var receivedRequest map[string]any
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Method != http.MethodPost || r.URL.Path != "/rest/api/3/issue/TEST-1/transitions" {
+				w.WriteHeader(http.StatusNotFound)
+				return
+			}
+
+			_ = json.NewDecoder(r.Body).Decode(&receivedRequest)
+			w.WriteHeader(http.StatusNoContent)
+		}))
+		defer server.Close()
+
+		client := newTestClient(t, server.URL, "user@example.com", "api-token")
+		svc := jirahttp.NewIssueService(client)
+
+		err := svc.Transition(context.Background(), "TEST-1", "21")
+
+		require.NoError(t, err)
+
+		// Verify request structure
+		transition := receivedRequest["transition"].(map[string]any)
+		assert.Equal(t, "21", transition["id"])
+	})
+
+	t.Run("returns error when issue not found", func(t *testing.T) {
+		t.Parallel()
+
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = w.Write([]byte(`{"errorMessages": ["Issue does not exist"], "errors": {}}`))
+		}))
+		defer server.Close()
+
+		client := newTestClient(t, server.URL, "user@example.com", "api-token")
+		svc := jirahttp.NewIssueService(client)
+
+		err := svc.Transition(context.Background(), "NOTFOUND-1", "21")
+
+		require.Error(t, err)
+		assert.Equal(t, jira4claude.ENotFound, jira4claude.ErrorCode(err))
+	})
+
+	t.Run("returns error for invalid transition", func(t *testing.T) {
+		t.Parallel()
+
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"errorMessages": ["Transition is not valid for this issue"], "errors": {}}`))
+		}))
+		defer server.Close()
+
+		client := newTestClient(t, server.URL, "user@example.com", "api-token")
+		svc := jirahttp.NewIssueService(client)
+
+		err := svc.Transition(context.Background(), "TEST-1", "999")
+
+		require.Error(t, err)
+		assert.Equal(t, jira4claude.EValidation, jira4claude.ErrorCode(err))
+	})
+}
+
+func TestIssueService_Assign(t *testing.T) {
+	t.Parallel()
+
+	t.Run("assigns issue to user", func(t *testing.T) {
+		t.Parallel()
+
+		var receivedRequest map[string]any
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Method != http.MethodPut || r.URL.Path != "/rest/api/3/issue/TEST-1/assignee" {
+				w.WriteHeader(http.StatusNotFound)
+				return
+			}
+
+			_ = json.NewDecoder(r.Body).Decode(&receivedRequest)
+			w.WriteHeader(http.StatusNoContent)
+		}))
+		defer server.Close()
+
+		client := newTestClient(t, server.URL, "user@example.com", "api-token")
+		svc := jirahttp.NewIssueService(client)
+
+		err := svc.Assign(context.Background(), "TEST-1", "abc123")
+
+		require.NoError(t, err)
+		assert.Equal(t, "abc123", receivedRequest["accountId"])
+	})
+
+	t.Run("unassigns issue when accountID is empty", func(t *testing.T) {
+		t.Parallel()
+
+		var receivedRequest map[string]any
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Method != http.MethodPut || r.URL.Path != "/rest/api/3/issue/TEST-1/assignee" {
+				w.WriteHeader(http.StatusNotFound)
+				return
+			}
+
+			_ = json.NewDecoder(r.Body).Decode(&receivedRequest)
+			w.WriteHeader(http.StatusNoContent)
+		}))
+		defer server.Close()
+
+		client := newTestClient(t, server.URL, "user@example.com", "api-token")
+		svc := jirahttp.NewIssueService(client)
+
+		err := svc.Assign(context.Background(), "TEST-1", "")
+
+		require.NoError(t, err)
+		assert.Nil(t, receivedRequest["accountId"])
+	})
+
+	t.Run("returns error when issue not found", func(t *testing.T) {
+		t.Parallel()
+
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = w.Write([]byte(`{"errorMessages": ["Issue does not exist"], "errors": {}}`))
+		}))
+		defer server.Close()
+
+		client := newTestClient(t, server.URL, "user@example.com", "api-token")
+		svc := jirahttp.NewIssueService(client)
+
+		err := svc.Assign(context.Background(), "NOTFOUND-1", "abc123")
 
 		require.Error(t, err)
 		assert.Equal(t, jira4claude.ENotFound, jira4claude.ErrorCode(err))
