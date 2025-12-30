@@ -100,3 +100,153 @@ func writeConfigFile(t *testing.T, content string) string {
 	require.NoError(t, os.WriteFile(path, []byte(content), 0o644))
 	return path
 }
+
+func TestDiscoverConfig(t *testing.T) {
+	t.Parallel()
+
+	validConfig := `server: https://example.atlassian.net
+project: TEST
+`
+
+	t.Run("returns local config when it exists", func(t *testing.T) {
+		t.Parallel()
+
+		workDir := t.TempDir()
+		homeDir := t.TempDir()
+		localPath := filepath.Join(workDir, ".jira4claude.yaml")
+		require.NoError(t, os.WriteFile(localPath, []byte(validConfig), 0o644))
+
+		path, err := yaml.DiscoverConfig(workDir, homeDir)
+
+		require.NoError(t, err)
+		assert.Equal(t, localPath, path)
+	})
+
+	t.Run("returns global config when local does not exist", func(t *testing.T) {
+		t.Parallel()
+
+		workDir := t.TempDir()
+		homeDir := t.TempDir()
+		globalPath := filepath.Join(homeDir, ".jira4claude.yaml")
+		require.NoError(t, os.WriteFile(globalPath, []byte(validConfig), 0o644))
+
+		path, err := yaml.DiscoverConfig(workDir, homeDir)
+
+		require.NoError(t, err)
+		assert.Equal(t, globalPath, path)
+	})
+
+	t.Run("returns error when no config exists", func(t *testing.T) {
+		t.Parallel()
+
+		workDir := t.TempDir()
+		homeDir := t.TempDir()
+
+		_, err := yaml.DiscoverConfig(workDir, homeDir)
+
+		require.Error(t, err)
+		assert.Equal(t, jira4claude.ENotFound, jira4claude.ErrorCode(err))
+		assert.Contains(t, err.Error(), ".jira4claude.yaml")
+	})
+
+	t.Run("prefers local config over global when both exist", func(t *testing.T) {
+		t.Parallel()
+
+		workDir := t.TempDir()
+		homeDir := t.TempDir()
+		localPath := filepath.Join(workDir, ".jira4claude.yaml")
+		globalPath := filepath.Join(homeDir, ".jira4claude.yaml")
+		require.NoError(t, os.WriteFile(localPath, []byte(validConfig), 0o644))
+		require.NoError(t, os.WriteFile(globalPath, []byte(validConfig), 0o644))
+
+		path, err := yaml.DiscoverConfig(workDir, homeDir)
+
+		require.NoError(t, err)
+		assert.Equal(t, localPath, path)
+		assert.NotEqual(t, globalPath, path)
+	})
+}
+
+func TestInit(t *testing.T) {
+	t.Parallel()
+
+	t.Run("creates config file with correct content", func(t *testing.T) {
+		t.Parallel()
+
+		dir := t.TempDir()
+
+		result, err := yaml.Init(dir, "https://example.atlassian.net", "TEST")
+
+		require.NoError(t, err)
+		assert.True(t, result.ConfigCreated)
+
+		// Verify file contents
+		content, err := os.ReadFile(filepath.Join(dir, ".jira4claude.yaml"))
+		require.NoError(t, err)
+		assert.Contains(t, string(content), "server: https://example.atlassian.net")
+		assert.Contains(t, string(content), "project: TEST")
+	})
+
+	t.Run("returns error if config already exists", func(t *testing.T) {
+		t.Parallel()
+
+		dir := t.TempDir()
+		configPath := filepath.Join(dir, ".jira4claude.yaml")
+		require.NoError(t, os.WriteFile(configPath, []byte("existing"), 0o644))
+
+		_, err := yaml.Init(dir, "https://example.atlassian.net", "TEST")
+
+		require.Error(t, err)
+		assert.Equal(t, jira4claude.EValidation, jira4claude.ErrorCode(err))
+		assert.Contains(t, err.Error(), "already exists")
+	})
+
+	t.Run("creates gitignore if missing", func(t *testing.T) {
+		t.Parallel()
+
+		dir := t.TempDir()
+		// No .gitignore exists in fresh temp dir
+
+		result, err := yaml.Init(dir, "https://example.atlassian.net", "TEST")
+
+		require.NoError(t, err)
+		assert.True(t, result.GitignoreAdded)
+
+		// Verify .gitignore was created with only our entry
+		content, err := os.ReadFile(filepath.Join(dir, ".gitignore"))
+		require.NoError(t, err)
+		assert.Equal(t, ".jira4claude.yaml\n", string(content))
+	})
+
+	t.Run("appends to existing gitignore", func(t *testing.T) {
+		t.Parallel()
+
+		dir := t.TempDir()
+		gitignorePath := filepath.Join(dir, ".gitignore")
+		require.NoError(t, os.WriteFile(gitignorePath, []byte("node_modules/\n"), 0o644))
+
+		result, err := yaml.Init(dir, "https://example.atlassian.net", "TEST")
+
+		require.NoError(t, err)
+		assert.True(t, result.GitignoreAdded)
+
+		content, err := os.ReadFile(gitignorePath)
+		require.NoError(t, err)
+		assert.Contains(t, string(content), "node_modules/")
+		assert.Contains(t, string(content), ".jira4claude.yaml")
+	})
+
+	t.Run("skips gitignore if already contains entry", func(t *testing.T) {
+		t.Parallel()
+
+		dir := t.TempDir()
+		gitignorePath := filepath.Join(dir, ".gitignore")
+		require.NoError(t, os.WriteFile(gitignorePath, []byte(".jira4claude.yaml\n"), 0o644))
+
+		result, err := yaml.Init(dir, "https://example.atlassian.net", "TEST")
+
+		require.NoError(t, err)
+		assert.False(t, result.GitignoreAdded)
+		assert.True(t, result.GitignoreExists)
+	})
+}
