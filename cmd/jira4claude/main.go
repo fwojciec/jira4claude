@@ -173,12 +173,7 @@ func (c *CreateCmd) Run(app *App) error {
 	}
 
 	if app.jsonOut {
-		return printJSON(map[string]any{
-			"key":     created.Key,
-			"project": created.Project,
-			"summary": created.Summary,
-			"url":     fmt.Sprintf("%s/browse/%s", app.config.Server, created.Key),
-		})
+		return printJSON(issueToMap(created, app.config.Server))
 	}
 
 	fmt.Printf("Created: %s\n", keyStyle.Render(created.Key))
@@ -458,10 +453,7 @@ func printIssueTable(issues []*jira4claude.Issue) {
 		if issue.Assignee != nil {
 			assignee = issue.Assignee.DisplayName
 		}
-		summary := issue.Summary
-		if len(summary) > 50 {
-			summary = summary[:47] + "..."
-		}
+		summary := truncateString(issue.Summary, 50)
 		fmt.Fprintf(w, "%s\t%s\t%s\t%s\n",
 			keyStyle.Render(issue.Key),
 			statusStyle.Render(issue.Status),
@@ -470,4 +462,14 @@ func printIssueTable(issues []*jira4claude.Issue) {
 		)
 	}
 	w.Flush()
+}
+
+// truncateString truncates a string to maxLen runes, adding "..." if truncated.
+// Uses rune-based slicing to handle multi-byte UTF-8 characters safely.
+func truncateString(s string, maxLen int) string {
+	runes := []rune(s)
+	if len(runes) <= maxLen {
+		return s
+	}
+	return string(runes[:maxLen-3]) + "..."
 }
