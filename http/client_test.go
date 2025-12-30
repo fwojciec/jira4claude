@@ -10,10 +10,10 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/fwojciec/jira4claude"
+	jirahttp "github.com/fwojciec/jira4claude/http"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	jirahttp "github.com/fwojciec/jira4claude/http"
 )
 
 func TestNewClient(t *testing.T) {
@@ -168,7 +168,7 @@ func TestParseErrorResponse(t *testing.T) {
 		t.Parallel()
 
 		body := `{"errorMessages": ["Summary is required", "Project is required"], "errors": {}}`
-		err := jirahttp.ParseErrorResponse([]byte(body))
+		err := jirahttp.ParseErrorResponse(http.StatusBadRequest, []byte(body))
 
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "Summary is required")
@@ -179,7 +179,7 @@ func TestParseErrorResponse(t *testing.T) {
 		t.Parallel()
 
 		body := `{"errorMessages": [], "errors": {"project": "Project 'XYZ' does not exist", "summary": "Field required"}}`
-		err := jirahttp.ParseErrorResponse([]byte(body))
+		err := jirahttp.ParseErrorResponse(http.StatusBadRequest, []byte(body))
 
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "Project 'XYZ' does not exist")
@@ -190,7 +190,7 @@ func TestParseErrorResponse(t *testing.T) {
 		t.Parallel()
 
 		body := `{"errorMessages": ["General error"], "errors": {"field": "Field error"}}`
-		err := jirahttp.ParseErrorResponse([]byte(body))
+		err := jirahttp.ParseErrorResponse(http.StatusBadRequest, []byte(body))
 
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "General error")
@@ -201,7 +201,7 @@ func TestParseErrorResponse(t *testing.T) {
 		t.Parallel()
 
 		body := `{"errorMessages": [], "errors": {}}`
-		err := jirahttp.ParseErrorResponse([]byte(body))
+		err := jirahttp.ParseErrorResponse(http.StatusBadRequest, []byte(body))
 
 		assert.NoError(t, err)
 	})
@@ -210,9 +210,72 @@ func TestParseErrorResponse(t *testing.T) {
 		t.Parallel()
 
 		body := `not valid json`
-		err := jirahttp.ParseErrorResponse([]byte(body))
+		err := jirahttp.ParseErrorResponse(http.StatusBadRequest, []byte(body))
 
 		assert.Error(t, err)
+	})
+
+	t.Run("maps 400 to EValidation", func(t *testing.T) {
+		t.Parallel()
+
+		body := `{"errorMessages": ["Bad request"], "errors": {}}`
+		err := jirahttp.ParseErrorResponse(http.StatusBadRequest, []byte(body))
+
+		assert.Equal(t, jira4claude.EValidation, jira4claude.ErrorCode(err))
+	})
+
+	t.Run("maps 401 to EUnauthorized", func(t *testing.T) {
+		t.Parallel()
+
+		body := `{"errorMessages": ["Not authenticated"], "errors": {}}`
+		err := jirahttp.ParseErrorResponse(http.StatusUnauthorized, []byte(body))
+
+		assert.Equal(t, jira4claude.EUnauthorized, jira4claude.ErrorCode(err))
+	})
+
+	t.Run("maps 403 to EForbidden", func(t *testing.T) {
+		t.Parallel()
+
+		body := `{"errorMessages": ["Access denied"], "errors": {}}`
+		err := jirahttp.ParseErrorResponse(http.StatusForbidden, []byte(body))
+
+		assert.Equal(t, jira4claude.EForbidden, jira4claude.ErrorCode(err))
+	})
+
+	t.Run("maps 404 to ENotFound", func(t *testing.T) {
+		t.Parallel()
+
+		body := `{"errorMessages": ["Issue not found"], "errors": {}}`
+		err := jirahttp.ParseErrorResponse(http.StatusNotFound, []byte(body))
+
+		assert.Equal(t, jira4claude.ENotFound, jira4claude.ErrorCode(err))
+	})
+
+	t.Run("maps 409 to EConflict", func(t *testing.T) {
+		t.Parallel()
+
+		body := `{"errorMessages": ["Conflict"], "errors": {}}`
+		err := jirahttp.ParseErrorResponse(http.StatusConflict, []byte(body))
+
+		assert.Equal(t, jira4claude.EConflict, jira4claude.ErrorCode(err))
+	})
+
+	t.Run("maps 429 to ERateLimit", func(t *testing.T) {
+		t.Parallel()
+
+		body := `{"errorMessages": ["Too many requests"], "errors": {}}`
+		err := jirahttp.ParseErrorResponse(http.StatusTooManyRequests, []byte(body))
+
+		assert.Equal(t, jira4claude.ERateLimit, jira4claude.ErrorCode(err))
+	})
+
+	t.Run("maps 5xx to EInternal", func(t *testing.T) {
+		t.Parallel()
+
+		body := `{"errorMessages": ["Server error"], "errors": {}}`
+		err := jirahttp.ParseErrorResponse(http.StatusInternalServerError, []byte(body))
+
+		assert.Equal(t, jira4claude.EInternal, jira4claude.ErrorCode(err))
 	})
 }
 
