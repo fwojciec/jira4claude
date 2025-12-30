@@ -55,15 +55,16 @@ func ErrorCode(err error) string {
 	return EInternal
 }
 
-// ErrorMessage returns the message from err if it is a jira4claude.Error,
-// or err.Error() for other errors. Returns empty string for nil errors.
+// ErrorMessage returns a human-readable message from err. For jira4claude.Error,
+// it uses the same fallback logic as Error() (Message → Inner → generic).
+// For other errors, returns err.Error(). Returns empty string for nil errors.
 func ErrorMessage(err error) string {
 	if err == nil {
 		return ""
 	}
 	var e *Error
 	if errors.As(err, &e) {
-		return e.Message
+		return e.Error()
 	}
 	return err.Error()
 }

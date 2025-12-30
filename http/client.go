@@ -171,9 +171,6 @@ func statusCodeToErrorCode(statusCode int) string {
 	case http.StatusTooManyRequests:
 		return jira4claude.ERateLimit
 	default:
-		if statusCode >= 500 {
-			return jira4claude.EInternal
-		}
 		return jira4claude.EInternal
 	}
 }

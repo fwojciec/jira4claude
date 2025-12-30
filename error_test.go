@@ -153,6 +153,18 @@ func TestErrorMessage(t *testing.T) {
 		assert.Equal(t, "access denied", jira4claude.ErrorMessage(wrapped))
 	})
 
+	t.Run("returns inner error message when Message is empty", func(t *testing.T) {
+		t.Parallel()
+
+		innerErr := errors.New("underlying error")
+		err := &jira4claude.Error{
+			Code:  jira4claude.EInternal,
+			Inner: innerErr,
+		}
+
+		assert.Equal(t, "underlying error", jira4claude.ErrorMessage(err))
+	})
+
 	t.Run("returns Error() for non-jira4claude errors", func(t *testing.T) {
 		t.Parallel()
 
