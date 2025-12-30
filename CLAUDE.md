@@ -30,6 +30,13 @@ Use slash commands for standard development workflows:
 make validate     # Quality gate - run before completing any task
 ```
 
+**Planning workflow** (mandatory for new work):
+1. Research the problem
+2. Use `/brainstorm` to refine into design
+3. Write design doc to `docs/plans/`
+4. Use `jira-workflow` skill to create tasks with dependencies
+5. Use `ready` command to find unblocked work
+
 ## Architecture Patterns
 
 **Ben Johnson Pattern**:
@@ -46,6 +53,14 @@ make validate     # Quality gate - run before completing any task
 When uncertain about where code belongs, use the `go-standard-package-layout` skill.
 
 ## Skills
+
+### Task Management
+
+**`jira-workflow`** - Use when:
+- Creating new tasks or subtasks
+- Checking what work is ready (unblocked)
+- Linking tasks with dependencies
+- Transitioning task status
 
 ### Architecture
 
@@ -68,7 +83,7 @@ Issues should be easy to complete. Create via Jira API:
 ```bash
 curl -s -n -X POST -H "Content-Type: application/json" \
   https://fwojciec.atlassian.net/rest/api/3/issue \
-  -d '{"fields": {"project": {"key": "J4C"}, "summary": "Title", "issuetype": {"id": "10005"}, "description": {"type": "doc", "version": 1, "content": [{"type": "paragraph", "content": [{"type": "text", "text": "Description here"}]}]}}}'
+  -d '{"fields": {"project": {"key": "J4C"}, "summary": "Title", "issuetype": {"name": "Task"}, "description": {"type": "doc", "version": 1, "content": [{"type": "paragraph", "content": [{"type": "text", "text": "Description here"}]}]}}}'
 ```
 
 **Principles**:
