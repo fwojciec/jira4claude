@@ -53,6 +53,8 @@ Project-specific skill for managing J4C tasks using jira4claude CLI.
 
 ## Text Formatting in Descriptions
 
+**Note:** The template above uses markdown (##, -, etc.) to show the STRUCTURE Claude should follow. However, Jira descriptions are plain text - markdown won't render. Use the template headings as plain text section headers.
+
 The CLI automatically converts plain text to Atlassian Document Format (ADF). Use these patterns:
 
 | Format | Input | Result |
@@ -69,7 +71,7 @@ Second paragraph here.
 With a line break.
 ```
 
-**Currently NOT supported:** Bold, italic, code blocks, lists, links, mentions. Use plain text only.
+**Currently NOT supported in Jira:** Bold, italic, code blocks, lists, links, mentions. Use plain text only.
 
 ## Commands
 
