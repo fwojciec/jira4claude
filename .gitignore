@@ -27,3 +27,4 @@ vendor/
 Thumbs.db
 
 # Local config (keep settings.local.json in repo for shared permissions)
+.claude/settings.local.json
