@@ -1,11 +1,75 @@
 ---
 name: jira-workflow
-description: Manage J4C project tasks via Jira API. Use when creating tasks, checking ready work, linking dependencies, or transitioning status.
+description: Manage J4C project tasks via Jira API. Use for ALL Jira project management tasks including creating tasks, checking ready work, linking dependencies, transitioning status, or adding comments.
 ---
 
 # Jira Workflow Skill
 
-Temporary, project-specific skill for managing J4C tasks via Jira API until jira4claude CLI is built.
+Project-specific skill for managing J4C tasks using jira4claude CLI.
+
+**This skill MUST be used for ANY Jira project management work.**
+
+**Note:** The CLI requires `--config=.jira4claude.yaml` when running from the project directory.
+
+## MANDATORY: Issue Creation Template
+
+**CRITICAL: ALL issues MUST use this template. Do not create issues without following this structure.**
+
+```markdown
+## Context
+
+[What needs to be built and why - 1-3 sentences. No implementation details here.]
+
+## Investigation Starting Points
+
+- Examine [file/class] to understand existing patterns
+- Review [reference] for similar functionality
+
+## Scope Constraints
+
+- Implement only what is specified
+- Do not add [specific exclusions]
+- [Other constraints]
+
+## Validation Requirements
+
+### Behavioral
+
+- [Specific observable behavior to verify]
+- [Another testable requirement]
+
+### Quality
+
+- All tests pass
+- No linting errors
+- Follows patterns in [reference file]
+```
+
+**Template Rules:**
+1. Context explains WHAT and WHY, never HOW
+2. Investigation points help discovery - reference specific files
+3. Scope constraints prevent over-engineering
+4. Validation requirements must be testable/observable
+
+## Text Formatting in Descriptions
+
+The CLI automatically converts plain text to Atlassian Document Format (ADF). Use these patterns:
+
+| Format | Input | Result |
+|--------|-------|--------|
+| Paragraphs | Double newlines (`\n\n`) | Separate paragraphs |
+| Line breaks | Single newlines (`\n`) | Line break within paragraph |
+| Plain text | Regular text | Preserved as-is |
+
+**Example:**
+```
+First paragraph here.
+
+Second paragraph here.
+With a line break.
+```
+
+**Currently NOT supported:** Bold, italic, code blocks, lists, links, mentions. Use plain text only.
 
 ## Commands
 
@@ -14,20 +78,26 @@ Temporary, project-specific skill for managing J4C tasks via Jira API until jira
 Show all tasks not marked Done:
 
 ```bash
-curl -s -n 'https://fwojciec.atlassian.net/rest/api/3/search/jql?jql=project%3DJ4C%20AND%20status%20NOT%20IN%20(Done)&fields=key,summary,status' | jq '.issues[] | {key, summary: .fields.summary, status: .fields.status.name}'
+./jira4claude --config=.jira4claude.yaml list --jql="status != Done"
+```
+
+For JSON output, add `--json`:
+
+```bash
+./jira4claude --config=.jira4claude.yaml list --jql="status != Done" --json
 ```
 
 ### Show Ready Tasks (Unblocked)
 
-Find tasks with no unresolved blockers. Save the jq filter to a file first (shell escaping issues with `!=`):
+Find tasks with no unresolved blockers. This requires curl (issue links not yet in CLI):
 
 ```bash
 cat > /tmp/ready_filter.jq << 'EOF'
 .issues[] |
 select(
   [.fields.issuelinks[]? |
-   select(.type.name == "Blocks" and .outwardIssue != null) |
-   select(.outwardIssue.fields.status.statusCategory.key != "done")
+   select(.type.name == "Blocks" and .inwardIssue != null) |
+   select(.inwardIssue.fields.status.statusCategory.key != "done")
   ] | length == 0
 ) |
 {key, summary: .fields.summary, status: .fields.status.name}
@@ -36,14 +106,20 @@ EOF
 curl -s -n 'https://fwojciec.atlassian.net/rest/api/3/search/jql?jql=project%3DJ4C%20AND%20status%20NOT%20IN%20(Done)&fields=key,summary,status,issuelinks' | jq -f /tmp/ready_filter.jq
 ```
 
-This filters for tasks where all blockers (outwardIssue in "Blocks" links) are Done (or have no blockers).
+This filters for tasks where all blockers (`inwardIssue` in "Blocks" links) are Done (or have no blockers).
 
 ### Show Task Details
 
 Get full details for a specific task:
 
 ```bash
-curl -s -n 'https://fwojciec.atlassian.net/rest/api/3/issue/J4C-123' | jq '{key, summary: .fields.summary, status: .fields.status.name, description: .fields.description}'
+./jira4claude --config=.jira4claude.yaml view J4C-123
+```
+
+For JSON output:
+
+```bash
+./jira4claude --config=.jira4claude.yaml view J4C-123 --json
 ```
 
 ### Create Task
@@ -51,57 +127,78 @@ curl -s -n 'https://fwojciec.atlassian.net/rest/api/3/issue/J4C-123' | jq '{key,
 Create a new task with description:
 
 ```bash
-curl -s -n -X POST -H "Content-Type: application/json" \
-  'https://fwojciec.atlassian.net/rest/api/3/issue' \
-  -d '{
-    "fields": {
-      "project": {"key": "J4C"},
-      "summary": "Task title here",
-      "issuetype": {"name": "Task"},
-      "description": {
-        "type": "doc",
-        "version": 1,
-        "content": [{"type": "paragraph", "content": [{"type": "text", "text": "Description here"}]}]
-      }
-    }
-  }'
+./jira4claude --config=.jira4claude.yaml create \
+  --summary="Task title here" \
+  --description="Description here"
 ```
 
-For multi-paragraph descriptions, add multiple paragraph blocks to the content array.
+For JSON output (returns the created issue key):
+
+```bash
+./jira4claude --config=.jira4claude.yaml create \
+  --summary="Task title here" \
+  --description="Description here" \
+  --json
+```
+
+Multi-line descriptions are supported - newlines are preserved.
 
 ### Link Tasks (Blocks Relationship)
 
 **CRITICAL: Get the direction right or the dependency graph will be wrong!**
 
-The Jira API uses confusing terminology. Here's what the fields mean:
+#### Understanding the Jira Link Model
 
-| Field | Meaning | Role |
-|-------|---------|------|
-| `outwardIssue` | The **BLOCKER** | Must be done FIRST |
-| `inwardIssue` | The **BLOCKED** | Cannot start until blocker is done |
+Think of it as a sentence: `[inwardIssue] blocks [outwardIssue]`
 
-**Example:** If J4C-7 (error handling) must be done before J4C-8 (config loading):
+```
+inwardIssue  ──blocks──>  outwardIssue
+(BLOCKER)                 (BLOCKED)
+(do first)                (do after)
+```
+
+When you view an issue's links:
+- If it has an `inwardIssue` in a Blocks link → that issue is blocking THIS one
+- If it has an `outwardIssue` in a Blocks link → THIS issue is blocking that one
+
+#### Example
+
+**Goal:** J4C-7 (error handling) must be done before J4C-8 (config loading)
+
+This means: "J4C-7 blocks J4C-8" or "J4C-8 is blocked by J4C-7"
 
 ```bash
 curl -s -n -X POST -H "Content-Type: application/json" \
   'https://fwojciec.atlassian.net/rest/api/3/issueLink' \
   -d '{
     "type": {"name": "Blocks"},
-    "outwardIssue": {"key": "J4C-7"},
-    "inwardIssue": {"key": "J4C-8"}
+    "inwardIssue": {"key": "J4C-7"},
+    "outwardIssue": {"key": "J4C-8"}
   }'
 ```
 
-This creates: **J4C-7 blocks J4C-8** (J4C-8 depends on J4C-7).
+#### Verification
 
-**Verification:** After creating links, always verify with:
+Always verify after creating links:
 
 ```bash
+# Check J4C-8 (the blocked issue)
 curl -s -n 'https://fwojciec.atlassian.net/rest/api/3/issue/J4C-8?fields=issuelinks' | \
-  jq '.fields.issuelinks[] | {type: .type.name, blocks: .outwardIssue.key, blockedBy: .inwardIssue.key}'
+  jq '.fields.issuelinks[] | {blockedBy: .inwardIssue.key}'
+# Should show: "blockedBy": "J4C-7"
+
+# Check J4C-7 (the blocker)
+curl -s -n 'https://fwojciec.atlassian.net/rest/api/3/issue/J4C-7?fields=issuelinks' | \
+  jq '.fields.issuelinks[] | {blocks: .outwardIssue.key}'
+# Should show: "blocks": "J4C-8"
 ```
 
-You should see `"blockedBy": "J4C-7"` for J4C-8.
+#### Quick Reference
+
+| You want | inwardIssue | outwardIssue |
+|----------|-------------|--------------|
+| A blocks B | A (blocker) | B (blocked) |
+| B depends on A | A (blocker) | B (blocked) |
 
 ### Delete Link
 
@@ -118,38 +215,40 @@ curl -s -n -X DELETE 'https://fwojciec.atlassian.net/rest/api/3/issueLink/LINK_I
 
 ### Transition Task
 
-First, get available transitions for the task:
+List available transitions for a task:
 
 ```bash
-curl -s -n 'https://fwojciec.atlassian.net/rest/api/3/issue/J4C-123/transitions' | jq '.transitions[] | {id, name}'
+./jira4claude --config=.jira4claude.yaml transition J4C-123 --list-only
 ```
 
-Then execute the transition:
+Execute a transition by status name:
 
 ```bash
-curl -s -n -X POST -H "Content-Type: application/json" \
-  'https://fwojciec.atlassian.net/rest/api/3/issue/J4C-123/transitions' \
-  -d '{"transition": {"id": "TRANSITION_ID"}}'
+./jira4claude --config=.jira4claude.yaml transition J4C-123 --status="Done"
 ```
 
-Common transition IDs (may vary by workflow):
-- `11` - Start Progress (To Do -> In Progress)
-- `21` - Done (In Progress -> Done)
+Or by transition ID:
+
+```bash
+./jira4claude --config=.jira4claude.yaml transition J4C-123 --transition-id="21"
+```
+
+Common transitions (may vary by workflow):
+- "Start Progress" (To Do -> In Progress)
+- "Done" (In Progress -> Done)
 
 ### Add Comment
 
 Add a comment to a task:
 
 ```bash
-curl -s -n -X POST -H "Content-Type: application/json" \
-  'https://fwojciec.atlassian.net/rest/api/3/issue/J4C-123/comment' \
-  -d '{
-    "body": {
-      "type": "doc",
-      "version": 1,
-      "content": [{"type": "paragraph", "content": [{"type": "text", "text": "Comment text here"}]}]
-    }
-  }'
+./jira4claude --config=.jira4claude.yaml comment J4C-123 --body="Comment text here"
+```
+
+For JSON output:
+
+```bash
+./jira4claude --config=.jira4claude.yaml comment J4C-123 --body="Comment text here" --json
 ```
 
 ## Planning Dependencies
@@ -173,61 +272,15 @@ Example for jira4claude:
 2. Only link immediate dependencies, not transitive ones
 3. After creating links, run "Show Ready Tasks" to verify correct tasks are unblocked
 
-## Task Templates
-
-### Issue Creation Template
-
-Use this structure when creating new issues:
-
-```markdown
-## Title
-[Imperative verb phrase - e.g., "Implement issue list command"]
-
-## Context
-[What needs to be built and why - no implementation details]
-
-## Investigation Starting Points
-- Examine [file/class] to understand existing patterns
-- Review [reference] for similar functionality
-
-## Scope Constraints
-- Implement only what is specified
-- Do not add [specific exclusions]
-- Maintain modesty - accomplish only what is specified
-
-## Validation Requirements
-
-### Behavioral
-- [Specific observable behavior to verify]
-
-### Quality
-- All tests pass
-- No linting errors
-- Follows patterns in [reference]
-```
-
-### Subtask Template
-
-For tasks that are part of a larger effort:
-
-```markdown
-## Context
-Part of J4C-X: [Parent summary]
-Depends on: J4C-Y (if applicable)
-
-[What this piece accomplishes - 1-2 sentences]
-
-## Scope
-- [What THIS task includes]
-- [What THIS task excludes]
-
-## Validation
-- [Specific test command]
-- [Observable behavior]
-```
-
 ## Notes
 
-- All commands use `-n` flag for `.netrc` authentication
-- Responses are piped through `jq` for readable JSON output
-- The Atlassian Document Format (ADF) is required for description and comment bodies
+- **CLI commands** use `./jira4claude --config=.jira4claude.yaml` - the CLI reads credentials from `.netrc`
+- **curl commands** (for linking) use `-n` flag for `.netrc` authentication
+- Add `--json` to any CLI command for JSON output
+- The CLI handles Atlassian Document Format (ADF) conversion automatically
+
+### Missing CLI Features
+
+These operations still require curl (tracked for future implementation):
+- Issue linking (Blocks relationships)
+- Ready task filtering (requires issue links)
