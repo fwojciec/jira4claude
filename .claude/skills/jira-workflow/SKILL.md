@@ -26,8 +26,8 @@ cat > /tmp/ready_filter.jq << 'EOF'
 .issues[] |
 select(
   [.fields.issuelinks[]? |
-   select(.type.name == "Blocks" and .inwardIssue != null) |
-   select(.inwardIssue.fields.status.statusCategory.key != "done")
+   select(.type.name == "Blocks" and .outwardIssue != null) |
+   select(.outwardIssue.fields.status.statusCategory.key != "done")
   ] | length == 0
 ) |
 {key, summary: .fields.summary, status: .fields.status.name}
@@ -36,7 +36,7 @@ EOF
 curl -s -n 'https://fwojciec.atlassian.net/rest/api/3/search/jql?jql=project%3DJ4C%20AND%20status%20NOT%20IN%20(Done)&fields=key,summary,status,issuelinks' | jq -f /tmp/ready_filter.jq
 ```
 
-This filters for tasks where all "is blocked by" links point to Done issues (or have no blockers).
+This filters for tasks where all blockers (outwardIssue in "Blocks" links) are Done (or have no blockers).
 
 ### Show Task Details
 
