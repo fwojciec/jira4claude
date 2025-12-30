@@ -40,6 +40,12 @@ func (s *IssueService) Create(ctx context.Context, issue *jira4claude.Issue) (*j
 	if issue.Description != "" {
 		fields["description"] = TextToADF(issue.Description)
 	}
+	if issue.Priority != "" {
+		fields["priority"] = map[string]any{"name": issue.Priority}
+	}
+	if len(issue.Labels) > 0 {
+		fields["labels"] = issue.Labels
+	}
 
 	body := map[string]any{"fields": fields}
 	jsonBody, err := json.Marshal(body)
