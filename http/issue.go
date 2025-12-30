@@ -40,6 +40,12 @@ func (s *IssueService) Create(ctx context.Context, issue *jira4claude.Issue) (*j
 	if issue.Description != "" {
 		fields["description"] = TextToADF(issue.Description)
 	}
+	if issue.Priority != "" {
+		fields["priority"] = map[string]any{"name": issue.Priority}
+	}
+	if len(issue.Labels) > 0 {
+		fields["labels"] = issue.Labels
+	}
 
 	body := map[string]any{"fields": fields}
 	jsonBody, err := json.Marshal(body)
@@ -160,7 +166,9 @@ func (s *IssueService) List(ctx context.Context, filter jira4claude.IssueFilter)
 	}
 
 	// Build request URL with query parameters
-	reqURL := "/rest/api/3/search?jql=" + url.QueryEscape(jql)
+	// The /search/jql endpoint requires explicit field selection
+	fields := "key,summary,status,issuetype,project,priority,assignee,reporter,labels,created,updated,description"
+	reqURL := "/rest/api/3/search/jql?jql=" + url.QueryEscape(jql) + "&fields=" + fields
 	if filter.Limit > 0 {
 		reqURL += "&maxResults=" + strconv.Itoa(filter.Limit)
 	}
