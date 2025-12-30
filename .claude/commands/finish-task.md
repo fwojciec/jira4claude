@@ -30,22 +30,17 @@ Ensure all implementation work is committed:
 
 Extract the task ID from the current branch name (format: `J4C-XXX`).
 
-1. Get available transitions:
+1. Transition to "Done":
    ```bash
-   curl -s -n https://fwojciec.atlassian.net/rest/api/3/issue/<task-id>/transitions | jq '.transitions[] | {id, name}'
+   ./jira4claude --config=.jira4claude.yaml transition <task-id> --status="Done"
    ```
 
-2. Transition to "Done":
+2. Verify status:
    ```bash
-   curl -s -n -X POST -H "Content-Type: application/json" \
-     https://fwojciec.atlassian.net/rest/api/3/issue/<task-id>/transitions \
-     -d '{"transition": {"id": "<done-transition-id>"}}'
+   ./jira4claude --config=.jira4claude.yaml view <task-id>
    ```
 
-3. Verify status:
-   ```bash
-   curl -s -n https://fwojciec.atlassian.net/rest/api/3/issue/<task-id> | jq '{key, status: .fields.status.name}'
-   ```
+**Note**: Use `./jira4claude --config=.jira4claude.yaml transition <task-id> --list-only` to see available transitions if needed.
 
 ### 4. Verify Clean State
 
