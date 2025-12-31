@@ -136,6 +136,16 @@ type App struct {
 	out     io.Writer
 }
 
+// NewApp creates an App for testing with injectable dependencies.
+func NewApp(config *jira4claude.Config, service jira4claude.IssueService, jsonOut bool, out io.Writer) *App {
+	return &App{
+		config:  config,
+		service: service,
+		jsonOut: jsonOut,
+		out:     out,
+	}
+}
+
 func main() {
 	var cli CLI
 	ctx := kong.Parse(&cli,
