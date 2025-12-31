@@ -156,6 +156,25 @@ golangci-lint enforces:
 - Separate test packages (`testpackage`)
 - Error checking (`errcheck`) - all errors must be handled
 
+## LSP Tools (cclsp MCP)
+
+This project has the `cclsp` MCP configured, providing Go language server integration via gopls.
+
+**Available tools:**
+
+| Tool | Use when |
+|------|----------|
+| `mcp__cclsp__find_definition` | Jump to where a symbol is defined |
+| `mcp__cclsp__find_references` | Find all usages of a function, type, or variable |
+| `mcp__cclsp__rename_symbol` | Safely rename symbols across the codebase |
+| `mcp__cclsp__get_diagnostics` | Check a file for errors, warnings, or hints |
+
+**When to use:**
+- Navigating unfamiliar code - use `find_definition` to understand what a symbol is
+- Refactoring - use `find_references` before changing a function signature
+- Renaming - use `rename_symbol` instead of manual find/replace
+- Validation - use `get_diagnostics` to check for compile errors after edits
+
 ## Reference Documentation
 
 - `.claude/commands/` - Workflow commands
