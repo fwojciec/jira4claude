@@ -120,6 +120,71 @@ func TestIssueService_Create(t *testing.T) {
 		require.Error(t, err)
 		assert.Equal(t, jira4claude.EValidation, jira4claude.ErrorCode(err))
 	})
+
+	t.Run("creates subtask with parent field", func(t *testing.T) {
+		t.Parallel()
+
+		var receivedRequest map[string]any
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			_ = json.NewDecoder(r.Body).Decode(&receivedRequest)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusCreated)
+			_, _ = w.Write([]byte(`{"key": "TEST-3"}`))
+		}))
+		defer server.Close()
+
+		client := newTestClient(t, server.URL, "user@example.com", "api-token")
+		svc := jirahttp.NewIssueService(client)
+
+		issue := &jira4claude.Issue{
+			Project: "TEST",
+			Summary: "Subtask issue",
+			Type:    "Sub-task",
+			Parent:  "TEST-1",
+		}
+
+		result, err := svc.Create(context.Background(), issue)
+
+		require.NoError(t, err)
+		assert.Equal(t, "TEST-3", result.Key)
+		assert.Equal(t, "TEST-1", result.Parent)
+
+		// Verify parent field is sent in request
+		fields := receivedRequest["fields"].(map[string]any)
+		parent := fields["parent"].(map[string]any)
+		assert.Equal(t, "TEST-1", parent["key"])
+	})
+
+	t.Run("creates issue without parent when not set", func(t *testing.T) {
+		t.Parallel()
+
+		var receivedRequest map[string]any
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			_ = json.NewDecoder(r.Body).Decode(&receivedRequest)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusCreated)
+			_, _ = w.Write([]byte(`{"key": "TEST-4"}`))
+		}))
+		defer server.Close()
+
+		client := newTestClient(t, server.URL, "user@example.com", "api-token")
+		svc := jirahttp.NewIssueService(client)
+
+		issue := &jira4claude.Issue{
+			Project: "TEST",
+			Summary: "Regular issue",
+			Type:    "Task",
+		}
+
+		_, err := svc.Create(context.Background(), issue)
+
+		require.NoError(t, err)
+
+		// Verify parent field is NOT sent in request
+		fields := receivedRequest["fields"].(map[string]any)
+		_, hasParent := fields["parent"]
+		assert.False(t, hasParent)
+	})
 }
 
 func TestIssueService_Get(t *testing.T) {
@@ -194,6 +259,74 @@ func TestIssueService_Get(t *testing.T) {
 
 		require.Error(t, err)
 		assert.Equal(t, jira4claude.ENotFound, jira4claude.ErrorCode(err))
+	})
+
+	t.Run("returns subtask with parent", func(t *testing.T) {
+		t.Parallel()
+
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Method != http.MethodGet || r.URL.Path != "/rest/api/3/issue/TEST-2" {
+				w.WriteHeader(http.StatusNotFound)
+				return
+			}
+
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{
+				"key": "TEST-2",
+				"fields": {
+					"project": {"key": "TEST"},
+					"summary": "Subtask issue",
+					"status": {"name": "To Do"},
+					"issuetype": {"name": "Sub-task"},
+					"parent": {
+						"key": "TEST-1"
+					}
+				}
+			}`))
+		}))
+		defer server.Close()
+
+		client := newTestClient(t, server.URL, "user@example.com", "api-token")
+		svc := jirahttp.NewIssueService(client)
+
+		issue, err := svc.Get(context.Background(), "TEST-2")
+
+		require.NoError(t, err)
+		assert.Equal(t, "TEST-2", issue.Key)
+		assert.Equal(t, "Sub-task", issue.Type)
+		assert.Equal(t, "TEST-1", issue.Parent)
+	})
+
+	t.Run("returns issue without parent when not a subtask", func(t *testing.T) {
+		t.Parallel()
+
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Method != http.MethodGet || r.URL.Path != "/rest/api/3/issue/TEST-3" {
+				w.WriteHeader(http.StatusNotFound)
+				return
+			}
+
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{
+				"key": "TEST-3",
+				"fields": {
+					"project": {"key": "TEST"},
+					"summary": "Regular task",
+					"status": {"name": "To Do"},
+					"issuetype": {"name": "Task"}
+				}
+			}`))
+		}))
+		defer server.Close()
+
+		client := newTestClient(t, server.URL, "user@example.com", "api-token")
+		svc := jirahttp.NewIssueService(client)
+
+		issue, err := svc.Get(context.Background(), "TEST-3")
+
+		require.NoError(t, err)
+		assert.Equal(t, "TEST-3", issue.Key)
+		assert.Empty(t, issue.Parent)
 	})
 
 	t.Run("returns issue with links", func(t *testing.T) {
@@ -401,6 +534,30 @@ func TestIssueService_List(t *testing.T) {
 		assert.Contains(t, receivedJQL, "project = \"TEST\"")
 		assert.Contains(t, receivedJQL, "labels = \"bug\"")
 		assert.Contains(t, receivedJQL, "labels = \"urgent\"")
+	})
+
+	t.Run("includes parent in JQL filter", func(t *testing.T) {
+		t.Parallel()
+
+		var receivedJQL string
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			receivedJQL = r.URL.Query().Get("jql")
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"issues": []}`))
+		}))
+		defer server.Close()
+
+		client := newTestClient(t, server.URL, "user@example.com", "api-token")
+		svc := jirahttp.NewIssueService(client)
+
+		_, err := svc.List(context.Background(), jira4claude.IssueFilter{
+			Project: "TEST",
+			Parent:  "TEST-1",
+		})
+
+		require.NoError(t, err)
+		assert.Contains(t, receivedJQL, "project = \"TEST\"")
+		assert.Contains(t, receivedJQL, "parent = \"TEST-1\"")
 	})
 }
 

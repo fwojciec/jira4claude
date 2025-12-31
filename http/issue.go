@@ -46,6 +46,9 @@ func (s *IssueService) Create(ctx context.Context, issue *jira4claude.Issue) (*j
 	if len(issue.Labels) > 0 {
 		fields["labels"] = issue.Labels
 	}
+	if issue.Parent != "" {
+		fields["parent"] = map[string]any{"key": issue.Parent}
+	}
 
 	body := map[string]any{"fields": fields}
 	jsonBody, err := json.Marshal(body)
@@ -167,7 +170,7 @@ func (s *IssueService) List(ctx context.Context, filter jira4claude.IssueFilter)
 
 	// Build request URL with query parameters
 	// The /search/jql endpoint requires explicit field selection
-	fields := "key,summary,status,issuetype,project,priority,assignee,reporter,labels,issuelinks,created,updated,description"
+	fields := "key,summary,status,issuetype,project,priority,assignee,reporter,labels,issuelinks,parent,created,updated,description"
 	reqURL := "/rest/api/3/search/jql?jql=" + url.QueryEscape(jql) + "&fields=" + fields
 	if filter.Limit > 0 {
 		reqURL += "&maxResults=" + strconv.Itoa(filter.Limit)
@@ -237,8 +240,8 @@ func (s *IssueService) List(ctx context.Context, filter jira4claude.IssueFilter)
 
 // buildJQL constructs a JQL query from IssueFilter fields.
 func buildJQL(filter jira4claude.IssueFilter) string {
-	// Pre-allocate for max possible clauses: project, status, assignee, + labels
-	clauses := make([]string, 0, 3+len(filter.Labels))
+	// Pre-allocate for max possible clauses: project, status, assignee, parent, + labels
+	clauses := make([]string, 0, 4+len(filter.Labels))
 
 	if filter.Project != "" {
 		clauses = append(clauses, fmt.Sprintf("project = %q", filter.Project))
@@ -248,6 +251,9 @@ func buildJQL(filter jira4claude.IssueFilter) string {
 	}
 	if filter.Assignee != "" {
 		clauses = append(clauses, fmt.Sprintf("assignee = %q", filter.Assignee))
+	}
+	if filter.Parent != "" {
+		clauses = append(clauses, fmt.Sprintf("parent = %q", filter.Parent))
 	}
 	for _, label := range filter.Labels {
 		clauses = append(clauses, fmt.Sprintf("labels = %q", label))
@@ -599,6 +605,7 @@ type issueResponse struct {
 		Reporter    *userResponse         `json:"reporter"`
 		Labels      []string              `json:"labels"`
 		IssueLinks  []issueLinkResponse   `json:"issuelinks"`
+		Parent      *struct{ Key string } `json:"parent"`
 		Created     string                `json:"created"`
 		Updated     string                `json:"updated"`
 	} `json:"fields"`
@@ -652,6 +659,10 @@ func parseIssueResponse(body []byte) (*jira4claude.Issue, error) {
 		Type:        resp.Fields.IssueType.Name,
 		Priority:    resp.Fields.Priority.Name,
 		Labels:      resp.Fields.Labels,
+	}
+
+	if resp.Fields.Parent != nil {
+		issue.Parent = resp.Fields.Parent.Key
 	}
 
 	if resp.Fields.Assignee != nil {
