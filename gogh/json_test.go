@@ -334,6 +334,106 @@ func TestJSONPrinter_Error_WithCode(t *testing.T) {
 	assert.Equal(t, "Issue not found", result["message"])
 }
 
+func TestJSONPrinter_Issue_WithServerURL(t *testing.T) {
+	t.Parallel()
+
+	var out bytes.Buffer
+	p := gogh.NewJSONPrinter(&out)
+	p.SetServerURL("https://example.atlassian.net")
+
+	issue := &jira4claude.Issue{
+		Key:     "TEST-123",
+		Summary: "Test issue",
+		Status:  "Open",
+		Type:    "Task",
+	}
+
+	p.Issue(issue)
+
+	var result map[string]any
+	err := json.Unmarshal(out.Bytes(), &result)
+	require.NoError(t, err)
+	assert.Equal(t, "https://example.atlassian.net/browse/TEST-123", result["url"])
+}
+
+func TestJSONPrinter_Issue_NoURLWhenServerURLEmpty(t *testing.T) {
+	t.Parallel()
+
+	var out bytes.Buffer
+	p := gogh.NewJSONPrinter(&out)
+	// ServerURL not set
+
+	issue := &jira4claude.Issue{
+		Key:     "TEST-123",
+		Summary: "Test issue",
+		Status:  "Open",
+		Type:    "Task",
+	}
+
+	p.Issue(issue)
+
+	var result map[string]any
+	err := json.Unmarshal(out.Bytes(), &result)
+	require.NoError(t, err)
+	_, hasURL := result["url"]
+	assert.False(t, hasURL, "url should not be present when serverURL is empty")
+}
+
+func TestJSONPrinter_Success_WithServerURL(t *testing.T) {
+	t.Parallel()
+
+	var out bytes.Buffer
+	p := gogh.NewJSONPrinter(&out)
+	p.SetServerURL("https://example.atlassian.net")
+
+	p.Success("Created:", "TEST-123")
+
+	var result map[string]any
+	err := json.Unmarshal(out.Bytes(), &result)
+	require.NoError(t, err)
+	assert.Equal(t, true, result["success"])
+	assert.Equal(t, "Created:", result["message"])
+	urls, ok := result["urls"].([]any)
+	require.True(t, ok, "urls should be an array")
+	assert.Contains(t, urls, "https://example.atlassian.net/browse/TEST-123")
+}
+
+func TestJSONPrinter_Success_NoURLsWhenNoKeys(t *testing.T) {
+	t.Parallel()
+
+	var out bytes.Buffer
+	p := gogh.NewJSONPrinter(&out)
+	p.SetServerURL("https://example.atlassian.net")
+
+	p.Success("Operation complete")
+
+	var result map[string]any
+	err := json.Unmarshal(out.Bytes(), &result)
+	require.NoError(t, err)
+	_, hasURLs := result["urls"]
+	assert.False(t, hasURLs, "urls should not be present when no keys provided")
+}
+
+func TestJSONPrinter_Success_ShowsMultipleURLsForMultipleKeys(t *testing.T) {
+	t.Parallel()
+
+	var out bytes.Buffer
+	p := gogh.NewJSONPrinter(&out)
+	p.SetServerURL("https://example.atlassian.net")
+
+	p.Success("Created:", "TEST-1", "TEST-2", "TEST-3")
+
+	var result map[string]any
+	err := json.Unmarshal(out.Bytes(), &result)
+	require.NoError(t, err)
+	urls, ok := result["urls"].([]any)
+	require.True(t, ok, "urls should be an array")
+	require.Len(t, urls, 3)
+	assert.Equal(t, "https://example.atlassian.net/browse/TEST-1", urls[0])
+	assert.Equal(t, "https://example.atlassian.net/browse/TEST-2", urls[1])
+	assert.Equal(t, "https://example.atlassian.net/browse/TEST-3", urls[2])
+}
+
 // Verify JSONPrinter implements Printer interface at compile time.
 // This check is in production code (gogh/json.go), but we verify the test
 // file compiles with this assignment as an additional check.

@@ -48,11 +48,13 @@ func main() {
 		kong.UsageOnError(),
 	)
 
-	// Build IO and printer
+	// Build IO and printer (ServerURL set later after config is loaded)
 	io := gogh.NewIO(os.Stdout, os.Stderr)
 	var printer jira4claude.Printer
+	var jsonPrinter *gogh.JSONPrinter
 	if cli.JSON {
-		printer = gogh.NewJSONPrinter(io.Out)
+		jsonPrinter = gogh.NewJSONPrinter(io.Out)
+		printer = jsonPrinter
 	} else {
 		printer = gogh.NewTextPrinter(io)
 	}
@@ -72,6 +74,12 @@ func main() {
 	if err != nil {
 		printer.Error(err)
 		os.Exit(1)
+	}
+
+	// Set server URL on printers for URL output
+	io.ServerURL = cfg.Server
+	if jsonPrinter != nil {
+		jsonPrinter.SetServerURL(cfg.Server)
 	}
 
 	// Build service

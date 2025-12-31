@@ -64,6 +64,10 @@ func (p *TextPrinter) Issue(issue *jira4claude.Issue) {
 	if issue.Description != "" {
 		fmt.Fprintf(p.io.Out, "\n%s\n", issue.Description)
 	}
+
+	if p.io.ServerURL != "" {
+		fmt.Fprintf(p.io.Out, "\n%s/browse/%s\n", p.io.ServerURL, issue.Key)
+	}
 }
 
 // Issues prints multiple issues in table format.
@@ -136,6 +140,11 @@ func (p *TextPrinter) Success(msg string, keys ...string) {
 			styledKeys[i] = p.styles.Key(k)
 		}
 		fmt.Fprintf(p.io.Out, "%s %s\n", msg, strings.Join(styledKeys, ", "))
+		if p.io.ServerURL != "" {
+			for _, k := range keys {
+				fmt.Fprintf(p.io.Out, "%s/browse/%s\n", p.io.ServerURL, k)
+			}
+		}
 	} else {
 		fmt.Fprintln(p.io.Out, msg)
 	}
