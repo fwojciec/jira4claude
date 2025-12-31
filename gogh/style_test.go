@@ -1,7 +1,6 @@
 package gogh_test
 
 import (
-	"os"
 	"testing"
 
 	"github.com/fwojciec/jira4claude/gogh"
@@ -10,16 +9,7 @@ import (
 
 //nolint:paralleltest // Modifies environment - cannot run parallel
 func TestStyles_NoColor(t *testing.T) {
-	original := os.Getenv("NO_COLOR")
-	defer func() {
-		if original == "" {
-			os.Unsetenv("NO_COLOR")
-		} else {
-			os.Setenv("NO_COLOR", original)
-		}
-	}()
-
-	os.Setenv("NO_COLOR", "1")
+	t.Setenv("NO_COLOR", "1")
 	styles := gogh.NewStyles()
 
 	// When NO_COLOR is set, styled text should equal input
@@ -32,16 +22,7 @@ func TestStyles_NoColor(t *testing.T) {
 
 //nolint:paralleltest // Modifies environment - cannot run parallel
 func TestStyles_WithColor(t *testing.T) {
-	original := os.Getenv("NO_COLOR")
-	defer func() {
-		if original == "" {
-			os.Unsetenv("NO_COLOR")
-		} else {
-			os.Setenv("NO_COLOR", original)
-		}
-	}()
-
-	os.Unsetenv("NO_COLOR")
+	t.Setenv("NO_COLOR", "") // Empty string = color enabled
 	styles := gogh.NewStyles()
 
 	// With color enabled, output contains the original text.
