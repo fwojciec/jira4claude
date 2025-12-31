@@ -62,6 +62,7 @@ type Issue struct {
 	Reporter    *User
 	Labels      []string
 	Links       []*IssueLink
+	Parent      string // Parent issue key if this is a subtask; empty otherwise
 	Created     time.Time
 	Updated     time.Time
 }
@@ -73,6 +74,7 @@ type IssueFilter struct {
 	Project  string
 	Status   string
 	Assignee string
+	Parent   string   // Filter by parent issue key (for subtasks)
 	Labels   []string // Issues must have ALL specified labels
 	JQL      string   // Raw JQL query; overrides other fields if set
 	Limit    int      // Maximum number of issues to return
