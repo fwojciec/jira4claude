@@ -248,4 +248,47 @@ func TestInit(t *testing.T) {
 		assert.False(t, result.GitignoreAdded)
 		assert.True(t, result.GitignoreExists)
 	})
+
+	t.Run("returns error when config file cannot be created", func(t *testing.T) {
+		t.Parallel()
+
+		// Use a non-existent directory as parent - writing will fail
+		dir := filepath.Join(t.TempDir(), "nonexistent")
+
+		_, err := yaml.Init(dir, "https://example.atlassian.net", "TEST")
+
+		require.Error(t, err)
+		assert.Equal(t, jira4claude.EInternal, jira4claude.ErrorCode(err))
+		assert.Contains(t, err.Error(), "failed to create config file")
+	})
+
+	t.Run("returns error when gitignore cannot be read", func(t *testing.T) {
+		t.Parallel()
+
+		dir := t.TempDir()
+		gitignorePath := filepath.Join(dir, ".gitignore")
+		// Create .gitignore as a directory - reading it as a file will fail
+		require.NoError(t, os.Mkdir(gitignorePath, 0o755))
+
+		_, err := yaml.Init(dir, "https://example.atlassian.net", "TEST")
+
+		require.Error(t, err)
+		assert.Equal(t, jira4claude.EInternal, jira4claude.ErrorCode(err))
+		assert.Contains(t, err.Error(), "failed to read .gitignore")
+	})
+
+	t.Run("returns error when gitignore cannot be updated", func(t *testing.T) {
+		t.Parallel()
+
+		dir := t.TempDir()
+		gitignorePath := filepath.Join(dir, ".gitignore")
+		// Create .gitignore as read-only - writing will fail
+		require.NoError(t, os.WriteFile(gitignorePath, []byte("existing\n"), 0o444))
+
+		_, err := yaml.Init(dir, "https://example.atlassian.net", "TEST")
+
+		require.Error(t, err)
+		assert.Equal(t, jira4claude.EInternal, jira4claude.ErrorCode(err))
+		assert.Contains(t, err.Error(), "failed to update .gitignore")
+	})
 }

@@ -12,6 +12,19 @@ import (
 
 const configFileName = ".jira4claude.yaml"
 
+// Error constructors to reduce boilerplate.
+func validationErr(msg string) error {
+	return &jira4claude.Error{Code: jira4claude.EValidation, Message: msg}
+}
+
+func internalErr(msg string, inner error) error {
+	return &jira4claude.Error{Code: jira4claude.EInternal, Message: msg, Inner: inner}
+}
+
+func notFoundErr(msg string, inner error) error {
+	return &jira4claude.Error{Code: jira4claude.ENotFound, Message: msg, Inner: inner}
+}
+
 // configFile represents the YAML file structure.
 // Field names are lowercase to match YAML keys.
 type configFile struct {
@@ -24,17 +37,9 @@ func LoadConfig(path string) (*jira4claude.Config, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return nil, &jira4claude.Error{
-				Code:    jira4claude.ENotFound,
-				Message: "config file not found",
-				Inner:   err,
-			}
+			return nil, notFoundErr("config file not found", err)
 		}
-		return nil, &jira4claude.Error{
-			Code:    jira4claude.EInternal,
-			Message: "failed to read config file",
-			Inner:   err,
-		}
+		return nil, internalErr("failed to read config file", err)
 	}
 
 	var cf configFile
@@ -47,16 +52,10 @@ func LoadConfig(path string) (*jira4claude.Config, error) {
 	}
 
 	if cf.Server == "" {
-		return nil, &jira4claude.Error{
-			Code:    jira4claude.EValidation,
-			Message: "config file missing required field: server",
-		}
+		return nil, validationErr("config file missing required field: server")
 	}
 	if cf.Project == "" {
-		return nil, &jira4claude.Error{
-			Code:    jira4claude.EValidation,
-			Message: "config file missing required field: project",
-		}
+		return nil, validationErr("config file missing required field: project")
 	}
 
 	return &jira4claude.Config{
@@ -79,10 +78,7 @@ func DiscoverConfig(workDir, homeDir string) (string, error) {
 		return globalPath, nil
 	}
 
-	return "", &jira4claude.Error{
-		Code:    jira4claude.ENotFound,
-		Message: "no config file found; searched: ./" + configFileName + ", ~/" + configFileName + "\nRun: jira4claude init --server=URL --project=KEY",
-	}
+	return "", notFoundErr("no config file found; searched: ./"+configFileName+", ~/"+configFileName+"\nRun: jira4claude init --server=URL --project=KEY", nil)
 }
 
 // InitResult contains the result of the Init operation.
@@ -120,10 +116,7 @@ func Init(dir, server, project string) (*InitResult, error) {
 // validateConfigDoesNotExist checks that no config file exists at the given path.
 func validateConfigDoesNotExist(configPath string) error {
 	if _, err := os.Stat(configPath); err == nil {
-		return &jira4claude.Error{
-			Code:    jira4claude.EValidation,
-			Message: configFileName + " already exists",
-		}
+		return validationErr(configFileName + " already exists")
 	}
 	return nil
 }
@@ -132,11 +125,7 @@ func validateConfigDoesNotExist(configPath string) error {
 func createConfigFile(configPath, server, project string) error {
 	content := "server: " + server + "\nproject: " + project + "\n"
 	if err := os.WriteFile(configPath, []byte(content), 0o600); err != nil {
-		return &jira4claude.Error{
-			Code:    jira4claude.EInternal,
-			Message: "failed to create config file",
-			Inner:   err,
-		}
+		return internalErr("failed to create config file", err)
 	}
 	return nil
 }
@@ -146,11 +135,7 @@ func createConfigFile(configPath, server, project string) error {
 func ensureGitignoreEntry(gitignorePath, entry string) (bool, bool, error) {
 	content, err := os.ReadFile(gitignorePath)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
-		return false, false, &jira4claude.Error{
-			Code:    jira4claude.EInternal,
-			Message: "failed to read .gitignore",
-			Inner:   err,
-		}
+		return false, false, internalErr("failed to read .gitignore", err)
 	}
 
 	// Check if already in .gitignore (exact match on its own line)
@@ -169,11 +154,7 @@ func ensureGitignoreEntry(gitignorePath, entry string) (bool, bool, error) {
 	}
 
 	if err := os.WriteFile(gitignorePath, []byte(newContent), 0o644); err != nil {
-		return false, false, &jira4claude.Error{
-			Code:    jira4claude.EInternal,
-			Message: "failed to update .gitignore",
-			Inner:   err,
-		}
+		return false, false, internalErr("failed to update .gitignore", err)
 	}
 
 	return true, false, nil
