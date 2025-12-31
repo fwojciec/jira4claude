@@ -346,10 +346,25 @@ type issueResponse struct {
 		Reporter    *userResponse         `json:"reporter"`
 		Labels      []string              `json:"labels"`
 		IssueLinks  []issueLinkResponse   `json:"issuelinks"`
+		Comment     *commentsResponse     `json:"comment"`
 		Parent      *struct{ Key string } `json:"parent"`
 		Created     string                `json:"created"`
 		Updated     string                `json:"updated"`
 	} `json:"fields"`
+}
+
+// commentsResponse represents the comment container in the Jira API response.
+type commentsResponse struct {
+	Comments []commentAPIResponse `json:"comments"`
+	Total    int                  `json:"total"`
+}
+
+// commentAPIResponse represents a single comment in the issue response.
+type commentAPIResponse struct {
+	ID      string         `json:"id"`
+	Author  *userResponse  `json:"author"`
+	Body    map[string]any `json:"body"`
+	Created string         `json:"created"`
 }
 
 // issueLinkResponse represents a link in the Jira API response.
@@ -423,6 +438,7 @@ func parseIssueResponse(body []byte) (*jira4claude.Issue, error) {
 	}
 
 	issue.Links = mapIssueLinks(resp.Fields.IssueLinks)
+	issue.Comments = mapComments(resp.Fields.Comment)
 
 	return issue, nil
 }
@@ -469,6 +485,29 @@ func mapIssueLinks(links []issueLinkResponse) []*jira4claude.IssueLink {
 			OutwardIssue: mapLinkedIssue(link.OutwardIssue),
 			InwardIssue:  mapLinkedIssue(link.InwardIssue),
 		}
+	}
+	return result
+}
+
+// mapComments converts a commentsResponse to domain Comments. Returns nil if input is nil or empty.
+func mapComments(resp *commentsResponse) []*jira4claude.Comment {
+	if resp == nil || len(resp.Comments) == 0 {
+		return nil
+	}
+	result := make([]*jira4claude.Comment, len(resp.Comments))
+	for i, c := range resp.Comments {
+		comment := &jira4claude.Comment{
+			ID:      c.ID,
+			Body:    ADFToText(c.Body),
+			BodyADF: c.Body,
+			Author:  mapUser(c.Author),
+		}
+		if c.Created != "" {
+			if t, err := parseJiraTime(c.Created); err == nil {
+				comment.Created = t
+			}
+		}
+		result[i] = comment
 	}
 	return result
 }
@@ -592,8 +631,9 @@ func parseCommentResponse(body []byte) (*jira4claude.Comment, error) {
 	}
 
 	comment := &jira4claude.Comment{
-		ID:   resp.ID,
-		Body: ADFToText(resp.Body),
+		ID:      resp.ID,
+		Body:    ADFToText(resp.Body),
+		BodyADF: resp.Body,
 	}
 
 	if resp.Author != nil {

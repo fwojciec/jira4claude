@@ -567,6 +567,157 @@ func TestIssueService_Get(t *testing.T) {
 		assert.Equal(t, "Task", issue.Links[1].InwardIssue.Type)
 		assert.Nil(t, issue.Links[1].OutwardIssue)
 	})
+
+	t.Run("returns issue with comments", func(t *testing.T) {
+		t.Parallel()
+
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Method != http.MethodGet || r.URL.Path != "/rest/api/3/issue/TEST-1" {
+				w.WriteHeader(http.StatusNotFound)
+				return
+			}
+
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{
+				"key": "TEST-1",
+				"fields": {
+					"project": {"key": "TEST"},
+					"summary": "Test issue",
+					"status": {"name": "To Do"},
+					"issuetype": {"name": "Task"},
+					"comment": {
+						"comments": [
+							{
+								"id": "10001",
+								"author": {
+									"accountId": "user123",
+									"displayName": "John Doe",
+									"emailAddress": "john@example.com"
+								},
+								"body": {
+									"type": "doc",
+									"version": 1,
+									"content": [{"type": "paragraph", "content": [{"type": "text", "text": "First comment"}]}]
+								},
+								"created": "2024-01-15T10:30:00.000+0000"
+							},
+							{
+								"id": "10002",
+								"author": {
+									"accountId": "user456",
+									"displayName": "Jane Smith",
+									"emailAddress": "jane@example.com"
+								},
+								"body": {
+									"type": "doc",
+									"version": 1,
+									"content": [{"type": "paragraph", "content": [{"type": "text", "text": "Second comment"}]}]
+								},
+								"created": "2024-01-16T14:20:00.000+0000"
+							}
+						],
+						"total": 2
+					}
+				}
+			}`))
+		}))
+		defer server.Close()
+
+		client := newTestClient(t, server.URL, "user@example.com", "api-token")
+		svc := jirahttp.NewIssueService(client)
+
+		issue, err := svc.Get(context.Background(), "TEST-1")
+
+		require.NoError(t, err)
+		require.Len(t, issue.Comments, 2)
+
+		// First comment
+		assert.Equal(t, "10001", issue.Comments[0].ID)
+		require.NotNil(t, issue.Comments[0].Author)
+		assert.Equal(t, "user123", issue.Comments[0].Author.AccountID)
+		assert.Equal(t, "John Doe", issue.Comments[0].Author.DisplayName)
+		assert.Equal(t, "First comment", issue.Comments[0].Body)
+		assert.False(t, issue.Comments[0].Created.IsZero())
+
+		// Second comment
+		assert.Equal(t, "10002", issue.Comments[1].ID)
+		require.NotNil(t, issue.Comments[1].Author)
+		assert.Equal(t, "user456", issue.Comments[1].Author.AccountID)
+		assert.Equal(t, "Jane Smith", issue.Comments[1].Author.DisplayName)
+		assert.Equal(t, "Second comment", issue.Comments[1].Body)
+		assert.False(t, issue.Comments[1].Created.IsZero())
+	})
+
+	t.Run("returns issue without comments when none exist", func(t *testing.T) {
+		t.Parallel()
+
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{
+				"key": "TEST-1",
+				"fields": {
+					"project": {"key": "TEST"},
+					"summary": "Test issue",
+					"status": {"name": "To Do"},
+					"issuetype": {"name": "Task"}
+				}
+			}`))
+		}))
+		defer server.Close()
+
+		client := newTestClient(t, server.URL, "user@example.com", "api-token")
+		svc := jirahttp.NewIssueService(client)
+
+		issue, err := svc.Get(context.Background(), "TEST-1")
+
+		require.NoError(t, err)
+		assert.Nil(t, issue.Comments)
+	})
+
+	t.Run("preserves comment ADF for markdown conversion", func(t *testing.T) {
+		t.Parallel()
+
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{
+				"key": "TEST-1",
+				"fields": {
+					"project": {"key": "TEST"},
+					"summary": "Test issue",
+					"status": {"name": "To Do"},
+					"issuetype": {"name": "Task"},
+					"comment": {
+						"comments": [
+							{
+								"id": "10001",
+								"body": {
+									"type": "doc",
+									"version": 1,
+									"content": [{"type": "paragraph", "content": [{"type": "text", "text": "Comment with ", "marks": []}, {"type": "text", "text": "bold", "marks": [{"type": "strong"}]}]}]
+								},
+								"created": "2024-01-15T10:30:00.000+0000"
+							}
+						],
+						"total": 1
+					}
+				}
+			}`))
+		}))
+		defer server.Close()
+
+		client := newTestClient(t, server.URL, "user@example.com", "api-token")
+		svc := jirahttp.NewIssueService(client)
+
+		issue, err := svc.Get(context.Background(), "TEST-1")
+
+		require.NoError(t, err)
+		require.Len(t, issue.Comments, 1)
+		// Body should be plain text
+		assert.Equal(t, "Comment with bold", issue.Comments[0].Body)
+		// BodyADF should preserve original ADF for later conversion
+		require.NotNil(t, issue.Comments[0].BodyADF)
+		assert.Equal(t, "doc", issue.Comments[0].BodyADF["type"])
+	})
 }
 
 func TestIssueService_List(t *testing.T) {

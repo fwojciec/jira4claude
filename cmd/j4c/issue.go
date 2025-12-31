@@ -59,6 +59,17 @@ func (c *IssueViewCmd) Run(ctx *IssueContext) error {
 		}
 	}
 
+	// Convert comment bodies from ADF to GFM if markdown flag is set
+	if c.Markdown {
+		for _, comment := range issue.Comments {
+			if comment.BodyADF != nil {
+				if body := http.ADFToGFM(comment.BodyADF); body != "" {
+					comment.Body = body
+				}
+			}
+		}
+	}
+
 	ctx.Printer.Issue(issue)
 	return nil
 }

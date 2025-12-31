@@ -410,4 +410,113 @@ func TestIssueViewCmd(t *testing.T) {
 		require.NoError(t, err)
 		assert.Contains(t, buf.String(), "Plain text description")
 	})
+
+	t.Run("displays comment bodies as markdown when flag is set", func(t *testing.T) {
+		t.Parallel()
+
+		svc := &mock.IssueService{
+			GetFn: func(ctx context.Context, key string) (*jira4claude.Issue, error) {
+				return &jira4claude.Issue{
+					Key:     "TEST-1",
+					Summary: "Test issue",
+					Status:  "To Do",
+					Type:    "Task",
+					Comments: []*jira4claude.Comment{
+						{
+							ID:     "10001",
+							Author: &jira4claude.User{DisplayName: "John Doe"},
+							Body:   "Comment text",
+							BodyADF: map[string]any{
+								"type":    "doc",
+								"version": 1,
+								"content": []any{
+									map[string]any{
+										"type": "paragraph",
+										"content": []any{
+											map[string]any{
+												"type": "text",
+												"text": "Comment with ",
+											},
+											map[string]any{
+												"type": "text",
+												"text": "bold",
+												"marks": []any{
+													map[string]any{"type": "strong"},
+												},
+											},
+										},
+									},
+								},
+							},
+							Created: time.Date(2024, 1, 15, 10, 30, 0, 0, time.UTC),
+						},
+					},
+				}, nil
+			},
+		}
+
+		var buf bytes.Buffer
+		ctx := makeIssueContext(t, svc, &buf)
+		cmd := main.IssueViewCmd{Key: "TEST-1", Markdown: true}
+		err := cmd.Run(ctx)
+
+		require.NoError(t, err)
+		// Comment body should contain markdown bold syntax
+		assert.Contains(t, buf.String(), "Comment with **bold**")
+	})
+
+	t.Run("displays comment bodies as plain text by default", func(t *testing.T) {
+		t.Parallel()
+
+		svc := &mock.IssueService{
+			GetFn: func(ctx context.Context, key string) (*jira4claude.Issue, error) {
+				return &jira4claude.Issue{
+					Key:     "TEST-1",
+					Summary: "Test issue",
+					Status:  "To Do",
+					Type:    "Task",
+					Comments: []*jira4claude.Comment{
+						{
+							ID:     "10001",
+							Author: &jira4claude.User{DisplayName: "John Doe"},
+							Body:   "Comment text",
+							BodyADF: map[string]any{
+								"type":    "doc",
+								"version": 1,
+								"content": []any{
+									map[string]any{
+										"type": "paragraph",
+										"content": []any{
+											map[string]any{
+												"type": "text",
+												"text": "Comment with ",
+											},
+											map[string]any{
+												"type": "text",
+												"text": "bold",
+												"marks": []any{
+													map[string]any{"type": "strong"},
+												},
+											},
+										},
+									},
+								},
+							},
+							Created: time.Date(2024, 1, 15, 10, 30, 0, 0, time.UTC),
+						},
+					},
+				}, nil
+			},
+		}
+
+		var buf bytes.Buffer
+		ctx := makeIssueContext(t, svc, &buf)
+		cmd := main.IssueViewCmd{Key: "TEST-1"}
+		err := cmd.Run(ctx)
+
+		require.NoError(t, err)
+		// Comment body should be plain text (no markdown syntax)
+		assert.Contains(t, buf.String(), "Comment text")
+		assert.NotContains(t, buf.String(), "**bold**")
+	})
 }

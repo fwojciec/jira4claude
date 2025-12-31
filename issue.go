@@ -56,7 +56,8 @@ type LinkedIssue struct {
 type Comment struct {
 	ID      string
 	Author  *User
-	Body    string
+	Body    string         // Plain text body
+	BodyADF map[string]any // Raw ADF for markdown conversion
 	Created time.Time
 }
 
@@ -74,7 +75,8 @@ type Issue struct {
 	Reporter       *User
 	Labels         []string
 	Links          []*IssueLink
-	Parent         string // Parent issue key if this is a subtask; empty otherwise
+	Comments       []*Comment // Comments on the issue
+	Parent         string     // Parent issue key if this is a subtask; empty otherwise
 	Created        time.Time
 	Updated        time.Time
 }
