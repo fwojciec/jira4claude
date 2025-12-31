@@ -62,6 +62,89 @@ func TestIssueService_Create(t *testing.T) {
 		assert.Equal(t, "strong", marks[0].(map[string]any)["type"])
 	})
 
+	t.Run("falls back to TextToADF for invalid JSON starting with brace", func(t *testing.T) {
+		t.Parallel()
+
+		var receivedRequest map[string]any
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			_ = json.NewDecoder(r.Body).Decode(&receivedRequest)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusCreated)
+			_, _ = w.Write([]byte(`{"key": "TEST-1"}`))
+		}))
+		defer server.Close()
+
+		client := newTestClient(t, server.URL, "user@example.com", "api-token")
+		svc := jirahttp.NewIssueService(client)
+
+		// Text that starts with { but is not valid JSON
+		issue := &jira4claude.Issue{
+			Project:     "TEST",
+			Summary:     "Test issue",
+			Description: "{this is not valid JSON}",
+			Type:        "Task",
+		}
+
+		_, err := svc.Create(context.Background(), issue)
+
+		require.NoError(t, err)
+
+		// Verify it was converted via TextToADF (has text node with literal content)
+		fields := receivedRequest["fields"].(map[string]any)
+		desc := fields["description"].(map[string]any)
+		assert.Equal(t, "doc", desc["type"])
+		content := desc["content"].([]any)
+		require.Len(t, content, 1)
+		paragraph := content[0].(map[string]any)
+		paragraphContent := paragraph["content"].([]any)
+		require.Len(t, paragraphContent, 1)
+		textNode := paragraphContent[0].(map[string]any)
+		assert.Equal(t, "{this is not valid JSON}", textNode["text"])
+	})
+
+	t.Run("falls back to TextToADF for JSON with wrong type field", func(t *testing.T) {
+		t.Parallel()
+
+		var receivedRequest map[string]any
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			_ = json.NewDecoder(r.Body).Decode(&receivedRequest)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusCreated)
+			_, _ = w.Write([]byte(`{"key": "TEST-1"}`))
+		}))
+		defer server.Close()
+
+		client := newTestClient(t, server.URL, "user@example.com", "api-token")
+		svc := jirahttp.NewIssueService(client)
+
+		// Valid JSON but type is "paragraph", not "doc"
+		issue := &jira4claude.Issue{
+			Project:     "TEST",
+			Summary:     "Test issue",
+			Description: `{"type":"paragraph","content":[]}`,
+			Type:        "Task",
+		}
+
+		_, err := svc.Create(context.Background(), issue)
+
+		require.NoError(t, err)
+
+		// Verify it was converted via TextToADF (the JSON string is now wrapped)
+		fields := receivedRequest["fields"].(map[string]any)
+		desc := fields["description"].(map[string]any)
+		assert.Equal(t, "doc", desc["type"])
+		content := desc["content"].([]any)
+		require.Len(t, content, 1)
+		paragraph := content[0].(map[string]any)
+		paragraphContent := paragraph["content"].([]any)
+		require.Len(t, paragraphContent, 1)
+		textNode := paragraphContent[0].(map[string]any)
+		// The original JSON string should be treated as plain text
+		textValue := textNode["text"].(string)
+		assert.Contains(t, textValue, `"type":"paragraph"`)
+		assert.Contains(t, textValue, `"content":[]`)
+	})
+
 	t.Run("creates issue and returns it with key", func(t *testing.T) {
 		t.Parallel()
 
