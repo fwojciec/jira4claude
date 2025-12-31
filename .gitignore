@@ -32,3 +32,6 @@ Thumbs.db
 # Local CLI config
 .jira4claude.yaml
 /jira4claude
+
+# Git worktrees for parallel development
+.worktrees/
