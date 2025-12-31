@@ -14,12 +14,12 @@ The `http` package has significant code duplication:
 
 Three new helpers in the `http` package.
 
-### `doRequest()` - Response Handler
+### `DoRequest()` - Response Handler
 
 Method on `*Client` in `http/client.go`:
 
 ```go
-func (c *Client) doRequest(req *http.Request, expectedStatus int) ([]byte, error)
+func (c *Client) DoRequest(req *http.Request, expectedStatus int) ([]byte, error)
 ```
 
 Behavior:
@@ -29,12 +29,12 @@ Behavior:
 - Parses API errors on failure
 - Returns body bytes on success, nil on error
 
-### `newJSONRequest()` - Request Builder
+### `NewJSONRequest()` - Request Builder
 
 Method on `*Client` in `http/client.go`:
 
 ```go
-func (c *Client) newJSONRequest(ctx context.Context, method, path string, body any) (*http.Request, error)
+func (c *Client) NewJSONRequest(ctx context.Context, method, path string, body any) (*http.Request, error)
 ```
 
 Behavior:
@@ -74,7 +74,7 @@ func (s *IssueService) Get(ctx context.Context, key string) (*jira4claude.Issue,
     if err != nil {
         return nil, &jira4claude.Error{Code: jira4claude.EInternal, Message: "failed to create request", Inner: err}
     }
-    body, err := s.client.doRequest(req, http.StatusOK)
+    body, err := s.client.DoRequest(req, http.StatusOK)
     if err != nil {
         return nil, err
     }
@@ -85,15 +85,15 @@ func (s *IssueService) Get(ctx context.Context, key string) (*jira4claude.Issue,
 ## Testing
 
 New tests:
-- `TestClient_doRequest` - success, HTTP errors, ReadAll failure, status mismatches
-- `TestClient_newJSONRequest` - success, marshal failure, invalid method
+- `TestClient_DoRequest` - success, HTTP errors, ReadAll failure, status mismatches
+- `TestClient_NewJSONRequest` - success, marshal failure, invalid method
 - `Test_issuePath` - simple key, with segments, key needing escape
 
 Existing tests unchanged - they validate through public methods.
 
 ## Files Changed
 
-- `http/client.go` - Add `doRequest()`, `newJSONRequest()`
+- `http/client.go` - Add `DoRequest()`, `NewJSONRequest()`
 - `http/client_test.go` - Add helper tests
 - `http/issue.go` - Add `issuePath()`, refactor all methods
 

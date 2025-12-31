@@ -22,7 +22,7 @@ type IssueService struct {
 func issuePath(key string, segments ...string) string {
 	path := "/rest/api/3/issue/" + url.PathEscape(key)
 	for _, seg := range segments {
-		path += "/" + seg
+		path += "/" + url.PathEscape(seg)
 	}
 	return path
 }
