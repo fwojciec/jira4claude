@@ -93,6 +93,11 @@ func (p *TextPrinter) Issues(issues []*jira4claude.Issue) {
 
 // Transitions prints available transitions for an issue.
 func (p *TextPrinter) Transitions(key string, ts []*jira4claude.Transition) {
+	if len(ts) == 0 {
+		fmt.Fprintf(p.io.Out, "No transitions for %s\n", p.styles.Key(key))
+		return
+	}
+
 	fmt.Fprintf(p.io.Out, "Available transitions for %s:\n", p.styles.Key(key))
 	for _, t := range ts {
 		fmt.Fprintf(p.io.Out, "  %s: %s\n", t.ID, p.styles.Status(t.Name))

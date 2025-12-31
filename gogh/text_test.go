@@ -247,6 +247,7 @@ func TestTextPrinter_Transitions_ShowsEmptyList(t *testing.T) {
 	p.Transitions("TEST-123", []*jira4claude.Transition{})
 
 	output := out.String()
+	assert.Contains(t, output, "No transitions")
 	assert.Contains(t, output, "TEST-123")
 }
 
