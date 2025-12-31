@@ -32,13 +32,13 @@ For each worktree directory, the directory name is the task ID (e.g., `J4C-42`).
 
 For each worktree, check its PR status:
 ```bash
-gh pr view <task-id> --json state,mergedAt --jq '{state: .state, merged: (.mergedAt != null)}'
+gh pr view <task-id> --json state --jq '.state' 2>/dev/null || echo "NO_PR"
 ```
 
-Categorize each worktree:
-- **Merged**: PR exists and is merged → auto-remove
-- **Open**: PR exists but not merged → prompt user
-- **No PR**: No PR found → prompt user
+Categorize each worktree based on the result:
+- **MERGED**: PR exists and is merged → auto-remove
+- **OPEN**: PR exists but not merged → prompt user
+- **NO_PR**: No PR found → prompt user
 
 ### 4. Process Worktrees
 
