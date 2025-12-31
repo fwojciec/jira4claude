@@ -99,10 +99,12 @@ func TestListCmd_WithParent(t *testing.T) {
 			},
 		}
 
+		var stdout bytes.Buffer
 		app := &App{
 			config:  &jira4claude.Config{Project: "TEST", Server: "https://test.atlassian.net"},
 			service: svc,
 			jsonOut: false,
+			out:     &stdout,
 		}
 
 		cmd := &ListCmd{
@@ -129,10 +131,12 @@ func TestCreateCmd_WithParent(t *testing.T) {
 			},
 		}
 
+		var stdout bytes.Buffer
 		app := &App{
 			config:  &jira4claude.Config{Project: "TEST", Server: "https://test.atlassian.net"},
 			service: svc,
 			jsonOut: false,
+			out:     &stdout,
 		}
 
 		cmd := &CreateCmd{
@@ -157,10 +161,12 @@ func TestCreateCmd_WithParent(t *testing.T) {
 			},
 		}
 
+		var stdout bytes.Buffer
 		app := &App{
 			config:  &jira4claude.Config{Project: "TEST", Server: "https://test.atlassian.net"},
 			service: svc,
 			jsonOut: false,
+			out:     &stdout,
 		}
 
 		cmd := &CreateCmd{
@@ -173,5 +179,92 @@ func TestCreateCmd_WithParent(t *testing.T) {
 		require.NoError(t, err)
 		require.NotNil(t, capturedIssue)
 		assert.Equal(t, "Subtask", capturedIssue.Type)
+	})
+}
+
+func TestApp_OutputCapture(t *testing.T) {
+	t.Parallel()
+
+	t.Run("ViewCmd writes to App.out instead of stdout", func(t *testing.T) {
+		t.Parallel()
+
+		svc := &mock.IssueService{
+			GetFn: func(ctx context.Context, key string) (*jira4claude.Issue, error) {
+				return &jira4claude.Issue{
+					Key:     "TEST-1",
+					Summary: "Test issue",
+					Status:  "To Do",
+					Type:    "Task",
+				}, nil
+			},
+		}
+
+		var stdout bytes.Buffer
+		app := &App{
+			config:  &jira4claude.Config{Project: "TEST", Server: "https://test.atlassian.net"},
+			service: svc,
+			jsonOut: false,
+			out:     &stdout,
+		}
+
+		cmd := &ViewCmd{Key: "TEST-1"}
+		err := cmd.Run(app)
+
+		require.NoError(t, err)
+		assert.Contains(t, stdout.String(), "TEST-1")
+		assert.Contains(t, stdout.String(), "Test issue")
+	})
+
+	t.Run("CreateCmd writes to App.out instead of stdout", func(t *testing.T) {
+		t.Parallel()
+
+		svc := &mock.IssueService{
+			CreateFn: func(ctx context.Context, issue *jira4claude.Issue) (*jira4claude.Issue, error) {
+				return &jira4claude.Issue{Key: "TEST-1"}, nil
+			},
+		}
+
+		var stdout bytes.Buffer
+		app := &App{
+			config:  &jira4claude.Config{Project: "TEST", Server: "https://test.atlassian.net"},
+			service: svc,
+			jsonOut: false,
+			out:     &stdout,
+		}
+
+		cmd := &CreateCmd{Summary: "New issue"}
+		err := cmd.Run(app)
+
+		require.NoError(t, err)
+		assert.Contains(t, stdout.String(), "Created: TEST-1")
+	})
+
+	t.Run("JSON output writes to App.out", func(t *testing.T) {
+		t.Parallel()
+
+		svc := &mock.IssueService{
+			GetFn: func(ctx context.Context, key string) (*jira4claude.Issue, error) {
+				return &jira4claude.Issue{
+					Key:     "TEST-1",
+					Summary: "Test issue",
+					Status:  "To Do",
+					Type:    "Task",
+				}, nil
+			},
+		}
+
+		var stdout bytes.Buffer
+		app := &App{
+			config:  &jira4claude.Config{Project: "TEST", Server: "https://test.atlassian.net"},
+			service: svc,
+			jsonOut: true,
+			out:     &stdout,
+		}
+
+		cmd := &ViewCmd{Key: "TEST-1"}
+		err := cmd.Run(app)
+
+		require.NoError(t, err)
+		assert.Contains(t, stdout.String(), `"key": "TEST-1"`)
 	})
 }

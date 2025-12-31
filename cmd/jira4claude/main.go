@@ -133,6 +133,7 @@ type App struct {
 	config  *jira4claude.Config
 	service jira4claude.IssueService
 	jsonOut bool
+	out     io.Writer
 }
 
 func main() {
@@ -146,7 +147,7 @@ func main() {
 	// Init command doesn't need config
 	if ctx.Command() == "init" {
 		if err := ctx.Run(&cli); err != nil {
-			printError(cli.JSON, err)
+			printError(os.Stdout, os.Stderr, cli.JSON, err)
 			os.Exit(1)
 		}
 		return
@@ -154,13 +155,13 @@ func main() {
 
 	app, err := newApp(cli.Config, cli.JSON)
 	if err != nil {
-		printError(cli.JSON, err)
+		printError(os.Stdout, os.Stderr, cli.JSON, err)
 		os.Exit(1)
 	}
 
 	err = ctx.Run(app)
 	if err != nil {
-		printError(cli.JSON, err)
+		printError(os.Stdout, os.Stderr, cli.JSON, err)
 		os.Exit(1)
 	}
 }
@@ -203,6 +204,7 @@ func newApp(configPath string, jsonOut bool) (*App, error) {
 		config:  cfg,
 		service: http.NewIssueService(client),
 		jsonOut: jsonOut,
+		out:     os.Stdout,
 	}, nil
 }
 
@@ -234,11 +236,11 @@ func (c *CreateCmd) Run(app *App) error {
 	}
 
 	if app.jsonOut {
-		return printJSON(issueToMap(created, app.config.Server))
+		return printJSON(app.out, issueToMap(created, app.config.Server))
 	}
 
-	fmt.Printf("Created: %s\n", keyStyle.Render(created.Key))
-	fmt.Printf("%s/browse/%s\n", app.config.Server, created.Key)
+	fmt.Fprintf(app.out, "Created: %s\n", keyStyle.Render(created.Key))
+	fmt.Fprintf(app.out, "%s/browse/%s\n", app.config.Server, created.Key)
 	return nil
 }
 
@@ -250,10 +252,10 @@ func (c *ViewCmd) Run(app *App) error {
 	}
 
 	if app.jsonOut {
-		return printJSON(issueToMap(issue, app.config.Server))
+		return printJSON(app.out, issueToMap(issue, app.config.Server))
 	}
 
-	printIssueDetail(os.Stdout, issue, app.config.Server)
+	printIssueDetail(app.out, issue, app.config.Server)
 	return nil
 }
 
@@ -284,15 +286,15 @@ func (c *ListCmd) Run(app *App) error {
 		for i, issue := range issues {
 			result[i] = issueToMap(issue, app.config.Server)
 		}
-		return printJSON(result)
+		return printJSON(app.out, result)
 	}
 
 	if len(issues) == 0 {
-		fmt.Println("No issues found")
+		fmt.Fprintln(app.out, "No issues found")
 		return nil
 	}
 
-	printIssueTable(issues)
+	printIssueTable(app.out, issues)
 	return nil
 }
 
@@ -327,15 +329,15 @@ func (c *ReadyCmd) Run(app *App) error {
 		for i, issue := range ready {
 			result[i] = issueToMap(issue, app.config.Server)
 		}
-		return printJSON(result)
+		return printJSON(app.out, result)
 	}
 
 	if len(ready) == 0 {
-		fmt.Println("No ready issues found")
+		fmt.Fprintln(app.out, "No ready issues found")
 		return nil
 	}
 
-	printIssueTable(ready)
+	printIssueTable(app.out, ready)
 	return nil
 }
 
@@ -361,10 +363,10 @@ func (c *EditCmd) Run(app *App) error {
 	}
 
 	if app.jsonOut {
-		return printJSON(issueToMap(updated, app.config.Server))
+		return printJSON(app.out, issueToMap(updated, app.config.Server))
 	}
 
-	fmt.Printf("Updated: %s\n", keyStyle.Render(updated.Key))
+	fmt.Fprintf(app.out, "Updated: %s\n", keyStyle.Render(updated.Key))
 	return nil
 }
 
@@ -376,7 +378,7 @@ func (c *CommentCmd) Run(app *App) error {
 	}
 
 	if app.jsonOut {
-		return printJSON(map[string]any{
+		return printJSON(app.out, map[string]any{
 			"id":      comment.ID,
 			"author":  comment.Author.DisplayName,
 			"body":    comment.Body,
@@ -384,7 +386,7 @@ func (c *CommentCmd) Run(app *App) error {
 		})
 	}
 
-	fmt.Printf("Added comment %s to %s\n", comment.ID, keyStyle.Render(c.Key))
+	fmt.Fprintf(app.out, "Added comment %s to %s\n", comment.ID, keyStyle.Render(c.Key))
 	return nil
 }
 
@@ -401,12 +403,12 @@ func (c *TransitionCmd) Run(app *App) error {
 			for i, t := range transitions {
 				result[i] = map[string]any{"id": t.ID, "name": t.Name}
 			}
-			return printJSON(result)
+			return printJSON(app.out, result)
 		}
 
-		fmt.Printf("Available transitions for %s:\n", keyStyle.Render(c.Key))
+		fmt.Fprintf(app.out, "Available transitions for %s:\n", keyStyle.Render(c.Key))
 		for _, t := range transitions {
-			fmt.Printf("  %s: %s\n", t.ID, statusStyle.Render(t.Name))
+			fmt.Fprintf(app.out, "  %s: %s\n", t.ID, statusStyle.Render(t.Name))
 		}
 		return nil
 	}
@@ -446,10 +448,10 @@ func (c *TransitionCmd) Run(app *App) error {
 	}
 
 	if app.jsonOut {
-		return printJSON(map[string]any{"key": c.Key, "transitioned": true})
+		return printJSON(app.out, map[string]any{"key": c.Key, "transitioned": true})
 	}
 
-	fmt.Printf("Transitioned %s\n", keyStyle.Render(c.Key))
+	fmt.Fprintf(app.out, "Transitioned %s\n", keyStyle.Render(c.Key))
 	return nil
 }
 
@@ -461,15 +463,15 @@ func (c *AssignCmd) Run(app *App) error {
 
 	if app.jsonOut {
 		if c.AccountID == "" {
-			return printJSON(map[string]any{"key": c.Key, "unassigned": true})
+			return printJSON(app.out, map[string]any{"key": c.Key, "unassigned": true})
 		}
-		return printJSON(map[string]any{"key": c.Key, "assigned": c.AccountID})
+		return printJSON(app.out, map[string]any{"key": c.Key, "assigned": c.AccountID})
 	}
 
 	if c.AccountID == "" {
-		fmt.Printf("Unassigned %s\n", keyStyle.Render(c.Key))
+		fmt.Fprintf(app.out, "Unassigned %s\n", keyStyle.Render(c.Key))
 	} else {
-		fmt.Printf("Assigned %s to %s\n", keyStyle.Render(c.Key), c.AccountID)
+		fmt.Fprintf(app.out, "Assigned %s to %s\n", keyStyle.Render(c.Key), c.AccountID)
 	}
 	return nil
 }
@@ -481,7 +483,7 @@ func (c *LinkCmd) Run(app *App) error {
 	}
 
 	if app.jsonOut {
-		return printJSON(map[string]any{
+		return printJSON(app.out, map[string]any{
 			"linked":     true,
 			"inwardKey":  c.InwardKey,
 			"linkType":   c.LinkType,
@@ -489,7 +491,7 @@ func (c *LinkCmd) Run(app *App) error {
 		})
 	}
 
-	fmt.Printf("Linked %s %s %s\n",
+	fmt.Fprintf(app.out, "Linked %s %s %s\n",
 		keyStyle.Render(c.InwardKey),
 		c.LinkType,
 		keyStyle.Render(c.OutwardKey))
@@ -503,20 +505,23 @@ func (c *UnlinkCmd) Run(app *App) error {
 	}
 
 	if app.jsonOut {
-		return printJSON(map[string]any{
+		return printJSON(app.out, map[string]any{
 			"unlinked": true,
 			"key1":     c.Key1,
 			"key2":     c.Key2,
 		})
 	}
 
-	fmt.Printf("Unlinked %s and %s\n",
+	fmt.Fprintf(app.out, "Unlinked %s and %s\n",
 		keyStyle.Render(c.Key1),
 		keyStyle.Render(c.Key2))
 	return nil
 }
 
 // Run executes the init command.
+// Note: InitCmd uses os.Stdout directly because it runs before App is created
+// (it doesn't require config). This is an intentional exception to the io.Writer
+// pattern used by other commands.
 func (c *InitCmd) Run(cli *CLI) error {
 	workDir, err := os.Getwd()
 	if err != nil {
@@ -533,7 +538,7 @@ func (c *InitCmd) Run(cli *CLI) error {
 	}
 
 	if cli.JSON {
-		return printJSON(map[string]any{
+		return printJSON(os.Stdout, map[string]any{
 			"configCreated":   result.ConfigCreated,
 			"gitignoreAdded":  result.GitignoreAdded,
 			"gitignoreExists": result.GitignoreExists,
@@ -541,32 +546,32 @@ func (c *InitCmd) Run(cli *CLI) error {
 	}
 
 	if result.ConfigCreated {
-		fmt.Println("Created .jira4claude.yaml")
+		fmt.Fprintln(os.Stdout, "Created .jira4claude.yaml")
 	}
 	if result.GitignoreAdded {
-		fmt.Println("Added .jira4claude.yaml to .gitignore")
+		fmt.Fprintln(os.Stdout, "Added .jira4claude.yaml to .gitignore")
 	} else if result.GitignoreExists {
-		fmt.Println(".jira4claude.yaml already in .gitignore")
+		fmt.Fprintln(os.Stdout, ".jira4claude.yaml already in .gitignore")
 	}
 	return nil
 }
 
 // Helper functions
 
-func printError(jsonOut bool, err error) {
+func printError(out, errOut io.Writer, jsonOut bool, err error) {
 	if jsonOut {
-		_ = printJSON(map[string]any{
+		_ = printJSON(out, map[string]any{
 			"error":   true,
 			"code":    jira4claude.ErrorCode(err),
 			"message": jira4claude.ErrorMessage(err),
 		})
 		return
 	}
-	fmt.Fprintln(os.Stderr, errorStyle.Render("Error: ")+jira4claude.ErrorMessage(err))
+	fmt.Fprintln(errOut, errorStyle.Render("Error: ")+jira4claude.ErrorMessage(err))
 }
 
-func printJSON(v any) error {
-	enc := json.NewEncoder(os.Stdout)
+func printJSON(w io.Writer, v any) error {
+	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")
 	return enc.Encode(v)
 }
@@ -679,8 +684,8 @@ func printIssueDetail(w io.Writer, issue *jira4claude.Issue, server string) {
 	fmt.Fprintf(w, "\n%s/browse/%s\n", server, issue.Key)
 }
 
-func printIssueTable(issues []*jira4claude.Issue) {
-	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+func printIssueTable(out io.Writer, issues []*jira4claude.Issue) {
+	w := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
 	fmt.Fprintln(w, headerStyle.Render("KEY")+"\t"+headerStyle.Render("STATUS")+"\t"+headerStyle.Render("ASSIGNEE")+"\t"+headerStyle.Render("SUMMARY"))
 	for _, issue := range issues {
 		assignee := "-"
