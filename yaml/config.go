@@ -96,31 +96,57 @@ type InitResult struct {
 func Init(dir, server, project string) (*InitResult, error) {
 	configPath := filepath.Join(dir, configFileName)
 
-	// Check if config already exists
+	if err := validateConfigDoesNotExist(configPath); err != nil {
+		return nil, err
+	}
+
+	if err := createConfigFile(configPath, server, project); err != nil {
+		return nil, err
+	}
+
+	result := &InitResult{ConfigCreated: true}
+
+	gitignorePath := filepath.Join(dir, ".gitignore")
+	added, exists, err := ensureGitignoreEntry(gitignorePath, configFileName)
+	if err != nil {
+		return nil, err
+	}
+	result.GitignoreAdded = added
+	result.GitignoreExists = exists
+
+	return result, nil
+}
+
+// validateConfigDoesNotExist checks that no config file exists at the given path.
+func validateConfigDoesNotExist(configPath string) error {
 	if _, err := os.Stat(configPath); err == nil {
-		return nil, &jira4claude.Error{
+		return &jira4claude.Error{
 			Code:    jira4claude.EValidation,
 			Message: configFileName + " already exists",
 		}
 	}
+	return nil
+}
 
-	// Create config file
+// createConfigFile writes a new config file with the given server and project.
+func createConfigFile(configPath, server, project string) error {
 	content := "server: " + server + "\nproject: " + project + "\n"
 	if err := os.WriteFile(configPath, []byte(content), 0o600); err != nil {
-		return nil, &jira4claude.Error{
+		return &jira4claude.Error{
 			Code:    jira4claude.EInternal,
 			Message: "failed to create config file",
 			Inner:   err,
 		}
 	}
+	return nil
+}
 
-	result := &InitResult{ConfigCreated: true}
-
-	// Handle .gitignore
-	gitignorePath := filepath.Join(dir, ".gitignore")
-	gitignoreContent, err := os.ReadFile(gitignorePath)
+// ensureGitignoreEntry ensures the given entry is present in the gitignore file.
+// Returns (added, alreadyExists, error).
+func ensureGitignoreEntry(gitignorePath, entry string) (bool, bool, error) {
+	content, err := os.ReadFile(gitignorePath)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
-		return nil, &jira4claude.Error{
+		return false, false, &jira4claude.Error{
 			Code:    jira4claude.EInternal,
 			Message: "failed to read .gitignore",
 			Inner:   err,
@@ -128,29 +154,27 @@ func Init(dir, server, project string) (*InitResult, error) {
 	}
 
 	// Check if already in .gitignore (exact match on its own line)
-	for _, line := range strings.Split(string(gitignoreContent), "\n") {
-		if strings.TrimSpace(line) == configFileName {
-			result.GitignoreExists = true
-			return result, nil
+	for _, line := range strings.Split(string(content), "\n") {
+		if strings.TrimSpace(line) == entry {
+			return false, true, nil
 		}
 	}
 
 	// Append to .gitignore
 	var newContent string
-	if len(gitignoreContent) > 0 && !strings.HasSuffix(string(gitignoreContent), "\n") {
-		newContent = string(gitignoreContent) + "\n" + configFileName + "\n"
+	if len(content) > 0 && !strings.HasSuffix(string(content), "\n") {
+		newContent = string(content) + "\n" + entry + "\n"
 	} else {
-		newContent = string(gitignoreContent) + configFileName + "\n"
+		newContent = string(content) + entry + "\n"
 	}
 
 	if err := os.WriteFile(gitignorePath, []byte(newContent), 0o644); err != nil {
-		return nil, &jira4claude.Error{
+		return false, false, &jira4claude.Error{
 			Code:    jira4claude.EInternal,
 			Message: "failed to update .gitignore",
 			Inner:   err,
 		}
 	}
 
-	result.GitignoreAdded = true
-	return result, nil
+	return true, false, nil
 }
