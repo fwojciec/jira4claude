@@ -47,11 +47,11 @@ Extract the task ID from the current branch name (format: `J4C-XXX`).
 
 ### 4. Push and Create Pull Request
 
-Push branch and create PR:
+Push branch and create PR. **Important**: Prefix the PR title with the Jira issue key for easy identification (e.g., "J4C-39: Add --markdown flag").
 
 ```bash
 git push -u origin <branch-name>
-gh pr create --title "<title>" --body "$(cat <<'EOF'
+gh pr create --title "<task-id>: <title>" --body "$(cat <<'EOF'
 ## Summary
 <2-3 bullets of what changed>
 
