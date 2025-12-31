@@ -24,7 +24,7 @@ For each worktree directory in `.worktrees/`, gather:
 
 **Jira status:**
 ```bash
-./jira4claude --config=.jira4claude.yaml view <task-id> --json | jq -r '.status'
+./j4c issue view <task-id> --json | jq -r '.status'
 ```
 
 **PR status:**

@@ -35,15 +35,15 @@ Extract the task ID from the current branch name (format: `J4C-XXX`).
 
 1. Transition to "Done":
    ```bash
-   ./jira4claude --config=.jira4claude.yaml transition <task-id> --status="Done"
+   ./j4c issue transition <task-id> --status="Done"
    ```
 
 2. Verify status:
    ```bash
-   ./jira4claude --config=.jira4claude.yaml view <task-id>
+   ./j4c issue view <task-id> --markdown
    ```
 
-**Note**: Use `./jira4claude --config=.jira4claude.yaml transition <task-id> --list-only` to see available transitions if needed.
+**Note**: Use `./j4c issue transitions <task-id>` to see available transitions if needed.
 
 ### 4. Push and Create Pull Request
 

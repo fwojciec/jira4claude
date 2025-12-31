@@ -21,11 +21,11 @@ If any checks fail, stop and resolve with the user before continuing.
 ### 2. Task Selection
 
 **If a task ID was provided via argument ($1)**:
-- Fetch the task from Jira: `./jira4claude --config=.jira4claude.yaml view $1`
+- Fetch the task from Jira: `./j4c issue view $1 --markdown`
 - Skip to step 3 (Branch Setup)
 
 **If no task ID was provided**:
-- List open tasks: `./jira4claude --config=.jira4claude.yaml list --jql="status != Done"`
+- List open tasks: `./j4c issue list --jql="status NOT IN (Done)"`
 - Present the tasks to the user
 - Use the AskUserQuestion tool to let the user choose which task to work on
 
@@ -35,11 +35,11 @@ Once you have a task ID:
 1. Create branch: `git checkout -b <task-id>` (e.g., `git checkout -b J4C-42`)
 2. Transition to "In Progress" (if workflow supports it):
    ```bash
-   ./jira4claude --config=.jira4claude.yaml transition <task-id> --status="Start Progress"
+   ./j4c issue transition <task-id> --status="Start Progress"
    ```
-3. Show task details: `./jira4claude --config=.jira4claude.yaml view <task-id>`
+3. Show task details: `./j4c issue view <task-id> --markdown`
 
-**Note**: Use `./jira4claude --config=.jira4claude.yaml transition <task-id> --list-only` to see available transitions.
+**Note**: Use `./j4c issue transitions <task-id>` to see available transitions.
 
 ### 4. Implementation
 

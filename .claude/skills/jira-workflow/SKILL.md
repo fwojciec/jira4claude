@@ -5,9 +5,28 @@ description: Manage J4C project tasks via Jira API. Use for ALL Jira project man
 
 # Jira Workflow Skill
 
-Project-specific skill for managing J4C tasks using jira4claude CLI.
+Project-specific skill for managing J4C tasks using the `j4c` CLI.
 
 **This skill MUST be used for ANY Jira project management work.**
+
+## Dogfooding
+
+This project uses its own CLI (`j4c`) to manage Jira tasks. When you encounter unexpected behavior, errors, or UX friction while using `j4c`:
+
+1. **Pause** - Don't work around the issue
+2. **Evaluate** - Is this a bug, missing feature, or documentation gap?
+3. **Create an issue** - Use `j4c issue create` to file a task describing the problem
+4. **Continue** - Work around the issue temporarily if needed, but the issue ensures it gets fixed
+
+This feedback loop is essential for improving the tool.
+
+## Building the CLI
+
+If `j4c` binary doesn't exist, build it:
+
+```bash
+go build -o j4c ./cmd/j4c
+```
 
 ## Handling Missing Config
 
@@ -16,7 +35,7 @@ If you see: `Error: no config file found`
 Create a local config:
 
 ```bash
-./jira4claude init --server=https://fwojciec.atlassian.net --project=J4C
+j4c init --server=https://fwojciec.atlassian.net --project=J4C
 ```
 
 This creates `.jira4claude.yaml` and adds it to `.gitignore`.
@@ -61,42 +80,37 @@ This creates `.jira4claude.yaml` and adds it to `.gitignore`.
 3. Scope constraints prevent over-engineering
 4. Validation requirements must be testable/observable
 
-## Text Formatting in Descriptions
+## Markdown in Descriptions and Comments
 
-**Note:** The template above uses markdown (##, -, etc.) to show the STRUCTURE Claude should follow. However, Jira descriptions are plain text - markdown won't render. Use the template headings as plain text section headers.
+The CLI supports GitHub-flavored markdown when using the `--markdown` flag. Markdown is converted to Atlassian Document Format (ADF) automatically.
 
-The CLI automatically converts plain text to Atlassian Document Format (ADF). Use these patterns:
+**Supported formatting:**
 
-| Format | Input | Result |
-|--------|-------|--------|
-| Paragraphs | Double newlines (`\n\n`) | Separate paragraphs |
-| Line breaks | Single newlines (`\n`) | Line break within paragraph |
-| Plain text | Regular text | Preserved as-is |
+| Markdown | Result in Jira |
+|----------|----------------|
+| `## Heading` | Heading level 2 |
+| `### Heading` | Heading level 3 |
+| `- item` | Bullet list |
+| `1. item` | Numbered list |
+| `**bold**` | Bold text |
+| `*italic*` | Italic text |
+| `` `code` `` | Inline code |
+| ` ``` ` blocks | Code blocks |
+| `[text](url)` | Links |
+| Blank lines | Paragraph breaks |
 
-**Example:**
-```
-First paragraph here.
-
-Second paragraph here.
-With a line break.
-```
-
-**Currently NOT supported in Jira:** Bold, italic, code blocks, lists, links, mentions. Use plain text only.
+**Always use `--markdown` flag** when creating or commenting with formatted text.
 
 ## Commands
+
+All commands output human-readable text by default. Use `--json` when you need structured data for programmatic processing.
 
 ### List Open Tasks
 
 Show all tasks not marked Done:
 
 ```bash
-./jira4claude list --jql="status != Done"
-```
-
-For JSON output, add `--json`:
-
-```bash
-./jira4claude list --jql="status != Done" --json
+j4c issue list --jql="status NOT IN (Done)"
 ```
 
 ### Show Ready Tasks (Unblocked)
@@ -104,51 +118,39 @@ For JSON output, add `--json`:
 Find tasks with no unresolved blockers:
 
 ```bash
-./jira4claude ready
-```
-
-For JSON output:
-
-```bash
-./jira4claude ready --json
+j4c issue ready
 ```
 
 This shows tasks where all blockers are Done (or have no blockers).
 
 ### Show Task Details
 
-Get full details for a specific task:
+Get full details for a specific task with formatted output:
 
 ```bash
-./jira4claude view J4C-123
+j4c issue view J4C-123 --markdown
 ```
 
-For JSON output:
-
-```bash
-./jira4claude view J4C-123 --json
-```
+The `--markdown` flag converts the description back to readable markdown. Without it, formatting is collapsed into plain text.
 
 ### Create Task
 
-Create a new task with description:
+Create a new task with markdown description:
 
 ```bash
-./jira4claude create \
+j4c issue create \
   --summary="Task title here" \
-  --description="Description here"
+  --description="## Context
+
+Description with markdown formatting.
+
+## Validation Requirements
+
+- Test requirement here" \
+  --markdown
 ```
 
-For JSON output (returns the created issue key):
-
-```bash
-./jira4claude create \
-  --summary="Task title here" \
-  --description="Description here" \
-  --json
-```
-
-Multi-line descriptions are supported - newlines are preserved.
+The `--markdown` flag enables GitHub-flavored markdown parsing.
 
 ### Link Tasks (Blocks Relationship)
 
@@ -157,7 +159,7 @@ Multi-line descriptions are supported - newlines are preserved.
 #### The Golden Rule
 
 ```
-./jira4claude link FIRST Blocks SECOND
+j4c link create FIRST Blocks SECOND
 ```
 
 - **FIRST** = the blocker (do this first, shows in `ready`)
@@ -170,19 +172,19 @@ Multi-line descriptions are supported - newlines are preserved.
 **Goal:** J4C-7 (error handling) must be done before J4C-8 (config loading)
 
 ```bash
-./jira4claude link J4C-7 Blocks J4C-8
+j4c link create J4C-7 Blocks J4C-8
 ```
 
 **After running this command:**
 
 ```bash
-./jira4claude view J4C-7
+j4c issue view J4C-7
 # Shows: "blocks J4C-8"
 
-./jira4claude view J4C-8
+j4c issue view J4C-8
 # Shows: "is blocked by J4C-7"
 
-./jira4claude ready
+j4c issue ready
 # Shows J4C-7 (the blocker is ready to work on)
 # Does NOT show J4C-8 (blocked until J4C-7 is Done)
 ```
@@ -192,7 +194,7 @@ Multi-line descriptions are supported - newlines are preserved.
 **Always verify links using the `ready` command:**
 
 ```bash
-./jira4claude ready
+j4c issue ready
 ```
 
 Ask yourself:
@@ -203,7 +205,7 @@ If the wrong task is blocked, you got the direction backwards. Delete and recrea
 
 #### Common Mistake
 
-**Wrong:** You want A done before B, but you run `link B Blocks A`
+**Wrong:** You want A done before B, but you run `link create B Blocks A`
 - Result: B appears blocked, A appears ready - the opposite of what you wanted!
 
 **Fix:** Always read the command as a sentence. "A blocks B" means A is the prerequisite.
@@ -212,15 +214,23 @@ If the wrong task is blocked, you got the direction backwards. Delete and recrea
 
 | You want | Command | Ready shows |
 |----------|---------|-------------|
-| A before B | `link A Blocks B` | A (not B) |
-| B depends on A | `link A Blocks B` | A (not B) |
+| A before B | `link create A Blocks B` | A (not B) |
+| B depends on A | `link create A Blocks B` | A (not B) |
+
+### View Links
+
+List all links for an issue:
+
+```bash
+j4c link list J4C-123
+```
 
 ### Delete Link
 
 If you created a link with wrong direction, delete and recreate:
 
 ```bash
-./jira4claude unlink J4C-7 J4C-8
+j4c link delete J4C-7 J4C-8
 ```
 
 This removes any link between the two issues (regardless of direction).
@@ -230,19 +240,19 @@ This removes any link between the two issues (regardless of direction).
 List available transitions for a task:
 
 ```bash
-./jira4claude transition J4C-123 --list-only
+j4c issue transitions J4C-123
 ```
 
 Execute a transition by status name:
 
 ```bash
-./jira4claude transition J4C-123 --status="Done"
+j4c issue transition J4C-123 --status="Done"
 ```
 
 Or by transition ID:
 
 ```bash
-./jira4claude transition J4C-123 --transition-id="21"
+j4c issue transition J4C-123 --id="21"
 ```
 
 Common transitions (may vary by workflow):
@@ -251,42 +261,41 @@ Common transitions (may vary by workflow):
 
 ### Add Comment
 
-Add a comment to a task:
+Add a comment to a task (with markdown):
 
 ```bash
-./jira4claude comment J4C-123 --body="Comment text here"
+j4c issue comment J4C-123 --body="Comment text here" --markdown
 ```
 
-For JSON output:
+## When to Use --json
 
-```bash
-./jira4claude comment J4C-123 --body="Comment text here" --json
-```
+Use `--json` flag when:
+- Parsing output programmatically
+- Extracting specific fields for further processing
+- Chaining commands where structured data helps
+
+For reading and understanding tasks, the default text output is preferred.
 
 ## Planning Dependencies
 
 Before creating tasks with dependencies, draw the dependency graph first:
 
 ```
-BLOCKER → BLOCKED (arrow points to what depends on it)
+BLOCKER -> BLOCKED (arrow points to what depends on it)
 
-Example for jira4claude:
-  J4C-6 (domain types) ──→ J4C-13 (mocks)
-  J4C-7 (error handling) ──→ J4C-8 (config)
-  J4C-9 (HTTP client) ──→ J4C-11 (IssueService CRUD)
-  J4C-10 (ADF helper) ──→ J4C-11
-  J4C-11 ──→ J4C-12 (other ops)
-  J4C-11, J4C-12, J4C-13 ──→ J4C-14 (CLI)
+Example:
+  J4C-6 (domain types) --> J4C-13 (mocks)
+  J4C-7 (error handling) --> J4C-8 (config)
+  J4C-9 (HTTP client) --> J4C-11 (IssueService CRUD)
 ```
 
 **Rules:**
 1. Foundation tasks (no dependencies) should be done first
 2. Only link immediate dependencies, not transitive ones
-3. After creating links, run "Show Ready Tasks" to verify correct tasks are unblocked
+3. After creating links, run `j4c issue ready` to verify correct tasks are unblocked
 
 ## Notes
 
 - **CLI auto-discovers config**: searches `./.jira4claude.yaml` then `~/.jira4claude.yaml`
 - **CLI credentials**: reads from `.netrc`
-- Add `--json` to any CLI command for JSON output
 - The CLI handles Atlassian Document Format (ADF) conversion automatically

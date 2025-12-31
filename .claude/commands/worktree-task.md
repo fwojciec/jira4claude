@@ -22,16 +22,16 @@ If any checks fail, stop and resolve with the user before continuing.
 
 ### 2. Build the CLI
 
-Build the jira4claude binary for this worktree:
+Build the j4c binary for this worktree:
 ```bash
-go build -o jira4claude ./cmd/jira4claude
+go build -o j4c ./cmd/j4c
 ```
 
 ### 3. Fetch Task Details
 
 Extract task ID from branch name and fetch details:
 ```bash
-./jira4claude --config=.jira4claude.yaml view <task-id>
+./j4c issue view <task-id> --markdown
 ```
 
 Display the task summary to orient the session.

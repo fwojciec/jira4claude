@@ -23,7 +23,7 @@ If any checks fail, stop and explain the issue to the user.
 
 Fetch the task from Jira to verify it exists and is workable:
 ```bash
-./jira4claude --config=.jira4claude.yaml view $ARGUMENTS
+./j4c issue view $ARGUMENTS --markdown
 ```
 
 If task is already "Done" or doesn't exist, stop and inform the user.
@@ -49,7 +49,7 @@ git worktree add .worktrees/$ARGUMENTS -b $ARGUMENTS origin/main
 
 ### 5. Copy Config File
 
-Copy the jira4claude config to the worktree (it's gitignored so not part of the checkout):
+Copy the j4c config to the worktree (it's gitignored so not part of the checkout):
 
 ```bash
 cp .jira4claude.yaml .worktrees/$ARGUMENTS/.jira4claude.yaml
@@ -59,10 +59,10 @@ cp .jira4claude.yaml .worktrees/$ARGUMENTS/.jira4claude.yaml
 
 Transition the task to "In Progress" to claim it:
 ```bash
-./jira4claude --config=.jira4claude.yaml transition $ARGUMENTS --status="Start Progress"
+./j4c issue transition $ARGUMENTS --status="Start Progress"
 ```
 
-**Note**: Use `./jira4claude --config=.jira4claude.yaml transition $ARGUMENTS --list-only` to see available transitions if the above fails.
+**Note**: Use `./j4c issue transitions $ARGUMENTS` to see available transitions if the above fails.
 
 ### 7. Report Success
 
