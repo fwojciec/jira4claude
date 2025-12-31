@@ -18,6 +18,29 @@ type Transition struct {
 	Name string
 }
 
+// IssueLinkType represents the type of relationship between linked issues.
+type IssueLinkType struct {
+	Name    string // e.g., "Blocks"
+	Inward  string // e.g., "is blocked by"
+	Outward string // e.g., "blocks"
+}
+
+// IssueLink represents a link between two issues.
+type IssueLink struct {
+	ID           string
+	Type         IssueLinkType
+	OutwardIssue *LinkedIssue // Present when this issue is the source
+	InwardIssue  *LinkedIssue // Present when this issue is the target
+}
+
+// LinkedIssue contains summary information about a linked issue.
+type LinkedIssue struct {
+	Key     string
+	Summary string
+	Status  string
+	Type    string
+}
+
 // Comment represents a comment on an issue.
 type Comment struct {
 	ID      string
@@ -38,6 +61,7 @@ type Issue struct {
 	Assignee    *User
 	Reporter    *User
 	Labels      []string
+	Links       []*IssueLink
 	Created     time.Time
 	Updated     time.Time
 }
@@ -95,4 +119,15 @@ type IssueService interface {
 
 	// Assign assigns an issue to a user by account ID.
 	Assign(ctx context.Context, key, accountID string) error
+
+	// Link creates a link between two issues.
+	// The linkType is the name of the link type (e.g., "Blocks").
+	// The inwardKey is the issue that has the relationship, and the outwardKey
+	// is the issue it points to. For example, Link(ctx, "A", "Blocks", "B")
+	// means that issue A blocks issue B (A is the blocker, B is blocked).
+	Link(ctx context.Context, inwardKey, linkType, outwardKey string) error
+
+	// Unlink removes a link between two issues.
+	// It finds and removes any link connecting the two issues.
+	Unlink(ctx context.Context, key1, key2 string) error
 }

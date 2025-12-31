@@ -29,6 +29,8 @@ type CLI struct {
 	Comment    CommentCmd    `cmd:"" help:"Add a comment to an issue"`
 	Transition TransitionCmd `cmd:"" help:"Transition an issue to a new status"`
 	Assign     AssignCmd     `cmd:"" help:"Assign an issue to a user"`
+	Link       LinkCmd       `cmd:"" help:"Link two issues together"`
+	Unlink     UnlinkCmd     `cmd:"" help:"Remove link between two issues"`
 }
 
 // InitCmd initializes a new config file.
@@ -91,6 +93,19 @@ type TransitionCmd struct {
 type AssignCmd struct {
 	Key       string `arg:"" help:"Issue key (e.g., PROJ-123)"`
 	AccountID string `help:"User account ID (omit to unassign)" short:"a"`
+}
+
+// LinkCmd links two issues together.
+type LinkCmd struct {
+	InwardKey  string `arg:"" help:"Source issue key (e.g., PROJ-123)"`
+	LinkType   string `arg:"" help:"Link type (e.g., Blocks, Clones, Relates)"`
+	OutwardKey string `arg:"" help:"Target issue key (e.g., PROJ-456)"`
+}
+
+// UnlinkCmd removes a link between two issues.
+type UnlinkCmd struct {
+	Key1 string `arg:"" help:"First issue key (e.g., PROJ-123)"`
+	Key2 string `arg:"" help:"Second issue key (e.g., PROJ-456)"`
 }
 
 // Styles for output formatting.
@@ -399,6 +414,48 @@ func (c *AssignCmd) Run(app *App) error {
 	return nil
 }
 
+// Run executes the link command.
+func (c *LinkCmd) Run(app *App) error {
+	if err := app.service.Link(context.Background(), c.InwardKey, c.LinkType, c.OutwardKey); err != nil {
+		return err
+	}
+
+	if app.jsonOut {
+		return printJSON(map[string]any{
+			"linked":     true,
+			"inwardKey":  c.InwardKey,
+			"linkType":   c.LinkType,
+			"outwardKey": c.OutwardKey,
+		})
+	}
+
+	fmt.Printf("Linked %s %s %s\n",
+		keyStyle.Render(c.InwardKey),
+		c.LinkType,
+		keyStyle.Render(c.OutwardKey))
+	return nil
+}
+
+// Run executes the unlink command.
+func (c *UnlinkCmd) Run(app *App) error {
+	if err := app.service.Unlink(context.Background(), c.Key1, c.Key2); err != nil {
+		return err
+	}
+
+	if app.jsonOut {
+		return printJSON(map[string]any{
+			"unlinked": true,
+			"key1":     c.Key1,
+			"key2":     c.Key2,
+		})
+	}
+
+	fmt.Printf("Unlinked %s and %s\n",
+		keyStyle.Render(c.Key1),
+		keyStyle.Render(c.Key2))
+	return nil
+}
+
 // Run executes the init command.
 func (c *InitCmd) Run(cli *CLI) error {
 	workDir, err := os.Getwd()
@@ -482,6 +539,37 @@ func issueToMap(issue *jira4claude.Issue, server string) map[string]any {
 			"email":       issue.Reporter.Email,
 		}
 	}
+	if len(issue.Links) > 0 {
+		links := make([]map[string]any, len(issue.Links))
+		for i, link := range issue.Links {
+			linkMap := map[string]any{
+				"id": link.ID,
+				"type": map[string]any{
+					"name":    link.Type.Name,
+					"inward":  link.Type.Inward,
+					"outward": link.Type.Outward,
+				},
+			}
+			if link.OutwardIssue != nil {
+				linkMap["outwardIssue"] = map[string]any{
+					"key":     link.OutwardIssue.Key,
+					"summary": link.OutwardIssue.Summary,
+					"status":  link.OutwardIssue.Status,
+					"type":    link.OutwardIssue.Type,
+				}
+			}
+			if link.InwardIssue != nil {
+				linkMap["inwardIssue"] = map[string]any{
+					"key":     link.InwardIssue.Key,
+					"summary": link.InwardIssue.Summary,
+					"status":  link.InwardIssue.Status,
+					"type":    link.InwardIssue.Type,
+				}
+			}
+			links[i] = linkMap
+		}
+		m["links"] = links
+	}
 	return m
 }
 
@@ -501,6 +589,23 @@ func printIssueDetail(issue *jira4claude.Issue, server string) {
 	}
 	if len(issue.Labels) > 0 {
 		fmt.Printf("Labels: %s\n", labelStyle.Render(strings.Join(issue.Labels, ", ")))
+	}
+	if len(issue.Links) > 0 {
+		fmt.Println("Links:")
+		for _, link := range issue.Links {
+			if link.OutwardIssue != nil {
+				fmt.Printf("  %s %s (%s)\n",
+					link.Type.Outward,
+					keyStyle.Render(link.OutwardIssue.Key),
+					link.OutwardIssue.Summary)
+			}
+			if link.InwardIssue != nil {
+				fmt.Printf("  %s %s (%s)\n",
+					link.Type.Inward,
+					keyStyle.Render(link.InwardIssue.Key),
+					link.InwardIssue.Summary)
+			}
+		}
 	}
 
 	if issue.Description != "" {

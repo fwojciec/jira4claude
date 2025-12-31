@@ -20,6 +20,8 @@ type IssueService struct {
 	TransitionsFn func(ctx context.Context, key string) ([]*jira4claude.Transition, error)
 	TransitionFn  func(ctx context.Context, key, transitionID string) error
 	AssignFn      func(ctx context.Context, key, accountID string) error
+	LinkFn        func(ctx context.Context, inwardKey, linkType, outwardKey string) error
+	UnlinkFn      func(ctx context.Context, key1, key2 string) error
 }
 
 func (s *IssueService) Create(ctx context.Context, issue *jira4claude.Issue) (*jira4claude.Issue, error) {
@@ -56,4 +58,12 @@ func (s *IssueService) Transition(ctx context.Context, key, transitionID string)
 
 func (s *IssueService) Assign(ctx context.Context, key, accountID string) error {
 	return s.AssignFn(ctx, key, accountID)
+}
+
+func (s *IssueService) Link(ctx context.Context, inwardKey, linkType, outwardKey string) error {
+	return s.LinkFn(ctx, inwardKey, linkType, outwardKey)
+}
+
+func (s *IssueService) Unlink(ctx context.Context, key1, key2 string) error {
+	return s.UnlinkFn(ctx, key1, key2)
 }

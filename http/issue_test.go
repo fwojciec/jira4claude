@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/fwojciec/jira4claude"
@@ -193,6 +194,84 @@ func TestIssueService_Get(t *testing.T) {
 
 		require.Error(t, err)
 		assert.Equal(t, jira4claude.ENotFound, jira4claude.ErrorCode(err))
+	})
+
+	t.Run("returns issue with links", func(t *testing.T) {
+		t.Parallel()
+
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Method != http.MethodGet || r.URL.Path != "/rest/api/3/issue/TEST-1" {
+				w.WriteHeader(http.StatusNotFound)
+				return
+			}
+
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{
+				"key": "TEST-1",
+				"fields": {
+					"project": {"key": "TEST"},
+					"summary": "Test issue",
+					"status": {"name": "To Do"},
+					"issuetype": {"name": "Task"},
+					"issuelinks": [
+						{
+							"id": "10001",
+							"type": {"name": "Blocks", "inward": "is blocked by", "outward": "blocks"},
+							"outwardIssue": {
+								"key": "TEST-2",
+								"fields": {
+									"summary": "Blocked issue",
+									"status": {"name": "In Progress"},
+									"issuetype": {"name": "Bug"}
+								}
+							}
+						},
+						{
+							"id": "10002",
+							"type": {"name": "Blocks", "inward": "is blocked by", "outward": "blocks"},
+							"inwardIssue": {
+								"key": "TEST-3",
+								"fields": {
+									"summary": "Blocking issue",
+									"status": {"name": "Done"},
+									"issuetype": {"name": "Task"}
+								}
+							}
+						}
+					]
+				}
+			}`))
+		}))
+		defer server.Close()
+
+		client := newTestClient(t, server.URL, "user@example.com", "api-token")
+		svc := jirahttp.NewIssueService(client)
+
+		issue, err := svc.Get(context.Background(), "TEST-1")
+
+		require.NoError(t, err)
+		require.Len(t, issue.Links, 2)
+
+		// First link: outward (TEST-1 blocks TEST-2)
+		assert.Equal(t, "10001", issue.Links[0].ID)
+		assert.Equal(t, "Blocks", issue.Links[0].Type.Name)
+		assert.Equal(t, "is blocked by", issue.Links[0].Type.Inward)
+		assert.Equal(t, "blocks", issue.Links[0].Type.Outward)
+		require.NotNil(t, issue.Links[0].OutwardIssue)
+		assert.Equal(t, "TEST-2", issue.Links[0].OutwardIssue.Key)
+		assert.Equal(t, "Blocked issue", issue.Links[0].OutwardIssue.Summary)
+		assert.Equal(t, "In Progress", issue.Links[0].OutwardIssue.Status)
+		assert.Equal(t, "Bug", issue.Links[0].OutwardIssue.Type)
+		assert.Nil(t, issue.Links[0].InwardIssue)
+
+		// Second link: inward (TEST-3 blocks TEST-1)
+		assert.Equal(t, "10002", issue.Links[1].ID)
+		require.NotNil(t, issue.Links[1].InwardIssue)
+		assert.Equal(t, "TEST-3", issue.Links[1].InwardIssue.Key)
+		assert.Equal(t, "Blocking issue", issue.Links[1].InwardIssue.Summary)
+		assert.Equal(t, "Done", issue.Links[1].InwardIssue.Status)
+		assert.Equal(t, "Task", issue.Links[1].InwardIssue.Type)
+		assert.Nil(t, issue.Links[1].OutwardIssue)
 	})
 }
 
@@ -777,6 +856,240 @@ func TestIssueService_Transition(t *testing.T) {
 
 		require.Error(t, err)
 		assert.Equal(t, jira4claude.EValidation, jira4claude.ErrorCode(err))
+	})
+}
+
+func TestIssueService_Link(t *testing.T) {
+	t.Parallel()
+
+	t.Run("creates link between issues", func(t *testing.T) {
+		t.Parallel()
+
+		var receivedRequest map[string]any
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Method != http.MethodPost || r.URL.Path != "/rest/api/3/issueLink" {
+				w.WriteHeader(http.StatusNotFound)
+				return
+			}
+
+			_ = json.NewDecoder(r.Body).Decode(&receivedRequest)
+			w.WriteHeader(http.StatusCreated)
+		}))
+		defer server.Close()
+
+		client := newTestClient(t, server.URL, "user@example.com", "api-token")
+		svc := jirahttp.NewIssueService(client)
+
+		err := svc.Link(context.Background(), "TEST-1", "Blocks", "TEST-2")
+
+		require.NoError(t, err)
+
+		// Verify request structure
+		linkType := receivedRequest["type"].(map[string]any)
+		assert.Equal(t, "Blocks", linkType["name"])
+
+		inwardIssue := receivedRequest["inwardIssue"].(map[string]any)
+		assert.Equal(t, "TEST-1", inwardIssue["key"])
+
+		outwardIssue := receivedRequest["outwardIssue"].(map[string]any)
+		assert.Equal(t, "TEST-2", outwardIssue["key"])
+	})
+
+	t.Run("returns error when issue not found", func(t *testing.T) {
+		t.Parallel()
+
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = w.Write([]byte(`{"errorMessages": ["Issue does not exist"], "errors": {}}`))
+		}))
+		defer server.Close()
+
+		client := newTestClient(t, server.URL, "user@example.com", "api-token")
+		svc := jirahttp.NewIssueService(client)
+
+		err := svc.Link(context.Background(), "NOTFOUND-1", "Blocks", "TEST-2")
+
+		require.Error(t, err)
+		assert.Equal(t, jira4claude.ENotFound, jira4claude.ErrorCode(err))
+	})
+
+	t.Run("returns error for invalid link type", func(t *testing.T) {
+		t.Parallel()
+
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"errorMessages": ["No issue link type with name 'Invalid' exists"], "errors": {}}`))
+		}))
+		defer server.Close()
+
+		client := newTestClient(t, server.URL, "user@example.com", "api-token")
+		svc := jirahttp.NewIssueService(client)
+
+		err := svc.Link(context.Background(), "TEST-1", "Invalid", "TEST-2")
+
+		require.Error(t, err)
+		assert.Equal(t, jira4claude.EValidation, jira4claude.ErrorCode(err))
+	})
+}
+
+func TestIssueService_Unlink(t *testing.T) {
+	t.Parallel()
+
+	t.Run("removes link between issues", func(t *testing.T) {
+		t.Parallel()
+
+		var deletedLinkID string
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// First, the service fetches the issue to find the link
+			if r.Method == http.MethodGet && r.URL.Path == "/rest/api/3/issue/TEST-1" {
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(`{
+					"key": "TEST-1",
+					"fields": {
+						"project": {"key": "TEST"},
+						"summary": "Test issue",
+						"status": {"name": "To Do"},
+						"issuetype": {"name": "Task"},
+						"issuelinks": [
+							{
+								"id": "10001",
+								"type": {"name": "Blocks", "inward": "is blocked by", "outward": "blocks"},
+								"outwardIssue": {
+									"key": "TEST-2",
+									"fields": {
+										"summary": "Target issue",
+										"status": {"name": "To Do"},
+										"issuetype": {"name": "Task"}
+									}
+								}
+							}
+						]
+					}
+				}`))
+				return
+			}
+
+			// Then, it deletes the link
+			const linkPath = "/rest/api/3/issueLink/"
+			if r.Method == http.MethodDelete && strings.HasPrefix(r.URL.Path, linkPath) {
+				deletedLinkID = strings.TrimPrefix(r.URL.Path, linkPath)
+				w.WriteHeader(http.StatusNoContent)
+				return
+			}
+
+			w.WriteHeader(http.StatusNotFound)
+		}))
+		defer server.Close()
+
+		client := newTestClient(t, server.URL, "user@example.com", "api-token")
+		svc := jirahttp.NewIssueService(client)
+
+		err := svc.Unlink(context.Background(), "TEST-1", "TEST-2")
+
+		require.NoError(t, err)
+		assert.Equal(t, "10001", deletedLinkID)
+	})
+
+	t.Run("removes link when issues are in reverse order", func(t *testing.T) {
+		t.Parallel()
+
+		var deletedLinkID string
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Method == http.MethodGet && r.URL.Path == "/rest/api/3/issue/TEST-2" {
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(`{
+					"key": "TEST-2",
+					"fields": {
+						"project": {"key": "TEST"},
+						"summary": "Test issue",
+						"status": {"name": "To Do"},
+						"issuetype": {"name": "Task"},
+						"issuelinks": [
+							{
+								"id": "10002",
+								"type": {"name": "Blocks", "inward": "is blocked by", "outward": "blocks"},
+								"inwardIssue": {
+									"key": "TEST-1",
+									"fields": {
+										"summary": "Source issue",
+										"status": {"name": "To Do"},
+										"issuetype": {"name": "Task"}
+									}
+								}
+							}
+						]
+					}
+				}`))
+				return
+			}
+
+			const linkPath = "/rest/api/3/issueLink/"
+			if r.Method == http.MethodDelete && strings.HasPrefix(r.URL.Path, linkPath) {
+				deletedLinkID = strings.TrimPrefix(r.URL.Path, linkPath)
+				w.WriteHeader(http.StatusNoContent)
+				return
+			}
+
+			w.WriteHeader(http.StatusNotFound)
+		}))
+		defer server.Close()
+
+		client := newTestClient(t, server.URL, "user@example.com", "api-token")
+		svc := jirahttp.NewIssueService(client)
+
+		err := svc.Unlink(context.Background(), "TEST-2", "TEST-1")
+
+		require.NoError(t, err)
+		assert.Equal(t, "10002", deletedLinkID)
+	})
+
+	t.Run("returns error when no link exists", func(t *testing.T) {
+		t.Parallel()
+
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Method == http.MethodGet && r.URL.Path == "/rest/api/3/issue/TEST-1" {
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(`{
+					"key": "TEST-1",
+					"fields": {
+						"project": {"key": "TEST"},
+						"summary": "Test issue",
+						"status": {"name": "To Do"},
+						"issuetype": {"name": "Task"},
+						"issuelinks": []
+					}
+				}`))
+				return
+			}
+			w.WriteHeader(http.StatusNotFound)
+		}))
+		defer server.Close()
+
+		client := newTestClient(t, server.URL, "user@example.com", "api-token")
+		svc := jirahttp.NewIssueService(client)
+
+		err := svc.Unlink(context.Background(), "TEST-1", "TEST-2")
+
+		require.Error(t, err)
+		assert.Equal(t, jira4claude.ENotFound, jira4claude.ErrorCode(err))
+	})
+
+	t.Run("returns error when issue not found", func(t *testing.T) {
+		t.Parallel()
+
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = w.Write([]byte(`{"errorMessages": ["Issue does not exist"], "errors": {}}`))
+		}))
+		defer server.Close()
+
+		client := newTestClient(t, server.URL, "user@example.com", "api-token")
+		svc := jirahttp.NewIssueService(client)
+
+		err := svc.Unlink(context.Background(), "NOTFOUND-1", "TEST-2")
+
+		require.Error(t, err)
+		assert.Equal(t, jira4claude.ENotFound, jira4claude.ErrorCode(err))
 	})
 }
 

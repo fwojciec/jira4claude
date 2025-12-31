@@ -167,7 +167,7 @@ func (s *IssueService) List(ctx context.Context, filter jira4claude.IssueFilter)
 
 	// Build request URL with query parameters
 	// The /search/jql endpoint requires explicit field selection
-	fields := "key,summary,status,issuetype,project,priority,assignee,reporter,labels,created,updated,description"
+	fields := "key,summary,status,issuetype,project,priority,assignee,reporter,labels,issuelinks,created,updated,description"
 	reqURL := "/rest/api/3/search/jql?jql=" + url.QueryEscape(jql) + "&fields=" + fields
 	if filter.Limit > 0 {
 		reqURL += "&maxResults=" + strconv.Itoa(filter.Limit)
@@ -598,8 +598,31 @@ type issueResponse struct {
 		Assignee    *userResponse         `json:"assignee"`
 		Reporter    *userResponse         `json:"reporter"`
 		Labels      []string              `json:"labels"`
+		IssueLinks  []issueLinkResponse   `json:"issuelinks"`
 		Created     string                `json:"created"`
 		Updated     string                `json:"updated"`
+	} `json:"fields"`
+}
+
+// issueLinkResponse represents a link in the Jira API response.
+type issueLinkResponse struct {
+	ID   string `json:"id"`
+	Type struct {
+		Name    string `json:"name"`
+		Inward  string `json:"inward"`
+		Outward string `json:"outward"`
+	} `json:"type"`
+	OutwardIssue *linkedIssueResponse `json:"outwardIssue"`
+	InwardIssue  *linkedIssueResponse `json:"inwardIssue"`
+}
+
+// linkedIssueResponse represents a linked issue in the Jira API response.
+type linkedIssueResponse struct {
+	Key    string `json:"key"`
+	Fields struct {
+		Summary   string                `json:"summary"`
+		Status    struct{ Name string } `json:"status"`
+		IssueType struct{ Name string } `json:"issuetype"`
 	} `json:"fields"`
 }
 
@@ -659,12 +682,216 @@ func parseIssueResponse(body []byte) (*jira4claude.Issue, error) {
 		}
 	}
 
+	// Parse issue links
+	if len(resp.Fields.IssueLinks) > 0 {
+		issue.Links = make([]*jira4claude.IssueLink, len(resp.Fields.IssueLinks))
+		for i, link := range resp.Fields.IssueLinks {
+			issueLink := &jira4claude.IssueLink{
+				ID: link.ID,
+				Type: jira4claude.IssueLinkType{
+					Name:    link.Type.Name,
+					Inward:  link.Type.Inward,
+					Outward: link.Type.Outward,
+				},
+			}
+			if link.OutwardIssue != nil {
+				issueLink.OutwardIssue = &jira4claude.LinkedIssue{
+					Key:     link.OutwardIssue.Key,
+					Summary: link.OutwardIssue.Fields.Summary,
+					Status:  link.OutwardIssue.Fields.Status.Name,
+					Type:    link.OutwardIssue.Fields.IssueType.Name,
+				}
+			}
+			if link.InwardIssue != nil {
+				issueLink.InwardIssue = &jira4claude.LinkedIssue{
+					Key:     link.InwardIssue.Key,
+					Summary: link.InwardIssue.Fields.Summary,
+					Status:  link.InwardIssue.Fields.Status.Name,
+					Type:    link.InwardIssue.Fields.IssueType.Name,
+				}
+			}
+			issue.Links[i] = issueLink
+		}
+	}
+
 	return issue, nil
 }
 
 // parseJiraTime parses a Jira timestamp string.
 func parseJiraTime(s string) (time.Time, error) {
 	return time.Parse("2006-01-02T15:04:05.000-0700", s)
+}
+
+// Link creates a link between two issues.
+func (s *IssueService) Link(ctx context.Context, inwardKey, linkType, outwardKey string) error {
+	reqBody := map[string]any{
+		"type":         map[string]any{"name": linkType},
+		"inwardIssue":  map[string]any{"key": inwardKey},
+		"outwardIssue": map[string]any{"key": outwardKey},
+	}
+
+	jsonBody, err := json.Marshal(reqBody)
+	if err != nil {
+		return &jira4claude.Error{
+			Code:    jira4claude.EInternal,
+			Message: "failed to marshal request",
+			Inner:   err,
+		}
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "/rest/api/3/issueLink", bytes.NewReader(jsonBody))
+	if err != nil {
+		return &jira4claude.Error{
+			Code:    jira4claude.EInternal,
+			Message: "failed to create request",
+			Inner:   err,
+		}
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := s.client.Do(req)
+	if err != nil {
+		return &jira4claude.Error{
+			Code:    jira4claude.EInternal,
+			Message: "request failed",
+			Inner:   err,
+		}
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusCreated {
+		respBody, _ := io.ReadAll(resp.Body)
+		if apiErr := ParseErrorResponse(resp.StatusCode, respBody); apiErr != nil {
+			return apiErr
+		}
+		return &jira4claude.Error{
+			Code:    statusCodeToErrorCode(resp.StatusCode),
+			Message: fmt.Sprintf("unexpected status: %d", resp.StatusCode),
+		}
+	}
+
+	return nil
+}
+
+// Unlink removes a link between two issues.
+func (s *IssueService) Unlink(ctx context.Context, key1, key2 string) error {
+	// Fetch the first issue to find the link
+	linkID, err := s.findLinkID(ctx, key1, key2)
+	if err != nil {
+		return err
+	}
+
+	// Delete the link
+	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, "/rest/api/3/issueLink/"+linkID, nil)
+	if err != nil {
+		return &jira4claude.Error{
+			Code:    jira4claude.EInternal,
+			Message: "failed to create request",
+			Inner:   err,
+		}
+	}
+
+	resp, err := s.client.Do(req)
+	if err != nil {
+		return &jira4claude.Error{
+			Code:    jira4claude.EInternal,
+			Message: "request failed",
+			Inner:   err,
+		}
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusNoContent {
+		respBody, _ := io.ReadAll(resp.Body)
+		if apiErr := ParseErrorResponse(resp.StatusCode, respBody); apiErr != nil {
+			return apiErr
+		}
+		return &jira4claude.Error{
+			Code:    statusCodeToErrorCode(resp.StatusCode),
+			Message: fmt.Sprintf("unexpected status: %d", resp.StatusCode),
+		}
+	}
+
+	return nil
+}
+
+// findLinkID finds the link ID connecting two issues.
+func (s *IssueService) findLinkID(ctx context.Context, key1, key2 string) (string, error) {
+	// Fetch issue with links
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "/rest/api/3/issue/"+key1, nil)
+	if err != nil {
+		return "", &jira4claude.Error{
+			Code:    jira4claude.EInternal,
+			Message: "failed to create request",
+			Inner:   err,
+		}
+	}
+
+	resp, err := s.client.Do(req)
+	if err != nil {
+		return "", &jira4claude.Error{
+			Code:    jira4claude.EInternal,
+			Message: "request failed",
+			Inner:   err,
+		}
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", &jira4claude.Error{
+			Code:    jira4claude.EInternal,
+			Message: "failed to read response",
+			Inner:   err,
+		}
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		if apiErr := ParseErrorResponse(resp.StatusCode, respBody); apiErr != nil {
+			return "", apiErr
+		}
+		return "", &jira4claude.Error{
+			Code:    statusCodeToErrorCode(resp.StatusCode),
+			Message: fmt.Sprintf("unexpected status: %d", resp.StatusCode),
+		}
+	}
+
+	// Parse the issue to find the link
+	var issueResp struct {
+		Fields struct {
+			IssueLinks []struct {
+				ID           string `json:"id"`
+				OutwardIssue *struct {
+					Key string `json:"key"`
+				} `json:"outwardIssue"`
+				InwardIssue *struct {
+					Key string `json:"key"`
+				} `json:"inwardIssue"`
+			} `json:"issuelinks"`
+		} `json:"fields"`
+	}
+	if err := json.Unmarshal(respBody, &issueResp); err != nil {
+		return "", &jira4claude.Error{
+			Code:    jira4claude.EInternal,
+			Message: "failed to parse response",
+			Inner:   err,
+		}
+	}
+
+	// Find the link to the target issue
+	for _, link := range issueResp.Fields.IssueLinks {
+		if link.OutwardIssue != nil && link.OutwardIssue.Key == key2 {
+			return link.ID, nil
+		}
+		if link.InwardIssue != nil && link.InwardIssue.Key == key2 {
+			return link.ID, nil
+		}
+	}
+
+	return "", &jira4claude.Error{
+		Code:    jira4claude.ENotFound,
+		Message: fmt.Sprintf("no link found between %s and %s", key1, key2),
+	}
 }
 
 // commentResponse represents the JSON structure returned by Jira API for a comment.
