@@ -45,7 +45,7 @@ func (s *IssueService) Create(ctx context.Context, issue *jira4claude.Issue) (*j
 	}
 
 	if issue.Description != "" {
-		fields["description"] = TextToADF(issue.Description)
+		fields["description"] = textOrADF(issue.Description)
 	}
 	if issue.Priority != "" {
 		fields["priority"] = map[string]any{"name": issue.Priority}
@@ -191,7 +191,7 @@ func (s *IssueService) Update(ctx context.Context, key string, update jira4claud
 		fields["summary"] = *update.Summary
 	}
 	if update.Description != nil {
-		fields["description"] = TextToADF(*update.Description)
+		fields["description"] = textOrADF(*update.Description)
 	}
 	if update.Priority != nil {
 		fields["priority"] = map[string]any{"name": *update.Priority}
@@ -239,7 +239,7 @@ func (s *IssueService) Delete(ctx context.Context, key string) error {
 // AddComment adds a comment to an issue.
 func (s *IssueService) AddComment(ctx context.Context, key, body string) (*jira4claude.Comment, error) {
 	reqBody := map[string]any{
-		"body": TextToADF(body),
+		"body": textOrADF(body),
 	}
 
 	req, err := s.client.NewJSONRequest(ctx, http.MethodPost, issuePath(key, "comment"), reqBody)

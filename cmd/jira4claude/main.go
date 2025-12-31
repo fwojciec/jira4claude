@@ -17,6 +17,22 @@ import (
 	"github.com/fwojciec/jira4claude/yaml"
 )
 
+// markdownToADFJSON converts markdown text to ADF JSON string.
+// The returned string can be passed to the issue service; the HTTP layer
+// will detect it as pre-converted ADF and use it directly.
+func markdownToADFJSON(markdown string) (string, error) {
+	adf := http.GFMToADF(markdown)
+	bytes, err := json.Marshal(adf)
+	if err != nil {
+		return "", &jira4claude.Error{
+			Code:    jira4claude.EInternal,
+			Message: "failed to serialize ADF",
+			Inner:   err,
+		}
+	}
+	return string(bytes), nil
+}
+
 // CLI defines the command structure for jira4claude.
 type CLI struct {
 	Config string `help:"Path to config file (auto-discovers if not set)" type:"path"`
@@ -50,6 +66,7 @@ type CreateCmd struct {
 	Priority    string   `help:"Issue priority"`
 	Labels      []string `help:"Issue labels (can be repeated)" short:"l"`
 	Parent      string   `help:"Parent issue key (creates a Subtask)" short:"P"`
+	Markdown    bool     `help:"Parse description as GitHub-flavored markdown" short:"m"`
 }
 
 // ViewCmd views an issue.
@@ -83,12 +100,14 @@ type EditCmd struct {
 	Assignee    *string  `help:"New assignee (empty to unassign)" short:"a"`
 	Labels      []string `help:"New labels (replaces existing)" short:"l"`
 	ClearLabels bool     `help:"Clear all labels" name:"clear-labels"`
+	Markdown    bool     `help:"Parse description as GitHub-flavored markdown" short:"m"`
 }
 
 // CommentCmd adds a comment to an issue.
 type CommentCmd struct {
-	Key  string `arg:"" help:"Issue key (e.g., PROJ-123)"`
-	Body string `help:"Comment body" short:"b" required:""`
+	Key      string `arg:"" help:"Issue key (e.g., PROJ-123)"`
+	Body     string `help:"Comment body" short:"b" required:""`
+	Markdown bool   `help:"Parse body as GitHub-flavored markdown" short:"m"`
 }
 
 // TransitionCmd transitions an issue.
@@ -230,11 +249,20 @@ func (c *CreateCmd) Run(app *App) error {
 		issueType = "Subtask"
 	}
 
+	description := c.Description
+	if c.Markdown && description != "" {
+		adfJSON, err := markdownToADFJSON(description)
+		if err != nil {
+			return err
+		}
+		description = adfJSON
+	}
+
 	issue := &jira4claude.Issue{
 		Project:     project,
 		Type:        issueType,
 		Summary:     c.Summary,
-		Description: c.Description,
+		Description: description,
 		Priority:    c.Priority,
 		Labels:      c.Labels,
 		Parent:      c.Parent,
@@ -353,9 +381,18 @@ func (c *ReadyCmd) Run(app *App) error {
 
 // Run executes the edit command.
 func (c *EditCmd) Run(app *App) error {
+	description := c.Description
+	if c.Markdown && description != nil && *description != "" {
+		adfJSON, err := markdownToADFJSON(*description)
+		if err != nil {
+			return err
+		}
+		description = &adfJSON
+	}
+
 	update := jira4claude.IssueUpdate{
 		Summary:     c.Summary,
-		Description: c.Description,
+		Description: description,
 		Priority:    c.Priority,
 		Assignee:    c.Assignee,
 	}
@@ -382,7 +419,16 @@ func (c *EditCmd) Run(app *App) error {
 
 // Run executes the comment command.
 func (c *CommentCmd) Run(app *App) error {
-	comment, err := app.service.AddComment(context.Background(), c.Key, c.Body)
+	body := c.Body
+	if c.Markdown && body != "" {
+		adfJSON, err := markdownToADFJSON(body)
+		if err != nil {
+			return err
+		}
+		body = adfJSON
+	}
+
+	comment, err := app.service.AddComment(context.Background(), c.Key, body)
 	if err != nil {
 		return err
 	}
