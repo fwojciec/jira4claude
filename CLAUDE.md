@@ -65,7 +65,7 @@ make validate     # Quality gate - run before completing any task
 - Root package: domain types and interfaces only (no external dependencies)
 - Subdirectories: one per external dependency (e.g., `jira/` for API client)
 - `mock/`: manual mocks with function fields for testing
-- `cmd/jira4claude/`: wires everything together
+- `cmd/j4c/`: wires everything together
 
 **File Naming Convention**:
 - `foo/foo.go`: shared utilities for the package

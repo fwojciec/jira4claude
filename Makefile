@@ -6,7 +6,7 @@ validate: fmt vet tidy lint test ## Run all validation checks
 
 ## Build
 build: ## Build the CLI
-	go build -o bin/jira4claude ./cmd/jira4claude
+	go build -o bin/j4c ./cmd/j4c
 
 ## Testing
 test: ## Run tests with race detector
