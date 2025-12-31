@@ -367,5 +367,94 @@ func TestTextPrinter_Error_UsesErrorMessage(t *testing.T) {
 	assert.Contains(t, errOut.String(), "Issue not found")
 }
 
+func TestTextPrinter_Issue_ShowsURLWhenServerURLSet(t *testing.T) {
+	t.Parallel()
+
+	var out, errOut bytes.Buffer
+	io := gogh.NewIO(&out, &errOut)
+	io.ServerURL = "https://example.atlassian.net"
+	p := gogh.NewTextPrinter(io)
+
+	issue := &jira4claude.Issue{
+		Key:     "TEST-123",
+		Summary: "Test issue",
+		Status:  "Open",
+		Type:    "Task",
+	}
+
+	p.Issue(issue)
+
+	output := out.String()
+	assert.Contains(t, output, "https://example.atlassian.net/browse/TEST-123")
+}
+
+func TestTextPrinter_Issue_NoURLWhenServerURLEmpty(t *testing.T) {
+	t.Parallel()
+
+	var out, errOut bytes.Buffer
+	io := gogh.NewIO(&out, &errOut)
+	// ServerURL not set
+	p := gogh.NewTextPrinter(io)
+
+	issue := &jira4claude.Issue{
+		Key:     "TEST-123",
+		Summary: "Test issue",
+		Status:  "Open",
+		Type:    "Task",
+	}
+
+	p.Issue(issue)
+
+	output := out.String()
+	assert.NotContains(t, output, "/browse/")
+}
+
+func TestTextPrinter_Success_ShowsURLWhenServerURLSet(t *testing.T) {
+	t.Parallel()
+
+	var out, errOut bytes.Buffer
+	io := gogh.NewIO(&out, &errOut)
+	io.ServerURL = "https://example.atlassian.net"
+	p := gogh.NewTextPrinter(io)
+
+	p.Success("Created:", "TEST-123")
+
+	output := out.String()
+	assert.Contains(t, output, "Created:")
+	assert.Contains(t, output, "TEST-123")
+	assert.Contains(t, output, "https://example.atlassian.net/browse/TEST-123")
+}
+
+func TestTextPrinter_Success_NoURLWhenNoKeys(t *testing.T) {
+	t.Parallel()
+
+	var out, errOut bytes.Buffer
+	io := gogh.NewIO(&out, &errOut)
+	io.ServerURL = "https://example.atlassian.net"
+	p := gogh.NewTextPrinter(io)
+
+	p.Success("Operation complete")
+
+	output := out.String()
+	assert.Contains(t, output, "Operation complete")
+	assert.NotContains(t, output, "/browse/")
+}
+
+func TestTextPrinter_Success_ShowsMultipleURLsForMultipleKeys(t *testing.T) {
+	t.Parallel()
+
+	var out, errOut bytes.Buffer
+	io := gogh.NewIO(&out, &errOut)
+	io.ServerURL = "https://example.atlassian.net"
+	p := gogh.NewTextPrinter(io)
+
+	p.Success("Created:", "TEST-1", "TEST-2", "TEST-3")
+
+	output := out.String()
+	assert.Contains(t, output, "https://example.atlassian.net/browse/TEST-1")
+	assert.Contains(t, output, "https://example.atlassian.net/browse/TEST-2")
+	assert.Contains(t, output, "https://example.atlassian.net/browse/TEST-3")
+}
+
 // Verify TextPrinter implements Printer interface at compile time.
 var _ jira4claude.Printer = (*gogh.TextPrinter)(nil)

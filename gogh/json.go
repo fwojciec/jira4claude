@@ -9,7 +9,13 @@ import (
 
 // JSONPrinter outputs JSON format to stdout for machine parsing.
 type JSONPrinter struct {
-	out io.Writer
+	out       io.Writer
+	serverURL string
+}
+
+// SetServerURL sets the server URL for generating issue URLs.
+func (p *JSONPrinter) SetServerURL(url string) {
+	p.serverURL = url
 }
 
 // NewJSONPrinter creates a JSON printer that writes to out.
@@ -27,7 +33,11 @@ func (p *JSONPrinter) encode(v any) {
 
 // Issue prints a single issue as JSON.
 func (p *JSONPrinter) Issue(issue *jira4claude.Issue) {
-	p.encode(issueToMap(issue))
+	m := issueToMap(issue)
+	if p.serverURL != "" {
+		m["url"] = p.serverURL + "/browse/" + issue.Key
+	}
+	p.encode(m)
 }
 
 // Issues prints multiple issues as JSON array.
@@ -65,6 +75,13 @@ func (p *JSONPrinter) Success(msg string, keys ...string) {
 	}
 	if len(keys) > 0 {
 		result["keys"] = keys
+		if p.serverURL != "" {
+			urls := make([]string, len(keys))
+			for i, k := range keys {
+				urls[i] = p.serverURL + "/browse/" + k
+			}
+			result["urls"] = urls
+		}
 	}
 	p.encode(result)
 }
