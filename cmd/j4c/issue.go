@@ -2,11 +2,29 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 
 	"github.com/fwojciec/jira4claude"
+	"github.com/fwojciec/jira4claude/http"
 )
+
+// markdownToADFJSON converts markdown text to ADF JSON string.
+// The returned string can be passed to the issue service; the HTTP layer
+// will detect it as pre-converted ADF and use it directly.
+func markdownToADFJSON(markdown string) (string, error) {
+	adf := http.GFMToADF(markdown)
+	bytes, err := json.Marshal(adf)
+	if err != nil {
+		return "", &jira4claude.Error{
+			Code:    jira4claude.EInternal,
+			Message: "failed to serialize ADF",
+			Inner:   err,
+		}
+	}
+	return string(bytes), nil
+}
 
 // IssueCmd groups issue subcommands.
 type IssueCmd struct {
@@ -23,7 +41,8 @@ type IssueCmd struct {
 
 // IssueViewCmd views an issue.
 type IssueViewCmd struct {
-	Key string `arg:"" help:"Issue key (e.g., PROJ-123)"`
+	Key      string `arg:"" help:"Issue key (e.g., PROJ-123)"`
+	Markdown bool   `help:"Output description in GitHub-flavored markdown" short:"m"`
 }
 
 // Run executes the view command.
@@ -32,6 +51,14 @@ func (c *IssueViewCmd) Run(ctx *IssueContext) error {
 	if err != nil {
 		return err
 	}
+
+	// Convert ADF to GFM if markdown flag is set and ADF is available
+	if c.Markdown && issue.DescriptionADF != nil {
+		if desc := http.ADFToGFM(issue.DescriptionADF); desc != "" {
+			issue.Description = desc
+		}
+	}
+
 	ctx.Printer.Issue(issue)
 	return nil
 }
@@ -113,6 +140,7 @@ type IssueCreateCmd struct {
 	Priority    string   `help:"Issue priority"`
 	Labels      []string `help:"Issue labels" short:"l"`
 	Parent      string   `help:"Parent issue key (creates a Subtask)" short:"P"`
+	Markdown    bool     `help:"Parse description as GitHub-flavored markdown" short:"m"`
 }
 
 // Run executes the create command.
@@ -127,11 +155,20 @@ func (c *IssueCreateCmd) Run(ctx *IssueContext) error {
 		issueType = "Subtask"
 	}
 
+	description := c.Description
+	if c.Markdown && description != "" {
+		adfJSON, err := markdownToADFJSON(description)
+		if err != nil {
+			return err
+		}
+		description = adfJSON
+	}
+
 	issue := &jira4claude.Issue{
 		Project:     project,
 		Type:        issueType,
 		Summary:     c.Summary,
-		Description: c.Description,
+		Description: description,
 		Priority:    c.Priority,
 		Labels:      c.Labels,
 		Parent:      c.Parent,
@@ -155,13 +192,23 @@ type IssueEditCmd struct {
 	Assignee    *string  `help:"New assignee" short:"a"`
 	Labels      []string `help:"New labels" short:"l"`
 	ClearLabels bool     `help:"Clear all labels" name:"clear-labels"`
+	Markdown    bool     `help:"Parse description as GitHub-flavored markdown" short:"m"`
 }
 
 // Run executes the edit command.
 func (c *IssueEditCmd) Run(ctx *IssueContext) error {
+	description := c.Description
+	if c.Markdown && description != nil && *description != "" {
+		adfJSON, err := markdownToADFJSON(*description)
+		if err != nil {
+			return err
+		}
+		description = &adfJSON
+	}
+
 	update := jira4claude.IssueUpdate{
 		Summary:     c.Summary,
-		Description: c.Description,
+		Description: description,
 		Priority:    c.Priority,
 		Assignee:    c.Assignee,
 	}
@@ -270,13 +317,23 @@ func (c *IssueAssignCmd) Run(ctx *IssueContext) error {
 
 // IssueCommentCmd adds a comment.
 type IssueCommentCmd struct {
-	Key  string `arg:"" help:"Issue key"`
-	Body string `help:"Comment body" short:"b" required:""`
+	Key      string `arg:"" help:"Issue key"`
+	Body     string `help:"Comment body" short:"b" required:""`
+	Markdown bool   `help:"Parse body as GitHub-flavored markdown" short:"m"`
 }
 
 // Run executes the comment command.
 func (c *IssueCommentCmd) Run(ctx *IssueContext) error {
-	comment, err := ctx.Service.AddComment(context.Background(), c.Key, c.Body)
+	body := c.Body
+	if c.Markdown && body != "" {
+		adfJSON, err := markdownToADFJSON(body)
+		if err != nil {
+			return err
+		}
+		body = adfJSON
+	}
+
+	comment, err := ctx.Service.AddComment(context.Background(), c.Key, body)
 	if err != nil {
 		return err
 	}

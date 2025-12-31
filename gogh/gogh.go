@@ -13,6 +13,7 @@ type IO struct {
 	Out        io.Writer
 	Err        io.Writer
 	IsTerminal bool
+	ServerURL  string
 }
 
 // NewIO creates IO with the given writers.
