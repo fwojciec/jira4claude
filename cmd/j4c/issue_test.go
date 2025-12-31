@@ -44,7 +44,8 @@ func TestIssueTransitionCmd_InvalidStatusShowsQuotedOptions(t *testing.T) {
 
 	require.Error(t, err)
 	errMsg := err.Error()
-	// Should quote status names for clarity
+	// Should quote user's invalid status and available options
+	assert.Contains(t, errMsg, `"invalid-status"`)
 	assert.Contains(t, errMsg, `"In Progress"`)
 	assert.Contains(t, errMsg, `"Done"`)
 }

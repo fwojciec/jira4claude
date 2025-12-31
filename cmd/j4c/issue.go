@@ -235,7 +235,7 @@ func (c *IssueTransitionCmd) Run(ctx *IssueContext) error {
 			}
 			return &jira4claude.Error{
 				Code:    jira4claude.EValidation,
-				Message: "status not found: " + c.Status + "; available: " + strings.Join(available, ", "),
+				Message: `status "` + c.Status + `" not found; available: ` + strings.Join(available, ", "),
 			}
 		}
 	}
