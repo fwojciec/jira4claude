@@ -546,12 +546,12 @@ func (c *InitCmd) Run(cli *CLI) error {
 	}
 
 	if result.ConfigCreated {
-		fmt.Println("Created .jira4claude.yaml")
+		fmt.Fprintln(os.Stdout, "Created .jira4claude.yaml")
 	}
 	if result.GitignoreAdded {
-		fmt.Println("Added .jira4claude.yaml to .gitignore")
+		fmt.Fprintln(os.Stdout, "Added .jira4claude.yaml to .gitignore")
 	} else if result.GitignoreExists {
-		fmt.Println(".jira4claude.yaml already in .gitignore")
+		fmt.Fprintln(os.Stdout, ".jira4claude.yaml already in .gitignore")
 	}
 	return nil
 }
