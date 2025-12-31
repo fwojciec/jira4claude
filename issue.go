@@ -122,8 +122,9 @@ type IssueService interface {
 
 	// Link creates a link between two issues.
 	// The linkType is the name of the link type (e.g., "Blocks").
-	// The outwardKey is the issue that the inwardKey issue links to
-	// (e.g., inwardKey "blocks" outwardKey).
+	// The inwardKey is the issue that has the relationship, and the outwardKey
+	// is the issue it points to. For example, Link(ctx, "A", "Blocks", "B")
+	// means that issue A blocks issue B (A is the blocker, B is blocked).
 	Link(ctx context.Context, inwardKey, linkType, outwardKey string) error
 
 	// Unlink removes a link between two issues.
