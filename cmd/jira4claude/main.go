@@ -295,9 +295,8 @@ func (c *ReadyCmd) Run(app *App) error {
 
 	// List open issues (status != Done)
 	filter := jira4claude.IssueFilter{
-		Project: project,
-		JQL:     fmt.Sprintf("project = %s AND status != Done ORDER BY created DESC", project),
-		Limit:   c.Limit,
+		JQL:   fmt.Sprintf("project = %s AND status != Done ORDER BY created DESC", project),
+		Limit: c.Limit,
 	}
 
 	issues, err := app.service.List(context.Background(), filter)

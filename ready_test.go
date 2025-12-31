@@ -134,4 +134,25 @@ func TestIsReady(t *testing.T) {
 		}
 		assert.True(t, jira4claude.IsReady(issue))
 	})
+
+	t.Run("blocked by matching is case-insensitive", func(t *testing.T) {
+		t.Parallel()
+		issue := &jira4claude.Issue{
+			Key:    "TEST-7",
+			Status: "To Do",
+			Links: []*jira4claude.IssueLink{
+				{
+					Type: jira4claude.IssueLinkType{
+						Name:   "Blocks",
+						Inward: "Is Blocked By", // Different casing
+					},
+					InwardIssue: &jira4claude.LinkedIssue{
+						Key:    "TEST-1",
+						Status: "In Progress",
+					},
+				},
+			},
+		}
+		assert.False(t, jira4claude.IsReady(issue))
+	})
 }
