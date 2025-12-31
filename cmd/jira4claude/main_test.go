@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -260,6 +261,73 @@ func TestEditCmd(t *testing.T) {
 		require.NoError(t, json.Unmarshal(buf.Bytes(), &result))
 		assert.Equal(t, "TEST-1", result["key"])
 	})
+
+	t.Run("converts markdown description when flag is set", func(t *testing.T) {
+		t.Parallel()
+
+		var capturedUpdate jira4claude.IssueUpdate
+		svc := &mock.IssueService{
+			UpdateFn: func(ctx context.Context, key string, update jira4claude.IssueUpdate) (*jira4claude.Issue, error) {
+				capturedUpdate = update
+				return makeIssue(key), nil
+			},
+		}
+
+		app, _ := makeApp(t, svc, false)
+		description := "**bold** and *italic*"
+		cmd := main.EditCmd{Key: "TEST-1", Description: &description, Markdown: true}
+		err := cmd.Run(app)
+
+		require.NoError(t, err)
+		require.NotNil(t, capturedUpdate.Description)
+		// Description should be pre-converted ADF JSON when markdown flag is set
+		// Note: JSON keys are alphabetically ordered, so "content" comes before "type"
+		assert.True(t, strings.HasPrefix(*capturedUpdate.Description, `{"content":[`))
+	})
+
+	t.Run("keeps plain text description when markdown flag is not set", func(t *testing.T) {
+		t.Parallel()
+
+		var capturedUpdate jira4claude.IssueUpdate
+		svc := &mock.IssueService{
+			UpdateFn: func(ctx context.Context, key string, update jira4claude.IssueUpdate) (*jira4claude.Issue, error) {
+				capturedUpdate = update
+				return makeIssue(key), nil
+			},
+		}
+
+		app, _ := makeApp(t, svc, false)
+		description := "**bold** and *italic*"
+		cmd := main.EditCmd{Key: "TEST-1", Description: &description, Markdown: false}
+		err := cmd.Run(app)
+
+		require.NoError(t, err)
+		require.NotNil(t, capturedUpdate.Description)
+		// Description should remain as plain text
+		assert.Equal(t, "**bold** and *italic*", *capturedUpdate.Description)
+	})
+
+	t.Run("skips markdown conversion when description is empty", func(t *testing.T) {
+		t.Parallel()
+
+		var capturedUpdate jira4claude.IssueUpdate
+		svc := &mock.IssueService{
+			UpdateFn: func(ctx context.Context, key string, update jira4claude.IssueUpdate) (*jira4claude.Issue, error) {
+				capturedUpdate = update
+				return makeIssue(key), nil
+			},
+		}
+
+		app, _ := makeApp(t, svc, false)
+		description := ""
+		cmd := main.EditCmd{Key: "TEST-1", Description: &description, Markdown: true}
+		err := cmd.Run(app)
+
+		require.NoError(t, err)
+		require.NotNil(t, capturedUpdate.Description)
+		// Description should remain empty, not converted to ADF
+		assert.Empty(t, *capturedUpdate.Description)
+	})
 }
 
 // CommentCmd tests
@@ -332,6 +400,57 @@ func TestCommentCmd(t *testing.T) {
 		require.NoError(t, json.Unmarshal(buf.Bytes(), &result))
 		assert.Equal(t, "12345", result["id"])
 		assert.Equal(t, "Test User", result["author"])
+	})
+
+	t.Run("converts markdown body when flag is set", func(t *testing.T) {
+		t.Parallel()
+
+		var capturedBody string
+		svc := &mock.IssueService{
+			AddCommentFn: func(ctx context.Context, key, body string) (*jira4claude.Comment, error) {
+				capturedBody = body
+				return &jira4claude.Comment{
+					ID:      "12345",
+					Body:    body,
+					Author:  &jira4claude.User{DisplayName: "Test User"},
+					Created: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
+				}, nil
+			},
+		}
+
+		app, _ := makeApp(t, svc, false)
+		cmd := main.CommentCmd{Key: "TEST-1", Body: "**bold** and *italic*", Markdown: true}
+		err := cmd.Run(app)
+
+		require.NoError(t, err)
+		// Body should be pre-converted ADF JSON when markdown flag is set
+		// Note: JSON keys are alphabetically ordered, so "content" comes before "type"
+		assert.True(t, strings.HasPrefix(capturedBody, `{"content":[`))
+	})
+
+	t.Run("keeps plain text body when markdown flag is not set", func(t *testing.T) {
+		t.Parallel()
+
+		var capturedBody string
+		svc := &mock.IssueService{
+			AddCommentFn: func(ctx context.Context, key, body string) (*jira4claude.Comment, error) {
+				capturedBody = body
+				return &jira4claude.Comment{
+					ID:      "12345",
+					Body:    body,
+					Author:  &jira4claude.User{DisplayName: "Test User"},
+					Created: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
+				}, nil
+			},
+		}
+
+		app, _ := makeApp(t, svc, false)
+		cmd := main.CommentCmd{Key: "TEST-1", Body: "**bold** and *italic*", Markdown: false}
+		err := cmd.Run(app)
+
+		require.NoError(t, err)
+		// Body should remain as plain text
+		assert.Equal(t, "**bold** and *italic*", capturedBody)
 	})
 }
 
@@ -937,6 +1056,82 @@ func TestListCmd(t *testing.T) {
 
 func TestCreateCmd(t *testing.T) {
 	t.Parallel()
+
+	t.Run("converts markdown description when flag is set", func(t *testing.T) {
+		t.Parallel()
+
+		var capturedIssue *jira4claude.Issue
+		svc := &mock.IssueService{
+			CreateFn: func(ctx context.Context, issue *jira4claude.Issue) (*jira4claude.Issue, error) {
+				capturedIssue = issue
+				return &jira4claude.Issue{Key: "TEST-1"}, nil
+			},
+		}
+
+		app, _ := makeApp(t, svc, false)
+		cmd := main.CreateCmd{
+			Summary:     "Test issue",
+			Description: "**bold** and *italic*",
+			Markdown:    true,
+		}
+		err := cmd.Run(app)
+
+		require.NoError(t, err)
+		require.NotNil(t, capturedIssue)
+		// Description should be pre-converted ADF JSON when markdown flag is set
+		// Note: JSON keys are alphabetically ordered, so "content" comes before "type"
+		assert.True(t, strings.HasPrefix(capturedIssue.Description, `{"content":[`))
+	})
+
+	t.Run("keeps plain text description when markdown flag is not set", func(t *testing.T) {
+		t.Parallel()
+
+		var capturedIssue *jira4claude.Issue
+		svc := &mock.IssueService{
+			CreateFn: func(ctx context.Context, issue *jira4claude.Issue) (*jira4claude.Issue, error) {
+				capturedIssue = issue
+				return &jira4claude.Issue{Key: "TEST-1"}, nil
+			},
+		}
+
+		app, _ := makeApp(t, svc, false)
+		cmd := main.CreateCmd{
+			Summary:     "Test issue",
+			Description: "**bold** and *italic*",
+			Markdown:    false,
+		}
+		err := cmd.Run(app)
+
+		require.NoError(t, err)
+		require.NotNil(t, capturedIssue)
+		// Description should remain as plain text
+		assert.Equal(t, "**bold** and *italic*", capturedIssue.Description)
+	})
+
+	t.Run("skips markdown conversion when description is empty", func(t *testing.T) {
+		t.Parallel()
+
+		var capturedIssue *jira4claude.Issue
+		svc := &mock.IssueService{
+			CreateFn: func(ctx context.Context, issue *jira4claude.Issue) (*jira4claude.Issue, error) {
+				capturedIssue = issue
+				return &jira4claude.Issue{Key: "TEST-1"}, nil
+			},
+		}
+
+		app, _ := makeApp(t, svc, false)
+		cmd := main.CreateCmd{
+			Summary:     "Test issue",
+			Description: "",
+			Markdown:    true, // Flag set but description empty
+		}
+		err := cmd.Run(app)
+
+		require.NoError(t, err)
+		require.NotNil(t, capturedIssue)
+		// Description should remain empty, not converted to ADF
+		assert.Empty(t, capturedIssue.Description)
+	})
 
 	t.Run("creates issue successfully", func(t *testing.T) {
 		t.Parallel()

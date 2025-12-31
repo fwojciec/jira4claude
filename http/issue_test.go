@@ -17,6 +17,51 @@ import (
 func TestIssueService_Create(t *testing.T) {
 	t.Parallel()
 
+	t.Run("uses pre-converted ADF when description is ADF JSON", func(t *testing.T) {
+		t.Parallel()
+
+		var receivedRequest map[string]any
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			_ = json.NewDecoder(r.Body).Decode(&receivedRequest)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusCreated)
+			_, _ = w.Write([]byte(`{"key": "TEST-1"}`))
+		}))
+		defer server.Close()
+
+		client := newTestClient(t, server.URL, "user@example.com", "api-token")
+		svc := jirahttp.NewIssueService(client)
+
+		// Pre-converted ADF JSON (as would be created by CLI with --markdown flag)
+		adfJSON := `{"content":[{"content":[{"marks":[{"type":"strong"}],"text":"bold","type":"text"}],"type":"paragraph"}],"type":"doc","version":1}`
+
+		issue := &jira4claude.Issue{
+			Project:     "TEST",
+			Summary:     "Test issue",
+			Description: adfJSON,
+			Type:        "Task",
+		}
+
+		_, err := svc.Create(context.Background(), issue)
+
+		require.NoError(t, err)
+
+		// Verify the ADF was passed through as-is, not re-converted
+		fields := receivedRequest["fields"].(map[string]any)
+		desc := fields["description"].(map[string]any)
+		assert.Equal(t, "doc", desc["type"])
+		content := desc["content"].([]any)
+		require.Len(t, content, 1)
+		paragraph := content[0].(map[string]any)
+		paragraphContent := paragraph["content"].([]any)
+		require.Len(t, paragraphContent, 1)
+		textNode := paragraphContent[0].(map[string]any)
+		assert.Equal(t, "bold", textNode["text"])
+		marks := textNode["marks"].([]any)
+		require.Len(t, marks, 1)
+		assert.Equal(t, "strong", marks[0].(map[string]any)["type"])
+	})
+
 	t.Run("creates issue and returns it with key", func(t *testing.T) {
 		t.Parallel()
 
@@ -597,6 +642,53 @@ func TestIssueService_List(t *testing.T) {
 func TestIssueService_Update(t *testing.T) {
 	t.Parallel()
 
+	t.Run("uses pre-converted ADF when description is ADF JSON", func(t *testing.T) {
+		t.Parallel()
+
+		var receivedRequest map[string]any
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Method == http.MethodPut {
+				_ = json.NewDecoder(r.Body).Decode(&receivedRequest)
+				w.WriteHeader(http.StatusNoContent)
+				return
+			}
+			if r.Method == http.MethodGet {
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(`{"key": "TEST-1", "fields": {"project": {"key": "TEST"}, "summary": "Test", "status": {"name": "To Do"}, "issuetype": {"name": "Task"}}}`))
+				return
+			}
+			w.WriteHeader(http.StatusNotFound)
+		}))
+		defer server.Close()
+
+		client := newTestClient(t, server.URL, "user@example.com", "api-token")
+		svc := jirahttp.NewIssueService(client)
+
+		// Pre-converted ADF JSON (as would be created by CLI with --markdown flag)
+		adfJSON := `{"content":[{"content":[{"marks":[{"type":"em"}],"text":"italic","type":"text"}],"type":"paragraph"}],"type":"doc","version":1}`
+
+		_, err := svc.Update(context.Background(), "TEST-1", jira4claude.IssueUpdate{
+			Description: &adfJSON,
+		})
+
+		require.NoError(t, err)
+
+		// Verify the ADF was passed through as-is, not re-converted
+		fields := receivedRequest["fields"].(map[string]any)
+		desc := fields["description"].(map[string]any)
+		assert.Equal(t, "doc", desc["type"])
+		content := desc["content"].([]any)
+		require.Len(t, content, 1)
+		paragraph := content[0].(map[string]any)
+		paragraphContent := paragraph["content"].([]any)
+		require.Len(t, paragraphContent, 1)
+		textNode := paragraphContent[0].(map[string]any)
+		assert.Equal(t, "italic", textNode["text"])
+		marks := textNode["marks"].([]any)
+		require.Len(t, marks, 1)
+		assert.Equal(t, "em", marks[0].(map[string]any)["type"])
+	})
+
 	t.Run("updates issue fields", func(t *testing.T) {
 		t.Parallel()
 
@@ -740,6 +832,48 @@ func TestIssueService_Update(t *testing.T) {
 
 func TestIssueService_AddComment(t *testing.T) {
 	t.Parallel()
+
+	t.Run("uses pre-converted ADF when body is ADF JSON", func(t *testing.T) {
+		t.Parallel()
+
+		var receivedRequest map[string]any
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			_ = json.NewDecoder(r.Body).Decode(&receivedRequest)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusCreated)
+			_, _ = w.Write([]byte(`{
+				"id": "10001",
+				"author": {"accountId": "123", "displayName": "Test"},
+				"body": {"type": "doc", "version": 1, "content": []},
+				"created": "2024-01-15T10:30:00.000+0000"
+			}`))
+		}))
+		defer server.Close()
+
+		client := newTestClient(t, server.URL, "user@example.com", "api-token")
+		svc := jirahttp.NewIssueService(client)
+
+		// Pre-converted ADF JSON (as would be created by CLI with --markdown flag)
+		adfJSON := `{"content":[{"content":[{"marks":[{"type":"code"}],"text":"code","type":"text"}],"type":"paragraph"}],"type":"doc","version":1}`
+
+		_, err := svc.AddComment(context.Background(), "TEST-1", adfJSON)
+
+		require.NoError(t, err)
+
+		// Verify the ADF was passed through as-is, not re-converted
+		body := receivedRequest["body"].(map[string]any)
+		assert.Equal(t, "doc", body["type"])
+		content := body["content"].([]any)
+		require.Len(t, content, 1)
+		paragraph := content[0].(map[string]any)
+		paragraphContent := paragraph["content"].([]any)
+		require.Len(t, paragraphContent, 1)
+		textNode := paragraphContent[0].(map[string]any)
+		assert.Equal(t, "code", textNode["text"])
+		marks := textNode["marks"].([]any)
+		require.Len(t, marks, 1)
+		assert.Equal(t, "code", marks[0].(map[string]any)["type"])
+	})
 
 	t.Run("adds comment and returns it", func(t *testing.T) {
 		t.Parallel()
