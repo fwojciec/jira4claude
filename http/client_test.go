@@ -3,6 +3,7 @@ package http_test
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -275,6 +276,142 @@ func TestParseErrorResponse(t *testing.T) {
 		body := `{"errorMessages": ["Server error"], "errors": {}}`
 		err := jirahttp.ParseErrorResponse(http.StatusInternalServerError, []byte(body))
 
+		assert.Equal(t, jira4claude.EInternal, jira4claude.ErrorCode(err))
+	})
+}
+
+func TestClient_NewJSONRequest(t *testing.T) {
+	t.Parallel()
+
+	t.Run("creates request with JSON body and content-type header", func(t *testing.T) {
+		t.Parallel()
+
+		var receivedBody []byte
+		var receivedContentType string
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			receivedContentType = r.Header.Get("Content-Type")
+			receivedBody, _ = io.ReadAll(r.Body)
+			w.WriteHeader(http.StatusOK)
+		}))
+		defer server.Close()
+
+		client := newTestClient(t, server.URL, "user", "pass")
+		body := map[string]string{"key": "value"}
+		req, err := client.NewJSONRequest(context.Background(), http.MethodPost, "/test", body)
+		require.NoError(t, err)
+
+		resp, err := client.Do(req)
+		require.NoError(t, err)
+		defer resp.Body.Close()
+
+		assert.Equal(t, "application/json", receivedContentType)
+		assert.JSONEq(t, `{"key": "value"}`, string(receivedBody))
+	})
+
+	t.Run("returns error on marshal failure", func(t *testing.T) {
+		t.Parallel()
+
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		}))
+		defer server.Close()
+
+		client := newTestClient(t, server.URL, "user", "pass")
+		// Channels cannot be marshaled to JSON
+		body := map[string]any{"ch": make(chan int)}
+		_, err := client.NewJSONRequest(context.Background(), http.MethodPost, "/test", body)
+
+		require.Error(t, err)
+		assert.Equal(t, jira4claude.EInternal, jira4claude.ErrorCode(err))
+		assert.Contains(t, err.Error(), "marshal")
+	})
+}
+
+func TestClient_DoRequest(t *testing.T) {
+	t.Parallel()
+
+	t.Run("returns body on expected status", func(t *testing.T) {
+		t.Parallel()
+
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"key": "TEST-1"}`))
+		}))
+		defer server.Close()
+
+		client := newTestClient(t, server.URL, "user", "pass")
+		req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, "/test", nil)
+		require.NoError(t, err)
+
+		body, err := client.DoRequest(req, http.StatusOK)
+		require.NoError(t, err)
+		assert.JSONEq(t, `{"key": "TEST-1"}`, string(body))
+	})
+
+	t.Run("returns empty body on 204 No Content", func(t *testing.T) {
+		t.Parallel()
+
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusNoContent)
+		}))
+		defer server.Close()
+
+		client := newTestClient(t, server.URL, "user", "pass")
+		req, err := http.NewRequestWithContext(context.Background(), http.MethodDelete, "/test", nil)
+		require.NoError(t, err)
+
+		body, err := client.DoRequest(req, http.StatusNoContent)
+		require.NoError(t, err)
+		assert.Empty(t, body)
+	})
+
+	t.Run("returns error on HTTP failure", func(t *testing.T) {
+		t.Parallel()
+
+		// Use an invalid URL to force connection error
+		client := newTestClient(t, "http://localhost:1", "user", "pass")
+		req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, "/test", nil)
+		require.NoError(t, err)
+
+		_, err = client.DoRequest(req, http.StatusOK)
+		require.Error(t, err)
+		assert.Equal(t, jira4claude.EInternal, jira4claude.ErrorCode(err))
+	})
+
+	t.Run("returns parsed API error on wrong status", func(t *testing.T) {
+		t.Parallel()
+
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = w.Write([]byte(`{"errorMessages": ["Issue not found"]}`))
+		}))
+		defer server.Close()
+
+		client := newTestClient(t, server.URL, "user", "pass")
+		req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, "/test", nil)
+		require.NoError(t, err)
+
+		_, err = client.DoRequest(req, http.StatusOK)
+		require.Error(t, err)
+		assert.Equal(t, jira4claude.ENotFound, jira4claude.ErrorCode(err))
+		assert.Contains(t, err.Error(), "Issue not found")
+	})
+
+	t.Run("returns generic error on wrong status without API error", func(t *testing.T) {
+		t.Parallel()
+
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = w.Write([]byte(`not json`))
+		}))
+		defer server.Close()
+
+		client := newTestClient(t, server.URL, "user", "pass")
+		req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, "/test", nil)
+		require.NoError(t, err)
+
+		_, err = client.DoRequest(req, http.StatusOK)
+		require.Error(t, err)
 		assert.Equal(t, jira4claude.EInternal, jira4claude.ErrorCode(err))
 	})
 }
