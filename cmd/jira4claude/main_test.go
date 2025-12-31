@@ -154,6 +154,115 @@ func TestViewCmd(t *testing.T) {
 		require.NoError(t, err)
 		assert.NotContains(t, buf.String(), "Parent:")
 	})
+
+	t.Run("displays description as markdown when flag is set", func(t *testing.T) {
+		t.Parallel()
+
+		svc := &mock.IssueService{
+			GetFn: func(ctx context.Context, key string) (*jira4claude.Issue, error) {
+				return &jira4claude.Issue{
+					Key:     "TEST-1",
+					Summary: "Test issue",
+					Status:  "To Do",
+					Type:    "Task",
+					// DescriptionADF contains a heading that should render as "# Hello"
+					DescriptionADF: map[string]any{
+						"type":    "doc",
+						"version": 1,
+						"content": []any{
+							map[string]any{
+								"type": "heading",
+								"attrs": map[string]any{
+									"level": 1,
+								},
+								"content": []any{
+									map[string]any{
+										"type": "text",
+										"text": "Hello",
+									},
+								},
+							},
+						},
+					},
+				}, nil
+			},
+		}
+
+		app, buf := makeApp(t, svc, false)
+		cmd := main.ViewCmd{Key: "TEST-1", Markdown: true}
+		err := cmd.Run(app)
+
+		require.NoError(t, err)
+		assert.Contains(t, buf.String(), "# Hello")
+	})
+
+	t.Run("displays description as plain text by default", func(t *testing.T) {
+		t.Parallel()
+
+		svc := &mock.IssueService{
+			GetFn: func(ctx context.Context, key string) (*jira4claude.Issue, error) {
+				return &jira4claude.Issue{
+					Key:         "TEST-1",
+					Summary:     "Test issue",
+					Status:      "To Do",
+					Type:        "Task",
+					Description: "Hello",
+					DescriptionADF: map[string]any{
+						"type":    "doc",
+						"version": 1,
+						"content": []any{
+							map[string]any{
+								"type": "heading",
+								"attrs": map[string]any{
+									"level": 1,
+								},
+								"content": []any{
+									map[string]any{
+										"type": "text",
+										"text": "Hello",
+									},
+								},
+							},
+						},
+					},
+				}, nil
+			},
+		}
+
+		app, buf := makeApp(t, svc, false)
+		cmd := main.ViewCmd{Key: "TEST-1"}
+		err := cmd.Run(app)
+
+		require.NoError(t, err)
+		// Should NOT contain markdown heading syntax
+		assert.NotContains(t, buf.String(), "# Hello")
+		// Should contain plain text
+		assert.Contains(t, buf.String(), "Hello")
+	})
+
+	t.Run("falls back to plain text when markdown flag is set but no ADF", func(t *testing.T) {
+		t.Parallel()
+
+		svc := &mock.IssueService{
+			GetFn: func(ctx context.Context, key string) (*jira4claude.Issue, error) {
+				return &jira4claude.Issue{
+					Key:            "TEST-1",
+					Summary:        "Test issue",
+					Status:         "To Do",
+					Type:           "Task",
+					Description:    "Plain text description",
+					DescriptionADF: nil,
+				}, nil
+			},
+		}
+
+		app, buf := makeApp(t, svc, false)
+		cmd := main.ViewCmd{Key: "TEST-1", Markdown: true}
+		err := cmd.Run(app)
+
+		require.NoError(t, err)
+		assert.Contains(t, buf.String(), "Plain text description")
+	})
 }
 
 // EditCmd tests
@@ -930,6 +1039,23 @@ func TestListCmd(t *testing.T) {
 		require.NoError(t, json.Unmarshal(buf.Bytes(), &result))
 		require.Len(t, result, 1)
 		assert.Equal(t, "TEST-1", result[0]["key"])
+	})
+
+	t.Run("accepts markdown flag", func(t *testing.T) {
+		t.Parallel()
+
+		svc := &mock.IssueService{
+			ListFn: func(ctx context.Context, filter jira4claude.IssueFilter) ([]*jira4claude.Issue, error) {
+				return []*jira4claude.Issue{makeIssue("TEST-1")}, nil
+			},
+		}
+
+		app, buf := makeApp(t, svc, false)
+		cmd := main.ListCmd{Markdown: true}
+		err := cmd.Run(app)
+
+		require.NoError(t, err)
+		assert.Contains(t, buf.String(), "TEST-1")
 	})
 }
 

@@ -54,7 +54,8 @@ type CreateCmd struct {
 
 // ViewCmd views an issue.
 type ViewCmd struct {
-	Key string `arg:"" help:"Issue key (e.g., PROJ-123)"`
+	Key      string `arg:"" help:"Issue key (e.g., PROJ-123)"`
+	Markdown bool   `help:"Output description in GitHub-flavored markdown" short:"m"`
 }
 
 // ListCmd lists issues.
@@ -66,6 +67,7 @@ type ListCmd struct {
 	Labels   []string `help:"Filter by labels (must have all)" short:"l"`
 	JQL      string   `help:"Raw JQL query (overrides other filters)"`
 	Limit    int      `help:"Maximum number of results" default:"50"`
+	Markdown bool     `help:"Output description in GitHub-flavored markdown" short:"m"`
 }
 
 // ReadyCmd lists issues ready to work on.
@@ -265,7 +267,7 @@ func (c *ViewCmd) Run(app *App) error {
 		return printJSON(app.out, issueToMap(issue, app.config.Server))
 	}
 
-	printIssueDetail(app.out, issue, app.config.Server)
+	printIssueDetail(app.out, issue, app.config.Server, c.Markdown)
 	return nil
 }
 
@@ -657,7 +659,7 @@ func linksToMap(links []*jira4claude.IssueLink) []map[string]any {
 	return result
 }
 
-func printIssueDetail(w io.Writer, issue *jira4claude.Issue, server string) {
+func printIssueDetail(w io.Writer, issue *jira4claude.Issue, server string, markdown bool) {
 	fmt.Fprintf(w, "%s  %s\n", keyStyle.Render(issue.Key), issue.Summary)
 	fmt.Fprintf(w, "Status: %s  Type: %s", statusStyle.Render(issue.Status), issue.Type)
 	if issue.Priority != "" {
@@ -695,8 +697,17 @@ func printIssueDetail(w io.Writer, issue *jira4claude.Issue, server string) {
 		}
 	}
 
-	if issue.Description != "" {
-		fmt.Fprintf(w, "\n%s\n", issue.Description)
+	// Print description - use markdown format if flag is set and ADF is available
+	var desc string
+	if markdown && issue.DescriptionADF != nil {
+		desc = http.ADFToGFM(issue.DescriptionADF)
+	}
+	// Fall back to plain text if no markdown or conversion yielded empty
+	if desc == "" {
+		desc = issue.Description
+	}
+	if desc != "" {
+		fmt.Fprintf(w, "\n%s\n", desc)
 	}
 
 	fmt.Fprintf(w, "\n%s/browse/%s\n", server, issue.Key)
