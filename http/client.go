@@ -79,23 +79,36 @@ func NewClient(baseURL string, opts ...Option) (*Client, error) {
 	// Read netrc file
 	n, err := netrc.Parse(netrcPath)
 	if err != nil {
-		return nil, fmt.Errorf("could not read netrc file: %w", err)
+		return nil, &jira4claude.Error{
+			Code:    jira4claude.EUnauthorized,
+			Message: "could not read netrc file: " + err.Error(),
+			Inner:   err,
+		}
 	}
 
 	// Find machine entry for the host
 	machine := n.Machine(u.Host)
 	if machine == nil {
-		return nil, fmt.Errorf("no netrc entry for %s", u.Host)
+		return nil, &jira4claude.Error{
+			Code:    jira4claude.EUnauthorized,
+			Message: "no netrc entry for " + u.Host,
+		}
 	}
 
 	// Validate credentials are present
 	login := machine.Get("login")
 	password := machine.Get("password")
 	if login == "" {
-		return nil, fmt.Errorf("netrc entry for %s: login is required", u.Host)
+		return nil, &jira4claude.Error{
+			Code:    jira4claude.EUnauthorized,
+			Message: "netrc entry for " + u.Host + ": login is required",
+		}
 	}
 	if password == "" {
-		return nil, fmt.Errorf("netrc entry for %s: password is required", u.Host)
+		return nil, &jira4claude.Error{
+			Code:    jira4claude.EUnauthorized,
+			Message: "netrc entry for " + u.Host + ": password is required",
+		}
 	}
 
 	return &Client{

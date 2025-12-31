@@ -231,7 +231,7 @@ func (c *IssueTransitionCmd) Run(ctx *IssueContext) error {
 		if transitionID == "" {
 			available := make([]string, len(transitions))
 			for i, t := range transitions {
-				available[i] = t.Name
+				available[i] = `"` + t.Name + `"`
 			}
 			return &jira4claude.Error{
 				Code:    jira4claude.EValidation,

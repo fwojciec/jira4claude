@@ -136,7 +136,7 @@ project: TEST
 		assert.Equal(t, globalPath, path)
 	})
 
-	t.Run("returns error when no config exists", func(t *testing.T) {
+	t.Run("returns error when no config exists with clear fix command", func(t *testing.T) {
 		t.Parallel()
 
 		workDir := t.TempDir()
@@ -147,6 +147,10 @@ project: TEST
 		require.Error(t, err)
 		assert.Equal(t, jira4claude.ENotFound, jira4claude.ErrorCode(err))
 		assert.Contains(t, err.Error(), ".jira4claude.yaml")
+		// Should include clear fix command with correct binary name
+		assert.Contains(t, err.Error(), "j4c init")
+		assert.Contains(t, err.Error(), "--server")
+		assert.Contains(t, err.Error(), "--project")
 	})
 
 	t.Run("prefers local config over global when both exist", func(t *testing.T) {
