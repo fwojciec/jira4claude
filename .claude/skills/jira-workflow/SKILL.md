@@ -101,24 +101,19 @@ For JSON output, add `--json`:
 
 ### Show Ready Tasks (Unblocked)
 
-Find tasks with no unresolved blockers. This requires curl (issue links not yet in CLI):
+Find tasks with no unresolved blockers:
 
 ```bash
-cat > /tmp/ready_filter.jq << 'EOF'
-.issues[] |
-select(
-  [.fields.issuelinks[]? |
-   select(.type.name == "Blocks" and .inwardIssue != null) |
-   select(.inwardIssue.fields.status.statusCategory.key != "done")
-  ] | length == 0
-) |
-{key, summary: .fields.summary, status: .fields.status.name}
-EOF
-
-curl -s -n 'https://fwojciec.atlassian.net/rest/api/3/search/jql?jql=project%3DJ4C%20AND%20status%20NOT%20IN%20(Done)&fields=key,summary,status,issuelinks' | jq -f /tmp/ready_filter.jq
+./jira4claude ready
 ```
 
-This filters for tasks where all blockers (`inwardIssue` in "Blocks" links) are Done (or have no blockers).
+For JSON output:
+
+```bash
+./jira4claude ready --json
+```
+
+This shows tasks where all blockers are Done (or have no blockers).
 
 ### Show Task Details
 
@@ -159,19 +154,19 @@ Multi-line descriptions are supported - newlines are preserved.
 
 **CRITICAL: Get the direction right or the dependency graph will be wrong!**
 
-#### Understanding the Jira Link Model
+#### Understanding the Link Model
 
-Think of it as a sentence: `[inwardIssue] blocks [outwardIssue]`
+The CLI uses the same semantic as the Jira API: `[inward-key] blocks [outward-key]`
 
 ```
-inwardIssue  ──blocks──>  outwardIssue
-(BLOCKER)                 (BLOCKED)
-(do first)                (do after)
+inward-key  ──blocks──>  outward-key
+(BLOCKER)                (BLOCKED)
+(do first)               (do after)
 ```
 
 When you view an issue's links:
-- If it has an `inwardIssue` in a Blocks link → that issue is blocking THIS one
-- If it has an `outwardIssue` in a Blocks link → THIS issue is blocking that one
+- `inwardIssue` in a Blocks link → that issue is blocking THIS one
+- `outwardIssue` in a Blocks link → THIS issue is blocking that one
 
 #### Example
 
@@ -180,13 +175,7 @@ When you view an issue's links:
 This means: "J4C-7 blocks J4C-8" or "J4C-8 is blocked by J4C-7"
 
 ```bash
-curl -s -n -X POST -H "Content-Type: application/json" \
-  'https://fwojciec.atlassian.net/rest/api/3/issueLink' \
-  -d '{
-    "type": {"name": "Blocks"},
-    "inwardIssue": {"key": "J4C-7"},
-    "outwardIssue": {"key": "J4C-8"}
-  }'
+./jira4claude link J4C-7 Blocks J4C-8
 ```
 
 #### Verification
@@ -194,36 +183,29 @@ curl -s -n -X POST -H "Content-Type: application/json" \
 Always verify after creating links:
 
 ```bash
-# Check J4C-8 (the blocked issue)
-curl -s -n 'https://fwojciec.atlassian.net/rest/api/3/issue/J4C-8?fields=issuelinks' | \
-  jq '.fields.issuelinks[] | {blockedBy: .inwardIssue.key}'
+./jira4claude view J4C-8 --json | jq '.links[] | select(.inwardIssue) | {blockedBy: .inwardIssue.key}'
 # Should show: "blockedBy": "J4C-7"
 
-# Check J4C-7 (the blocker)
-curl -s -n 'https://fwojciec.atlassian.net/rest/api/3/issue/J4C-7?fields=issuelinks' | \
-  jq '.fields.issuelinks[] | {blocks: .outwardIssue.key}'
+./jira4claude view J4C-7 --json | jq '.links[] | select(.outwardIssue) | {blocks: .outwardIssue.key}'
 # Should show: "blocks": "J4C-8"
 ```
 
 #### Quick Reference
 
-| You want | inwardIssue | outwardIssue |
-|----------|-------------|--------------|
-| A blocks B | A (blocker) | B (blocked) |
-| B depends on A | A (blocker) | B (blocked) |
+| You want | Command |
+|----------|---------|
+| A blocks B | `./jira4claude link A Blocks B` |
+| B depends on A | `./jira4claude link A Blocks B` |
 
 ### Delete Link
 
 If you created a link with wrong direction, delete and recreate:
 
 ```bash
-# First find the link ID
-curl -s -n 'https://fwojciec.atlassian.net/rest/api/3/issue/J4C-8?fields=issuelinks' | \
-  jq '.fields.issuelinks[] | {id, type: .type.name, outward: .outwardIssue.key, inward: .inwardIssue.key}'
-
-# Then delete by ID
-curl -s -n -X DELETE 'https://fwojciec.atlassian.net/rest/api/3/issueLink/LINK_ID'
+./jira4claude unlink J4C-7 J4C-8
 ```
+
+This removes any link between the two issues (regardless of direction).
 
 ### Transition Task
 
@@ -288,12 +270,5 @@ Example for jira4claude:
 
 - **CLI auto-discovers config**: searches `./.jira4claude.yaml` then `~/.jira4claude.yaml`
 - **CLI credentials**: reads from `.netrc`
-- **curl commands** (for linking) use `-n` flag for `.netrc` authentication
 - Add `--json` to any CLI command for JSON output
 - The CLI handles Atlassian Document Format (ADF) conversion automatically
-
-### Missing CLI Features
-
-These operations still require curl (tracked for future implementation):
-- Issue linking (Blocks relationships)
-- Ready task filtering (requires issue links)
