@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
 	"github.com/fwojciec/jira4claude"
@@ -83,7 +84,7 @@ func (c *IssueReadyCmd) Run(ctx *IssueContext) error {
 	}
 
 	filter := jira4claude.IssueFilter{
-		JQL:   "project = " + project + " AND status != Done ORDER BY created DESC",
+		JQL:   fmt.Sprintf("project = %q AND status != Done ORDER BY created DESC", project),
 		Limit: c.Limit,
 	}
 
