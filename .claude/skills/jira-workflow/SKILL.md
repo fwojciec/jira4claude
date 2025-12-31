@@ -9,7 +9,17 @@ Project-specific skill for managing J4C tasks using jira4claude CLI.
 
 **This skill MUST be used for ANY Jira project management work.**
 
-**Note:** The CLI requires `--config=.jira4claude.yaml` when running from the project directory.
+## Handling Missing Config
+
+If you see: `Error: no config file found`
+
+Create a local config:
+
+```bash
+./jira4claude init --server=https://fwojciec.atlassian.net --project=J4C
+```
+
+This creates `.jira4claude.yaml` and adds it to `.gitignore`.
 
 ## MANDATORY: Issue Creation Template
 
@@ -80,13 +90,13 @@ With a line break.
 Show all tasks not marked Done:
 
 ```bash
-./jira4claude --config=.jira4claude.yaml list --jql="status != Done"
+./jira4claude list --jql="status != Done"
 ```
 
 For JSON output, add `--json`:
 
 ```bash
-./jira4claude --config=.jira4claude.yaml list --jql="status != Done" --json
+./jira4claude list --jql="status != Done" --json
 ```
 
 ### Show Ready Tasks (Unblocked)
@@ -115,13 +125,13 @@ This filters for tasks where all blockers (`inwardIssue` in "Blocks" links) are 
 Get full details for a specific task:
 
 ```bash
-./jira4claude --config=.jira4claude.yaml view J4C-123
+./jira4claude view J4C-123
 ```
 
 For JSON output:
 
 ```bash
-./jira4claude --config=.jira4claude.yaml view J4C-123 --json
+./jira4claude view J4C-123 --json
 ```
 
 ### Create Task
@@ -129,7 +139,7 @@ For JSON output:
 Create a new task with description:
 
 ```bash
-./jira4claude --config=.jira4claude.yaml create \
+./jira4claude create \
   --summary="Task title here" \
   --description="Description here"
 ```
@@ -137,7 +147,7 @@ Create a new task with description:
 For JSON output (returns the created issue key):
 
 ```bash
-./jira4claude --config=.jira4claude.yaml create \
+./jira4claude create \
   --summary="Task title here" \
   --description="Description here" \
   --json
@@ -220,19 +230,19 @@ curl -s -n -X DELETE 'https://fwojciec.atlassian.net/rest/api/3/issueLink/LINK_I
 List available transitions for a task:
 
 ```bash
-./jira4claude --config=.jira4claude.yaml transition J4C-123 --list-only
+./jira4claude transition J4C-123 --list-only
 ```
 
 Execute a transition by status name:
 
 ```bash
-./jira4claude --config=.jira4claude.yaml transition J4C-123 --status="Done"
+./jira4claude transition J4C-123 --status="Done"
 ```
 
 Or by transition ID:
 
 ```bash
-./jira4claude --config=.jira4claude.yaml transition J4C-123 --transition-id="21"
+./jira4claude transition J4C-123 --transition-id="21"
 ```
 
 Common transitions (may vary by workflow):
@@ -244,13 +254,13 @@ Common transitions (may vary by workflow):
 Add a comment to a task:
 
 ```bash
-./jira4claude --config=.jira4claude.yaml comment J4C-123 --body="Comment text here"
+./jira4claude comment J4C-123 --body="Comment text here"
 ```
 
 For JSON output:
 
 ```bash
-./jira4claude --config=.jira4claude.yaml comment J4C-123 --body="Comment text here" --json
+./jira4claude comment J4C-123 --body="Comment text here" --json
 ```
 
 ## Planning Dependencies
@@ -276,7 +286,8 @@ Example for jira4claude:
 
 ## Notes
 
-- **CLI commands** use `./jira4claude --config=.jira4claude.yaml` - the CLI reads credentials from `.netrc`
+- **CLI auto-discovers config**: searches `./.jira4claude.yaml` then `~/.jira4claude.yaml`
+- **CLI credentials**: reads from `.netrc`
 - **curl commands** (for linking) use `-n` flag for `.netrc` authentication
 - Add `--json` to any CLI command for JSON output
 - The CLI handles Atlassian Document Format (ADF) conversion automatically

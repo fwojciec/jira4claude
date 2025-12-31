@@ -18,9 +18,10 @@ import (
 
 // CLI defines the command structure for jira4claude.
 type CLI struct {
-	Config string `help:"Path to config file" default:"~/.jira4claude.yaml" type:"path"`
+	Config string `help:"Path to config file (auto-discovers if not set)" type:"path"`
 	JSON   bool   `help:"Output in JSON format" short:"j"`
 
+	Init       InitCmd       `cmd:"" help:"Initialize a new config file in current directory"`
 	Create     CreateCmd     `cmd:"" help:"Create a new issue"`
 	View       ViewCmd       `cmd:"" help:"View an issue"`
 	List       ListCmd       `cmd:"" help:"List issues"`
@@ -28,6 +29,12 @@ type CLI struct {
 	Comment    CommentCmd    `cmd:"" help:"Add a comment to an issue"`
 	Transition TransitionCmd `cmd:"" help:"Transition an issue to a new status"`
 	Assign     AssignCmd     `cmd:"" help:"Assign an issue to a user"`
+}
+
+// InitCmd initializes a new config file.
+type InitCmd struct {
+	Server  string `help:"Jira server URL (e.g., https://example.atlassian.net)" required:""`
+	Project string `help:"Default project key (e.g., PROJ)" required:""`
 }
 
 // CreateCmd creates a new issue.
@@ -111,6 +118,15 @@ func main() {
 		kong.UsageOnError(),
 	)
 
+	// Init command doesn't need config
+	if ctx.Command() == "init" {
+		if err := ctx.Run(&cli); err != nil {
+			printError(cli.JSON, err)
+			os.Exit(1)
+		}
+		return
+	}
+
 	app, err := newApp(cli.Config, cli.JSON)
 	if err != nil {
 		printError(cli.JSON, err)
@@ -125,8 +141,22 @@ func main() {
 }
 
 func newApp(configPath string, jsonOut bool) (*App, error) {
-	// Expand ~ in config path
-	if strings.HasPrefix(configPath, "~/") {
+	// Auto-discover config if not specified
+	if configPath == "" {
+		workDir, err := os.Getwd()
+		if err != nil {
+			return nil, fmt.Errorf("failed to get working directory: %w", err)
+		}
+		homeDir, err := os.UserHomeDir()
+		if err != nil {
+			return nil, fmt.Errorf("failed to get home directory: %w", err)
+		}
+		configPath, err = yaml.DiscoverConfig(workDir, homeDir)
+		if err != nil {
+			return nil, err
+		}
+	} else if strings.HasPrefix(configPath, "~/") {
+		// Expand ~ in explicit config path
 		home, err := os.UserHomeDir()
 		if err != nil {
 			return nil, fmt.Errorf("failed to get home directory: %w", err)
@@ -365,6 +395,41 @@ func (c *AssignCmd) Run(app *App) error {
 		fmt.Printf("Unassigned %s\n", keyStyle.Render(c.Key))
 	} else {
 		fmt.Printf("Assigned %s to %s\n", keyStyle.Render(c.Key), c.AccountID)
+	}
+	return nil
+}
+
+// Run executes the init command.
+func (c *InitCmd) Run(cli *CLI) error {
+	workDir, err := os.Getwd()
+	if err != nil {
+		return &jira4claude.Error{
+			Code:    jira4claude.EInternal,
+			Message: "failed to get working directory",
+			Inner:   err,
+		}
+	}
+
+	result, err := yaml.Init(workDir, c.Server, c.Project)
+	if err != nil {
+		return err
+	}
+
+	if cli.JSON {
+		return printJSON(map[string]any{
+			"configCreated":   result.ConfigCreated,
+			"gitignoreAdded":  result.GitignoreAdded,
+			"gitignoreExists": result.GitignoreExists,
+		})
+	}
+
+	if result.ConfigCreated {
+		fmt.Println("Created .jira4claude.yaml")
+	}
+	if result.GitignoreAdded {
+		fmt.Println("Added .jira4claude.yaml to .gitignore")
+	} else if result.GitignoreExists {
+		fmt.Println(".jira4claude.yaml already in .gitignore")
 	}
 	return nil
 }
