@@ -1,6 +1,6 @@
 ---
 description: Create a git worktree for a Jira task to enable parallel development
-allowed-tools: Bash(git:*), Bash(mkdir:*), Bash(grep:*)
+allowed-tools: Bash(git:*), Bash(mkdir:*), Bash(grep:*), Bash(cp:*)
 ---
 
 ## Current State
@@ -47,7 +47,15 @@ git fetch origin main
 git worktree add .worktrees/$ARGUMENTS -b $ARGUMENTS origin/main
 ```
 
-### 5. Transition Jira Task
+### 5. Copy Config File
+
+Copy the jira4claude config to the worktree (it's gitignored so not part of the checkout):
+
+```bash
+cp .jira4claude.yaml .worktrees/$ARGUMENTS/.jira4claude.yaml
+```
+
+### 6. Transition Jira Task
 
 Transition the task to "In Progress" to claim it:
 ```bash
@@ -56,7 +64,7 @@ Transition the task to "In Progress" to claim it:
 
 **Note**: Use `./jira4claude --config=.jira4claude.yaml transition $ARGUMENTS --list-only` to see available transitions if the above fails.
 
-### 6. Report Success
+### 7. Report Success
 
 Tell the user:
 - Worktree created at `.worktrees/$ARGUMENTS/`
