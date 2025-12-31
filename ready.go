@@ -11,12 +11,12 @@ func IsReady(issue *Issue) bool {
 		if link.InwardIssue == nil {
 			continue
 		}
-		// Only check "is blocked by" relationship
-		if !strings.Contains(strings.ToLower(link.Type.Inward), "blocked by") {
+		// Only check "is blocked by" relationship (case-insensitive)
+		if !strings.EqualFold(link.Type.Inward, LinkInwardBlockedBy) {
 			continue
 		}
 		// If the blocker is not Done, this issue is not ready
-		if link.InwardIssue.Status != "Done" {
+		if link.InwardIssue.Status != StatusDone {
 			return false
 		}
 	}

@@ -5,6 +5,17 @@ import (
 	"time"
 )
 
+// Status constants for common Jira workflow states.
+const (
+	StatusToDo       = "To Do"
+	StatusInProgress = "In Progress"
+	StatusDone       = "Done"
+)
+
+// LinkInwardBlockedBy is the inward description for a "Blocks" link type.
+// When issue A blocks issue B, issue B has an inward link with this description.
+const LinkInwardBlockedBy = "is blocked by"
+
 // User represents a Jira user.
 type User struct {
 	AccountID   string

@@ -1,3 +1,18 @@
+// Package mock provides test doubles for jira4claude interfaces.
+//
+// Mock implementations use function fields that are called directly by
+// interface methods. Tests must set the appropriate function fields before
+// calling methods; calling a method without setting its function field
+// will panic.
+//
+// Example usage:
+//
+//	svc := &mock.IssueService{
+//	    GetFn: func(ctx context.Context, key string) (*jira4claude.Issue, error) {
+//	        return &jira4claude.Issue{Key: key, Summary: "Test"}, nil
+//	    },
+//	}
+//	issue, err := svc.Get(ctx, "TEST-1")
 package mock
 
 import (
@@ -10,6 +25,8 @@ import (
 var _ jira4claude.IssueService = (*IssueService)(nil)
 
 // IssueService is a mock implementation of jira4claude.IssueService.
+// Each method delegates to its corresponding function field (e.g., Get calls GetFn).
+// Calling a method without setting its function field will panic.
 type IssueService struct {
 	CreateFn      func(ctx context.Context, issue *jira4claude.Issue) (*jira4claude.Issue, error)
 	GetFn         func(ctx context.Context, key string) (*jira4claude.Issue, error)
