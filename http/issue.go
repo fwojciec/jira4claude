@@ -1,11 +1,9 @@
 package http
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -18,6 +16,15 @@ import (
 // IssueService implements jira4claude.IssueService using the Jira REST API.
 type IssueService struct {
 	client *Client
+}
+
+// issuePath builds an escaped URL path for issue API endpoints.
+func issuePath(key string, segments ...string) string {
+	path := "/rest/api/3/issue/" + url.PathEscape(key)
+	for _, seg := range segments {
+		path += "/" + url.PathEscape(seg)
+	}
+	return path
 }
 
 // Compile-time interface verification.
@@ -50,53 +57,14 @@ func (s *IssueService) Create(ctx context.Context, issue *jira4claude.Issue) (*j
 		fields["parent"] = map[string]any{"key": issue.Parent}
 	}
 
-	body := map[string]any{"fields": fields}
-	jsonBody, err := json.Marshal(body)
+	req, err := s.client.NewJSONRequest(ctx, http.MethodPost, "/rest/api/3/issue", map[string]any{"fields": fields})
 	if err != nil {
-		return nil, &jira4claude.Error{
-			Code:    jira4claude.EInternal,
-			Message: "failed to marshal request",
-			Inner:   err,
-		}
+		return nil, err
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "/rest/api/3/issue", bytes.NewReader(jsonBody))
+	respBody, err := s.client.DoRequest(req, http.StatusCreated)
 	if err != nil {
-		return nil, &jira4claude.Error{
-			Code:    jira4claude.EInternal,
-			Message: "failed to create request",
-			Inner:   err,
-		}
-	}
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := s.client.Do(req)
-	if err != nil {
-		return nil, &jira4claude.Error{
-			Code:    jira4claude.EInternal,
-			Message: "request failed",
-			Inner:   err,
-		}
-	}
-	defer resp.Body.Close()
-
-	respBody, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, &jira4claude.Error{
-			Code:    jira4claude.EInternal,
-			Message: "failed to read response",
-			Inner:   err,
-		}
-	}
-
-	if resp.StatusCode != http.StatusCreated {
-		if apiErr := ParseErrorResponse(resp.StatusCode, respBody); apiErr != nil {
-			return nil, apiErr
-		}
-		return nil, &jira4claude.Error{
-			Code:    statusCodeToErrorCode(resp.StatusCode),
-			Message: fmt.Sprintf("unexpected status: %d", resp.StatusCode),
-		}
+		return nil, err
 	}
 
 	// Parse response
@@ -119,7 +87,7 @@ func (s *IssueService) Create(ctx context.Context, issue *jira4claude.Issue) (*j
 
 // Get retrieves an issue by its key.
 func (s *IssueService) Get(ctx context.Context, key string) (*jira4claude.Issue, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "/rest/api/3/issue/"+key, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, issuePath(key), nil)
 	if err != nil {
 		return nil, &jira4claude.Error{
 			Code:    jira4claude.EInternal,
@@ -128,36 +96,12 @@ func (s *IssueService) Get(ctx context.Context, key string) (*jira4claude.Issue,
 		}
 	}
 
-	resp, err := s.client.Do(req)
+	body, err := s.client.DoRequest(req, http.StatusOK)
 	if err != nil {
-		return nil, &jira4claude.Error{
-			Code:    jira4claude.EInternal,
-			Message: "request failed",
-			Inner:   err,
-		}
-	}
-	defer resp.Body.Close()
-
-	respBody, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, &jira4claude.Error{
-			Code:    jira4claude.EInternal,
-			Message: "failed to read response",
-			Inner:   err,
-		}
+		return nil, err
 	}
 
-	if resp.StatusCode != http.StatusOK {
-		if apiErr := ParseErrorResponse(resp.StatusCode, respBody); apiErr != nil {
-			return nil, apiErr
-		}
-		return nil, &jira4claude.Error{
-			Code:    statusCodeToErrorCode(resp.StatusCode),
-			Message: fmt.Sprintf("unexpected status: %d", resp.StatusCode),
-		}
-	}
-
-	return parseIssueResponse(respBody)
+	return parseIssueResponse(body)
 }
 
 // List returns issues matching the filter criteria.
@@ -185,33 +129,9 @@ func (s *IssueService) List(ctx context.Context, filter jira4claude.IssueFilter)
 		}
 	}
 
-	resp, err := s.client.Do(req)
+	respBody, err := s.client.DoRequest(req, http.StatusOK)
 	if err != nil {
-		return nil, &jira4claude.Error{
-			Code:    jira4claude.EInternal,
-			Message: "request failed",
-			Inner:   err,
-		}
-	}
-	defer resp.Body.Close()
-
-	respBody, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, &jira4claude.Error{
-			Code:    jira4claude.EInternal,
-			Message: "failed to read response",
-			Inner:   err,
-		}
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		if apiErr := ParseErrorResponse(resp.StatusCode, respBody); apiErr != nil {
-			return nil, apiErr
-		}
-		return nil, &jira4claude.Error{
-			Code:    statusCodeToErrorCode(resp.StatusCode),
-			Message: fmt.Sprintf("unexpected status: %d", resp.StatusCode),
-		}
+		return nil, err
 	}
 
 	// Parse response
@@ -287,45 +207,14 @@ func (s *IssueService) Update(ctx context.Context, key string, update jira4claud
 		fields["labels"] = *update.Labels
 	}
 
-	body := map[string]any{"fields": fields}
-	jsonBody, err := json.Marshal(body)
+	req, err := s.client.NewJSONRequest(ctx, http.MethodPut, issuePath(key), map[string]any{"fields": fields})
 	if err != nil {
-		return nil, &jira4claude.Error{
-			Code:    jira4claude.EInternal,
-			Message: "failed to marshal request",
-			Inner:   err,
-		}
+		return nil, err
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPut, "/rest/api/3/issue/"+key, bytes.NewReader(jsonBody))
+	_, err = s.client.DoRequest(req, http.StatusNoContent)
 	if err != nil {
-		return nil, &jira4claude.Error{
-			Code:    jira4claude.EInternal,
-			Message: "failed to create request",
-			Inner:   err,
-		}
-	}
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := s.client.Do(req)
-	if err != nil {
-		return nil, &jira4claude.Error{
-			Code:    jira4claude.EInternal,
-			Message: "request failed",
-			Inner:   err,
-		}
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusNoContent {
-		respBody, _ := io.ReadAll(resp.Body)
-		if apiErr := ParseErrorResponse(resp.StatusCode, respBody); apiErr != nil {
-			return nil, apiErr
-		}
-		return nil, &jira4claude.Error{
-			Code:    statusCodeToErrorCode(resp.StatusCode),
-			Message: fmt.Sprintf("unexpected status: %d", resp.StatusCode),
-		}
+		return nil, err
 	}
 
 	// Fetch and return the updated issue
@@ -334,7 +223,7 @@ func (s *IssueService) Update(ctx context.Context, key string, update jira4claud
 
 // Delete deletes an issue by its key.
 func (s *IssueService) Delete(ctx context.Context, key string) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, "/rest/api/3/issue/"+key, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, issuePath(key), nil)
 	if err != nil {
 		return &jira4claude.Error{
 			Code:    jira4claude.EInternal,
@@ -343,28 +232,8 @@ func (s *IssueService) Delete(ctx context.Context, key string) error {
 		}
 	}
 
-	resp, err := s.client.Do(req)
-	if err != nil {
-		return &jira4claude.Error{
-			Code:    jira4claude.EInternal,
-			Message: "request failed",
-			Inner:   err,
-		}
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusNoContent {
-		respBody, _ := io.ReadAll(resp.Body)
-		if apiErr := ParseErrorResponse(resp.StatusCode, respBody); apiErr != nil {
-			return apiErr
-		}
-		return &jira4claude.Error{
-			Code:    statusCodeToErrorCode(resp.StatusCode),
-			Message: fmt.Sprintf("unexpected status: %d", resp.StatusCode),
-		}
-	}
-
-	return nil
+	_, err = s.client.DoRequest(req, http.StatusNoContent)
+	return err
 }
 
 // AddComment adds a comment to an issue.
@@ -372,52 +241,15 @@ func (s *IssueService) AddComment(ctx context.Context, key, body string) (*jira4
 	reqBody := map[string]any{
 		"body": TextToADF(body),
 	}
-	jsonBody, err := json.Marshal(reqBody)
+
+	req, err := s.client.NewJSONRequest(ctx, http.MethodPost, issuePath(key, "comment"), reqBody)
 	if err != nil {
-		return nil, &jira4claude.Error{
-			Code:    jira4claude.EInternal,
-			Message: "failed to marshal request",
-			Inner:   err,
-		}
+		return nil, err
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "/rest/api/3/issue/"+key+"/comment", bytes.NewReader(jsonBody))
+	respBody, err := s.client.DoRequest(req, http.StatusCreated)
 	if err != nil {
-		return nil, &jira4claude.Error{
-			Code:    jira4claude.EInternal,
-			Message: "failed to create request",
-			Inner:   err,
-		}
-	}
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := s.client.Do(req)
-	if err != nil {
-		return nil, &jira4claude.Error{
-			Code:    jira4claude.EInternal,
-			Message: "request failed",
-			Inner:   err,
-		}
-	}
-	defer resp.Body.Close()
-
-	respBody, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, &jira4claude.Error{
-			Code:    jira4claude.EInternal,
-			Message: "failed to read response",
-			Inner:   err,
-		}
-	}
-
-	if resp.StatusCode != http.StatusCreated {
-		if apiErr := ParseErrorResponse(resp.StatusCode, respBody); apiErr != nil {
-			return nil, apiErr
-		}
-		return nil, &jira4claude.Error{
-			Code:    statusCodeToErrorCode(resp.StatusCode),
-			Message: fmt.Sprintf("unexpected status: %d", resp.StatusCode),
-		}
+		return nil, err
 	}
 
 	return parseCommentResponse(respBody)
@@ -425,7 +257,7 @@ func (s *IssueService) AddComment(ctx context.Context, key, body string) (*jira4
 
 // Transitions returns available workflow transitions for an issue.
 func (s *IssueService) Transitions(ctx context.Context, key string) ([]*jira4claude.Transition, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "/rest/api/3/issue/"+key+"/transitions", nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, issuePath(key, "transitions"), nil)
 	if err != nil {
 		return nil, &jira4claude.Error{
 			Code:    jira4claude.EInternal,
@@ -434,33 +266,9 @@ func (s *IssueService) Transitions(ctx context.Context, key string) ([]*jira4cla
 		}
 	}
 
-	resp, err := s.client.Do(req)
+	respBody, err := s.client.DoRequest(req, http.StatusOK)
 	if err != nil {
-		return nil, &jira4claude.Error{
-			Code:    jira4claude.EInternal,
-			Message: "request failed",
-			Inner:   err,
-		}
-	}
-	defer resp.Body.Close()
-
-	respBody, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, &jira4claude.Error{
-			Code:    jira4claude.EInternal,
-			Message: "failed to read response",
-			Inner:   err,
-		}
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		if apiErr := ParseErrorResponse(resp.StatusCode, respBody); apiErr != nil {
-			return nil, apiErr
-		}
-		return nil, &jira4claude.Error{
-			Code:    statusCodeToErrorCode(resp.StatusCode),
-			Message: fmt.Sprintf("unexpected status: %d", resp.StatusCode),
-		}
+		return nil, err
 	}
 
 	var transitionsResp struct {
@@ -495,47 +303,14 @@ func (s *IssueService) Transition(ctx context.Context, key, transitionID string)
 			"id": transitionID,
 		},
 	}
-	jsonBody, err := json.Marshal(reqBody)
+
+	req, err := s.client.NewJSONRequest(ctx, http.MethodPost, issuePath(key, "transitions"), reqBody)
 	if err != nil {
-		return &jira4claude.Error{
-			Code:    jira4claude.EInternal,
-			Message: "failed to marshal request",
-			Inner:   err,
-		}
+		return err
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "/rest/api/3/issue/"+key+"/transitions", bytes.NewReader(jsonBody))
-	if err != nil {
-		return &jira4claude.Error{
-			Code:    jira4claude.EInternal,
-			Message: "failed to create request",
-			Inner:   err,
-		}
-	}
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := s.client.Do(req)
-	if err != nil {
-		return &jira4claude.Error{
-			Code:    jira4claude.EInternal,
-			Message: "request failed",
-			Inner:   err,
-		}
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusNoContent {
-		respBody, _ := io.ReadAll(resp.Body)
-		if apiErr := ParseErrorResponse(resp.StatusCode, respBody); apiErr != nil {
-			return apiErr
-		}
-		return &jira4claude.Error{
-			Code:    statusCodeToErrorCode(resp.StatusCode),
-			Message: fmt.Sprintf("unexpected status: %d", resp.StatusCode),
-		}
-	}
-
-	return nil
+	_, err = s.client.DoRequest(req, http.StatusNoContent)
+	return err
 }
 
 // Assign assigns an issue to a user by account ID.
@@ -548,47 +323,13 @@ func (s *IssueService) Assign(ctx context.Context, key, accountID string) error 
 		reqBody = map[string]any{"accountId": accountID}
 	}
 
-	jsonBody, err := json.Marshal(reqBody)
+	req, err := s.client.NewJSONRequest(ctx, http.MethodPut, issuePath(key, "assignee"), reqBody)
 	if err != nil {
-		return &jira4claude.Error{
-			Code:    jira4claude.EInternal,
-			Message: "failed to marshal request",
-			Inner:   err,
-		}
+		return err
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPut, "/rest/api/3/issue/"+key+"/assignee", bytes.NewReader(jsonBody))
-	if err != nil {
-		return &jira4claude.Error{
-			Code:    jira4claude.EInternal,
-			Message: "failed to create request",
-			Inner:   err,
-		}
-	}
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := s.client.Do(req)
-	if err != nil {
-		return &jira4claude.Error{
-			Code:    jira4claude.EInternal,
-			Message: "request failed",
-			Inner:   err,
-		}
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusNoContent {
-		respBody, _ := io.ReadAll(resp.Body)
-		if apiErr := ParseErrorResponse(resp.StatusCode, respBody); apiErr != nil {
-			return apiErr
-		}
-		return &jira4claude.Error{
-			Code:    statusCodeToErrorCode(resp.StatusCode),
-			Message: fmt.Sprintf("unexpected status: %d", resp.StatusCode),
-		}
-	}
-
-	return nil
+	_, err = s.client.DoRequest(req, http.StatusNoContent)
+	return err
 }
 
 // issueResponse represents the JSON structure returned by Jira API for an issue.
@@ -741,47 +482,13 @@ func (s *IssueService) Link(ctx context.Context, inwardKey, linkType, outwardKey
 		"outwardIssue": map[string]any{"key": outwardKey},
 	}
 
-	jsonBody, err := json.Marshal(reqBody)
+	req, err := s.client.NewJSONRequest(ctx, http.MethodPost, "/rest/api/3/issueLink", reqBody)
 	if err != nil {
-		return &jira4claude.Error{
-			Code:    jira4claude.EInternal,
-			Message: "failed to marshal request",
-			Inner:   err,
-		}
+		return err
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "/rest/api/3/issueLink", bytes.NewReader(jsonBody))
-	if err != nil {
-		return &jira4claude.Error{
-			Code:    jira4claude.EInternal,
-			Message: "failed to create request",
-			Inner:   err,
-		}
-	}
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := s.client.Do(req)
-	if err != nil {
-		return &jira4claude.Error{
-			Code:    jira4claude.EInternal,
-			Message: "request failed",
-			Inner:   err,
-		}
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusCreated {
-		respBody, _ := io.ReadAll(resp.Body)
-		if apiErr := ParseErrorResponse(resp.StatusCode, respBody); apiErr != nil {
-			return apiErr
-		}
-		return &jira4claude.Error{
-			Code:    statusCodeToErrorCode(resp.StatusCode),
-			Message: fmt.Sprintf("unexpected status: %d", resp.StatusCode),
-		}
-	}
-
-	return nil
+	_, err = s.client.DoRequest(req, http.StatusCreated)
+	return err
 }
 
 // Unlink removes a link between two issues.
@@ -793,7 +500,7 @@ func (s *IssueService) Unlink(ctx context.Context, key1, key2 string) error {
 	}
 
 	// Delete the link
-	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, "/rest/api/3/issueLink/"+linkID, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, "/rest/api/3/issueLink/"+url.PathEscape(linkID), nil)
 	if err != nil {
 		return &jira4claude.Error{
 			Code:    jira4claude.EInternal,
@@ -802,34 +509,14 @@ func (s *IssueService) Unlink(ctx context.Context, key1, key2 string) error {
 		}
 	}
 
-	resp, err := s.client.Do(req)
-	if err != nil {
-		return &jira4claude.Error{
-			Code:    jira4claude.EInternal,
-			Message: "request failed",
-			Inner:   err,
-		}
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusNoContent {
-		respBody, _ := io.ReadAll(resp.Body)
-		if apiErr := ParseErrorResponse(resp.StatusCode, respBody); apiErr != nil {
-			return apiErr
-		}
-		return &jira4claude.Error{
-			Code:    statusCodeToErrorCode(resp.StatusCode),
-			Message: fmt.Sprintf("unexpected status: %d", resp.StatusCode),
-		}
-	}
-
-	return nil
+	_, err = s.client.DoRequest(req, http.StatusNoContent)
+	return err
 }
 
 // findLinkID finds the link ID connecting two issues.
 func (s *IssueService) findLinkID(ctx context.Context, key1, key2 string) (string, error) {
 	// Fetch issue with links
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "/rest/api/3/issue/"+key1, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, issuePath(key1), nil)
 	if err != nil {
 		return "", &jira4claude.Error{
 			Code:    jira4claude.EInternal,
@@ -838,33 +525,9 @@ func (s *IssueService) findLinkID(ctx context.Context, key1, key2 string) (strin
 		}
 	}
 
-	resp, err := s.client.Do(req)
+	respBody, err := s.client.DoRequest(req, http.StatusOK)
 	if err != nil {
-		return "", &jira4claude.Error{
-			Code:    jira4claude.EInternal,
-			Message: "request failed",
-			Inner:   err,
-		}
-	}
-	defer resp.Body.Close()
-
-	respBody, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return "", &jira4claude.Error{
-			Code:    jira4claude.EInternal,
-			Message: "failed to read response",
-			Inner:   err,
-		}
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		if apiErr := ParseErrorResponse(resp.StatusCode, respBody); apiErr != nil {
-			return "", apiErr
-		}
-		return "", &jira4claude.Error{
-			Code:    statusCodeToErrorCode(resp.StatusCode),
-			Message: fmt.Sprintf("unexpected status: %d", resp.StatusCode),
-		}
+		return "", err
 	}
 
 	// Parse the issue to find the link

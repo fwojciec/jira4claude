@@ -5,8 +5,11 @@
 package http
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"os"
@@ -117,6 +120,67 @@ func (c *Client) Do(req *http.Request) (*http.Response, error) {
 	req.Header.Set("Accept", "application/json")
 
 	return c.httpClient.Do(req)
+}
+
+// NewJSONRequest creates an HTTP request with a JSON body.
+// It marshals the body to JSON, sets the Content-Type header, and returns the request.
+func (c *Client) NewJSONRequest(ctx context.Context, method, path string, body any) (*http.Request, error) {
+	jsonBody, err := json.Marshal(body)
+	if err != nil {
+		return nil, &jira4claude.Error{
+			Code:    jira4claude.EInternal,
+			Message: "failed to marshal request",
+			Inner:   err,
+		}
+	}
+
+	req, err := http.NewRequestWithContext(ctx, method, path, bytes.NewReader(jsonBody))
+	if err != nil {
+		return nil, &jira4claude.Error{
+			Code:    jira4claude.EInternal,
+			Message: "failed to create request",
+			Inner:   err,
+		}
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	return req, nil
+}
+
+// DoRequest executes an HTTP request and handles common response processing.
+// It returns the response body on success, or an error if the request fails
+// or the status code doesn't match the expected value.
+func (c *Client) DoRequest(req *http.Request, expectedStatus int) ([]byte, error) {
+	resp, err := c.Do(req)
+	if err != nil {
+		return nil, &jira4claude.Error{
+			Code:    jira4claude.EInternal,
+			Message: "request failed",
+			Inner:   err,
+		}
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, &jira4claude.Error{
+			Code:    jira4claude.EInternal,
+			Message: "failed to read response",
+			Inner:   err,
+		}
+	}
+
+	if resp.StatusCode != expectedStatus {
+		if apiErr := ParseErrorResponse(resp.StatusCode, body); apiErr != nil {
+			return nil, apiErr
+		}
+		return nil, &jira4claude.Error{
+			Code:    statusCodeToErrorCode(resp.StatusCode),
+			Message: fmt.Sprintf("unexpected status: %d", resp.StatusCode),
+		}
+	}
+
+	return body, nil
 }
 
 // ErrorResponse represents a Jira API error response.

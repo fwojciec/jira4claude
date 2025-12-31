@@ -190,6 +190,39 @@ func TestIssueService_Create(t *testing.T) {
 func TestIssueService_Get(t *testing.T) {
 	t.Parallel()
 
+	t.Run("escapes special characters in key", func(t *testing.T) {
+		t.Parallel()
+
+		var receivedRawPath string
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// RawPath contains the encoded path when it differs from Path
+			receivedRawPath = r.URL.RawPath
+			if receivedRawPath == "" {
+				receivedRawPath = r.URL.Path
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{
+				"key": "TEST/1",
+				"fields": {
+					"project": {"key": "TEST"},
+					"summary": "Test issue",
+					"status": {"name": "To Do"},
+					"issuetype": {"name": "Task"}
+				}
+			}`))
+		}))
+		defer server.Close()
+
+		client := newTestClient(t, server.URL, "user@example.com", "api-token")
+		svc := jirahttp.NewIssueService(client)
+
+		_, err := svc.Get(context.Background(), "TEST/1")
+
+		require.NoError(t, err)
+		// The slash should be escaped as %2F
+		assert.Equal(t, "/rest/api/3/issue/TEST%2F1", receivedRawPath)
+	})
+
 	t.Run("retrieves issue by key", func(t *testing.T) {
 		t.Parallel()
 
