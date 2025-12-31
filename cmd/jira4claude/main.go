@@ -25,6 +25,7 @@ type CLI struct {
 	Create     CreateCmd     `cmd:"" help:"Create a new issue"`
 	View       ViewCmd       `cmd:"" help:"View an issue"`
 	List       ListCmd       `cmd:"" help:"List issues"`
+	Ready      ReadyCmd      `cmd:"" help:"List issues ready to work on (no unresolved blockers)"`
 	Edit       EditCmd       `cmd:"" help:"Edit an issue"`
 	Comment    CommentCmd    `cmd:"" help:"Add a comment to an issue"`
 	Transition TransitionCmd `cmd:"" help:"Transition an issue to a new status"`
@@ -62,6 +63,12 @@ type ListCmd struct {
 	Labels   []string `help:"Filter by labels (must have all)" short:"l"`
 	JQL      string   `help:"Raw JQL query (overrides other filters)"`
 	Limit    int      `help:"Maximum number of results" default:"50"`
+}
+
+// ReadyCmd lists issues ready to work on.
+type ReadyCmd struct {
+	Project string `help:"Filter by project" short:"p"`
+	Limit   int    `help:"Maximum number of results" default:"50"`
 }
 
 // EditCmd edits an issue.
@@ -276,6 +283,49 @@ func (c *ListCmd) Run(app *App) error {
 	}
 
 	printIssueTable(issues)
+	return nil
+}
+
+// Run executes the ready command.
+func (c *ReadyCmd) Run(app *App) error {
+	project := c.Project
+	if project == "" {
+		project = app.config.Project
+	}
+
+	// List open issues (status != Done)
+	filter := jira4claude.IssueFilter{
+		JQL:   fmt.Sprintf("project = %s AND status != Done ORDER BY created DESC", project),
+		Limit: c.Limit,
+	}
+
+	issues, err := app.service.List(context.Background(), filter)
+	if err != nil {
+		return err
+	}
+
+	// Filter to only ready issues (no unresolved blockers)
+	ready := make([]*jira4claude.Issue, 0, len(issues))
+	for _, issue := range issues {
+		if jira4claude.IsReady(issue) {
+			ready = append(ready, issue)
+		}
+	}
+
+	if app.jsonOut {
+		result := make([]map[string]any, len(ready))
+		for i, issue := range ready {
+			result[i] = issueToMap(issue, app.config.Server)
+		}
+		return printJSON(result)
+	}
+
+	if len(ready) == 0 {
+		fmt.Println("No ready issues found")
+		return nil
+	}
+
+	printIssueTable(ready)
 	return nil
 }
 
