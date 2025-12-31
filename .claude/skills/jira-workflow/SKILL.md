@@ -154,48 +154,66 @@ Multi-line descriptions are supported - newlines are preserved.
 
 **CRITICAL: Get the direction right or the dependency graph will be wrong!**
 
-#### Understanding the Link Model
-
-The CLI uses the same semantic as the Jira API: `[inward-key] blocks [outward-key]`
+#### The Golden Rule
 
 ```
-inward-key  ──blocks──>  outward-key
-(BLOCKER)                (BLOCKED)
-(do first)               (do after)
+./jira4claude link FIRST Blocks SECOND
 ```
 
-When you view an issue's links:
-- `inwardIssue` in a Blocks link → that issue is blocking THIS one
-- `outwardIssue` in a Blocks link → THIS issue is blocking that one
+- **FIRST** = the blocker (do this first, shows in `ready`)
+- **SECOND** = the blocked (do this after, NOT in `ready` until FIRST is Done)
+
+**Memory aid:** Read it as a sentence: "FIRST blocks SECOND" or "FIRST must be done before SECOND"
 
 #### Example
 
 **Goal:** J4C-7 (error handling) must be done before J4C-8 (config loading)
 
-This means: "J4C-7 blocks J4C-8" or "J4C-8 is blocked by J4C-7"
-
 ```bash
 ./jira4claude link J4C-7 Blocks J4C-8
 ```
 
-#### Verification
-
-Always verify after creating links:
+**After running this command:**
 
 ```bash
-./jira4claude view J4C-8 --json | jq '.links[] | select(.inwardIssue) | {blockedBy: .inwardIssue.key}'
-# Should show: "blockedBy": "J4C-7"
+./jira4claude view J4C-7
+# Shows: "blocks J4C-8"
 
-./jira4claude view J4C-7 --json | jq '.links[] | select(.outwardIssue) | {blocks: .outwardIssue.key}'
-# Should show: "blocks": "J4C-8"
+./jira4claude view J4C-8
+# Shows: "is blocked by J4C-7"
+
+./jira4claude ready
+# Shows J4C-7 (the blocker is ready to work on)
+# Does NOT show J4C-8 (blocked until J4C-7 is Done)
 ```
+
+#### MANDATORY Verification
+
+**Always verify links using the `ready` command:**
+
+```bash
+./jira4claude ready
+```
+
+Ask yourself:
+- Does the blocker (prerequisite) appear in the ready list? It should.
+- Does the blocked (dependent) appear in the ready list? It should NOT (unless its blocker is Done).
+
+If the wrong task is blocked, you got the direction backwards. Delete and recreate.
+
+#### Common Mistake
+
+**Wrong:** You want A done before B, but you run `link B Blocks A`
+- Result: B appears blocked, A appears ready - the opposite of what you wanted!
+
+**Fix:** Always read the command as a sentence. "A blocks B" means A is the prerequisite.
 
 #### Quick Reference
 
-| You want | Command |
-|----------|---------|
-| A blocks B | `./jira4claude link A Blocks B` |
-| B depends on A | `./jira4claude link A Blocks B` |
+| You want | Command | Ready shows |
+|----------|---------|-------------|
+| A before B | `link A Blocks B` | A (not B) |
+| B depends on A | `link A Blocks B` | A (not B) |
 
 ### Delete Link
 
