@@ -17,13 +17,35 @@ Strategic guidance for LLMs working with this codebase.
 
 ## Workflows
 
-Use slash commands for standard development workflows:
+### Single-Session Development
 
 | Command | Purpose |
 |---------|---------|
 | `/start-task` | Pick a Jira task, create branch, implement with TDD |
 | `/finish-task` | Validate, transition Jira issue to Done, create PR |
 | `/address-pr-comments` | Fetch, evaluate, and respond to PR feedback |
+
+### Parallel Development (Multiple Sessions)
+
+Run multiple Claude Code sessions on different tasks using git worktrees:
+
+| Command | Run from | Purpose |
+|---------|----------|---------|
+| `/create-worktree J4C-XX` | Main repo | Create worktree, transition Jira to In Progress |
+| `/worktree-task` | Worktree | Start work (infers task from branch name) |
+| `/worktree-finish` | Worktree | Validate, push, create PR, transition to Done |
+| `/cleanup-worktrees` | Main repo | Remove worktrees for merged PRs |
+
+**Workflow:**
+```
+[main repo]   /create-worktree J4C-42
+[terminal]    cd .worktrees/J4C-42 && claude
+[worktree]    /worktree-task → work → /worktree-finish
+[terminal]    close session
+[main repo]   /cleanup-worktrees
+```
+
+Worktrees are stored in `.worktrees/` (gitignored). Each worktree builds its own binary for dogfooding.
 
 **Quick reference**:
 ```bash
