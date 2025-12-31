@@ -97,6 +97,9 @@ func convertTextBlock(node *ast.TextBlock, source []byte) map[string]any {
 // convertHeading converts a goldmark heading to an ADF heading.
 func convertHeading(node *ast.Heading, source []byte) map[string]any {
 	content := convertInlineContent(node, source)
+	if len(content) == 0 {
+		return nil
+	}
 	return map[string]any{
 		"type": "heading",
 		"attrs": map[string]any{
