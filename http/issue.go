@@ -406,21 +406,8 @@ func parseIssueResponse(body []byte) (*jira4claude.Issue, error) {
 		issue.Parent = resp.Fields.Parent.Key
 	}
 
-	if resp.Fields.Assignee != nil {
-		issue.Assignee = &jira4claude.User{
-			AccountID:   resp.Fields.Assignee.AccountID,
-			DisplayName: resp.Fields.Assignee.DisplayName,
-			Email:       resp.Fields.Assignee.EmailAddress,
-		}
-	}
-
-	if resp.Fields.Reporter != nil {
-		issue.Reporter = &jira4claude.User{
-			AccountID:   resp.Fields.Reporter.AccountID,
-			DisplayName: resp.Fields.Reporter.DisplayName,
-			Email:       resp.Fields.Reporter.EmailAddress,
-		}
-	}
+	issue.Assignee = mapUser(resp.Fields.Assignee)
+	issue.Reporter = mapUser(resp.Fields.Reporter)
 
 	// Parse timestamps
 	if resp.Fields.Created != "" {
@@ -434,39 +421,55 @@ func parseIssueResponse(body []byte) (*jira4claude.Issue, error) {
 		}
 	}
 
-	// Parse issue links
-	if len(resp.Fields.IssueLinks) > 0 {
-		issue.Links = make([]*jira4claude.IssueLink, len(resp.Fields.IssueLinks))
-		for i, link := range resp.Fields.IssueLinks {
-			issueLink := &jira4claude.IssueLink{
-				ID: link.ID,
-				Type: jira4claude.IssueLinkType{
-					Name:    link.Type.Name,
-					Inward:  link.Type.Inward,
-					Outward: link.Type.Outward,
-				},
-			}
-			if link.OutwardIssue != nil {
-				issueLink.OutwardIssue = &jira4claude.LinkedIssue{
-					Key:     link.OutwardIssue.Key,
-					Summary: link.OutwardIssue.Fields.Summary,
-					Status:  link.OutwardIssue.Fields.Status.Name,
-					Type:    link.OutwardIssue.Fields.IssueType.Name,
-				}
-			}
-			if link.InwardIssue != nil {
-				issueLink.InwardIssue = &jira4claude.LinkedIssue{
-					Key:     link.InwardIssue.Key,
-					Summary: link.InwardIssue.Fields.Summary,
-					Status:  link.InwardIssue.Fields.Status.Name,
-					Type:    link.InwardIssue.Fields.IssueType.Name,
-				}
-			}
-			issue.Links[i] = issueLink
-		}
-	}
+	issue.Links = mapIssueLinks(resp.Fields.IssueLinks)
 
 	return issue, nil
+}
+
+// mapUser converts a userResponse to a domain User. Returns nil if input is nil.
+func mapUser(resp *userResponse) *jira4claude.User {
+	if resp == nil {
+		return nil
+	}
+	return &jira4claude.User{
+		AccountID:   resp.AccountID,
+		DisplayName: resp.DisplayName,
+		Email:       resp.EmailAddress,
+	}
+}
+
+// mapLinkedIssue converts a linkedIssueResponse to a domain LinkedIssue. Returns nil if input is nil.
+func mapLinkedIssue(resp *linkedIssueResponse) *jira4claude.LinkedIssue {
+	if resp == nil {
+		return nil
+	}
+	return &jira4claude.LinkedIssue{
+		Key:     resp.Key,
+		Summary: resp.Fields.Summary,
+		Status:  resp.Fields.Status.Name,
+		Type:    resp.Fields.IssueType.Name,
+	}
+}
+
+// mapIssueLinks converts a slice of issueLinkResponse to domain IssueLinks. Returns nil if input is empty.
+func mapIssueLinks(links []issueLinkResponse) []*jira4claude.IssueLink {
+	if len(links) == 0 {
+		return nil
+	}
+	result := make([]*jira4claude.IssueLink, len(links))
+	for i, link := range links {
+		result[i] = &jira4claude.IssueLink{
+			ID: link.ID,
+			Type: jira4claude.IssueLinkType{
+				Name:    link.Type.Name,
+				Inward:  link.Type.Inward,
+				Outward: link.Type.Outward,
+			},
+			OutwardIssue: mapLinkedIssue(link.OutwardIssue),
+			InwardIssue:  mapLinkedIssue(link.InwardIssue),
+		}
+	}
+	return result
 }
 
 // parseJiraTime parses a Jira timestamp string.

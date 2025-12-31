@@ -421,26 +421,9 @@ func (c *TransitionCmd) Run(app *App) error {
 	}
 
 	// Find transition by ID or name
-	var transitionID string
-	if c.TransitionID != "" {
-		transitionID = c.TransitionID
-	} else {
-		for _, t := range transitions {
-			if strings.EqualFold(t.Name, c.Status) {
-				transitionID = t.ID
-				break
-			}
-		}
-		if transitionID == "" {
-			available := make([]string, len(transitions))
-			for i, t := range transitions {
-				available[i] = t.Name
-			}
-			return &jira4claude.Error{
-				Code:    jira4claude.EValidation,
-				Message: fmt.Sprintf("status %q not found; available: %s", c.Status, strings.Join(available, ", ")),
-			}
-		}
+	transitionID, err := findTransitionID(c.TransitionID, c.Status, transitions)
+	if err != nil {
+		return err
 	}
 
 	if err := app.service.Transition(context.Background(), c.Key, transitionID); err != nil {
@@ -558,6 +541,28 @@ func (c *InitCmd) Run(cli *CLI) error {
 
 // Helper functions
 
+// findTransitionID finds a transition ID by explicit ID or status name.
+// If transitionID is provided, it returns it directly.
+// Otherwise, it searches for a transition matching the status name (case-insensitive).
+func findTransitionID(transitionID, status string, transitions []*jira4claude.Transition) (string, error) {
+	if transitionID != "" {
+		return transitionID, nil
+	}
+	for _, t := range transitions {
+		if strings.EqualFold(t.Name, status) {
+			return t.ID, nil
+		}
+	}
+	available := make([]string, len(transitions))
+	for i, t := range transitions {
+		available[i] = t.Name
+	}
+	return "", &jira4claude.Error{
+		Code:    jira4claude.EValidation,
+		Message: fmt.Sprintf("status %q not found; available: %s", status, strings.Join(available, ", ")),
+	}
+}
+
 func printError(out, errOut io.Writer, jsonOut bool, err error) {
 	if jsonOut {
 		_ = printJSON(out, map[string]any{
@@ -592,51 +597,54 @@ func issueToMap(issue *jira4claude.Issue, server string) map[string]any {
 		"url":         fmt.Sprintf("%s/browse/%s", server, issue.Key),
 	}
 	if issue.Assignee != nil {
-		m["assignee"] = map[string]any{
-			"accountId":   issue.Assignee.AccountID,
-			"displayName": issue.Assignee.DisplayName,
-			"email":       issue.Assignee.Email,
-		}
+		m["assignee"] = userToMap(issue.Assignee)
 	}
 	if issue.Reporter != nil {
-		m["reporter"] = map[string]any{
-			"accountId":   issue.Reporter.AccountID,
-			"displayName": issue.Reporter.DisplayName,
-			"email":       issue.Reporter.Email,
-		}
+		m["reporter"] = userToMap(issue.Reporter)
 	}
 	if len(issue.Links) > 0 {
-		links := make([]map[string]any, len(issue.Links))
-		for i, link := range issue.Links {
-			linkMap := map[string]any{
-				"id": link.ID,
-				"type": map[string]any{
-					"name":    link.Type.Name,
-					"inward":  link.Type.Inward,
-					"outward": link.Type.Outward,
-				},
-			}
-			if link.OutwardIssue != nil {
-				linkMap["outwardIssue"] = map[string]any{
-					"key":     link.OutwardIssue.Key,
-					"summary": link.OutwardIssue.Summary,
-					"status":  link.OutwardIssue.Status,
-					"type":    link.OutwardIssue.Type,
-				}
-			}
-			if link.InwardIssue != nil {
-				linkMap["inwardIssue"] = map[string]any{
-					"key":     link.InwardIssue.Key,
-					"summary": link.InwardIssue.Summary,
-					"status":  link.InwardIssue.Status,
-					"type":    link.InwardIssue.Type,
-				}
-			}
-			links[i] = linkMap
-		}
-		m["links"] = links
+		m["links"] = linksToMap(issue.Links)
 	}
 	return m
+}
+
+func userToMap(user *jira4claude.User) map[string]any {
+	return map[string]any{
+		"accountId":   user.AccountID,
+		"displayName": user.DisplayName,
+		"email":       user.Email,
+	}
+}
+
+func linkedIssueToMap(issue *jira4claude.LinkedIssue) map[string]any {
+	return map[string]any{
+		"key":     issue.Key,
+		"summary": issue.Summary,
+		"status":  issue.Status,
+		"type":    issue.Type,
+	}
+}
+
+func linksToMap(links []*jira4claude.IssueLink) []map[string]any {
+	result := make([]map[string]any, len(links))
+	for i, link := range links {
+		linkMap := map[string]any{
+			"id": link.ID,
+			"type": map[string]any{
+				"name":    link.Type.Name,
+				"inward":  link.Type.Inward,
+				"outward": link.Type.Outward,
+			},
+		}
+		if link.OutwardIssue != nil {
+			linkMap["outwardIssue"] = linkedIssueToMap(link.OutwardIssue)
+		}
+		if link.InwardIssue != nil {
+			linkMap["inwardIssue"] = linkedIssueToMap(link.InwardIssue)
+		}
+		result[i] = linkMap
+	}
+	return result
 }
 
 func printIssueDetail(w io.Writer, issue *jira4claude.Issue, server string) {
