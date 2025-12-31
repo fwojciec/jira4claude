@@ -1,9 +1,10 @@
 // Package mock provides test doubles for jira4claude interfaces.
 //
-// Mock implementations use function fields that are called directly by
-// interface methods. Tests must set the appropriate function fields before
-// calling methods; calling a method without setting its function field
-// will panic.
+// Service mocks (e.g., IssueService) use function fields that panic if nil,
+// requiring tests to set fields before calling methods.
+//
+// Output mocks (e.g., Printer) record calls for assertions and do not panic
+// if function fields are nil.
 //
 // Example usage:
 //
