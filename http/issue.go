@@ -392,14 +392,15 @@ func parseIssueResponse(body []byte) (*jira4claude.Issue, error) {
 	}
 
 	issue := &jira4claude.Issue{
-		Key:         resp.Key,
-		Project:     resp.Fields.Project.Key,
-		Summary:     resp.Fields.Summary,
-		Description: ADFToText(resp.Fields.Description),
-		Status:      resp.Fields.Status.Name,
-		Type:        resp.Fields.IssueType.Name,
-		Priority:    resp.Fields.Priority.Name,
-		Labels:      resp.Fields.Labels,
+		Key:            resp.Key,
+		Project:        resp.Fields.Project.Key,
+		Summary:        resp.Fields.Summary,
+		Description:    ADFToText(resp.Fields.Description),
+		DescriptionADF: resp.Fields.Description,
+		Status:         resp.Fields.Status.Name,
+		Type:           resp.Fields.IssueType.Name,
+		Priority:       resp.Fields.Priority.Name,
+		Labels:         resp.Fields.Labels,
 	}
 
 	if resp.Fields.Parent != nil {

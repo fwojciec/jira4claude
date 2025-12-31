@@ -62,20 +62,21 @@ type Comment struct {
 
 // Issue represents a Jira issue with its core fields.
 type Issue struct {
-	Key         string
-	Project     string
-	Summary     string
-	Description string
-	Status      string
-	Type        string
-	Priority    string
-	Assignee    *User
-	Reporter    *User
-	Labels      []string
-	Links       []*IssueLink
-	Parent      string // Parent issue key if this is a subtask; empty otherwise
-	Created     time.Time
-	Updated     time.Time
+	Key            string
+	Project        string
+	Summary        string
+	Description    string         // Plain text description
+	DescriptionADF map[string]any // Raw ADF for markdown conversion
+	Status         string
+	Type           string
+	Priority       string
+	Assignee       *User
+	Reporter       *User
+	Labels         []string
+	Links          []*IssueLink
+	Parent         string // Parent issue key if this is a subtask; empty otherwise
+	Created        time.Time
+	Updated        time.Time
 }
 
 // IssueFilter specifies criteria for listing issues.
