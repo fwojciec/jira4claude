@@ -78,7 +78,7 @@ func DiscoverConfig(workDir, homeDir string) (string, error) {
 		return globalPath, nil
 	}
 
-	return "", notFoundErr("no config file found; searched: ./"+configFileName+", ~/"+configFileName+"\nRun: jira4claude init --server=URL --project=KEY", nil)
+	return "", notFoundErr("no config file found; searched: ./"+configFileName+", ~/"+configFileName+"\nRun: j4c init --server=URL --project=KEY", nil)
 }
 
 // InitResult contains the result of the Init operation.

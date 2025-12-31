@@ -37,14 +37,16 @@ func TestNewClient(t *testing.T) {
 		assert.NotNil(t, client)
 	})
 
-	t.Run("returns error when netrc file not found", func(t *testing.T) {
+	t.Run("returns EUnauthorized when netrc file not found", func(t *testing.T) {
 		t.Parallel()
 
 		_, err := jirahttp.NewClient("https://test.atlassian.net", jirahttp.WithNetrcPath("/nonexistent/netrc"))
-		assert.Error(t, err)
+		require.Error(t, err)
+		assert.Equal(t, jira4claude.EUnauthorized, jira4claude.ErrorCode(err))
+		assert.Contains(t, err.Error(), "netrc")
 	})
 
-	t.Run("returns error when machine not found in netrc", func(t *testing.T) {
+	t.Run("returns EUnauthorized when machine not found in netrc", func(t *testing.T) {
 		t.Parallel()
 
 		tmpDir := t.TempDir()
@@ -56,10 +58,12 @@ func TestNewClient(t *testing.T) {
 		require.NoError(t, os.WriteFile(netrcPath, []byte(netrcContent), 0o600))
 
 		_, err := jirahttp.NewClient("https://test.atlassian.net", jirahttp.WithNetrcPath(netrcPath))
-		assert.Error(t, err)
+		require.Error(t, err)
+		assert.Equal(t, jira4claude.EUnauthorized, jira4claude.ErrorCode(err))
+		assert.Contains(t, err.Error(), "test.atlassian.net")
 	})
 
-	t.Run("returns error when login is empty in netrc", func(t *testing.T) {
+	t.Run("returns EUnauthorized when login is empty in netrc", func(t *testing.T) {
 		t.Parallel()
 
 		tmpDir := t.TempDir()
@@ -71,10 +75,11 @@ func TestNewClient(t *testing.T) {
 
 		_, err := jirahttp.NewClient("https://test.atlassian.net", jirahttp.WithNetrcPath(netrcPath))
 		require.Error(t, err)
+		assert.Equal(t, jira4claude.EUnauthorized, jira4claude.ErrorCode(err))
 		assert.Contains(t, err.Error(), "login")
 	})
 
-	t.Run("returns error when password is empty in netrc", func(t *testing.T) {
+	t.Run("returns EUnauthorized when password is empty in netrc", func(t *testing.T) {
 		t.Parallel()
 
 		tmpDir := t.TempDir()
@@ -86,6 +91,7 @@ func TestNewClient(t *testing.T) {
 
 		_, err := jirahttp.NewClient("https://test.atlassian.net", jirahttp.WithNetrcPath(netrcPath))
 		require.Error(t, err)
+		assert.Equal(t, jira4claude.EUnauthorized, jira4claude.ErrorCode(err))
 		assert.Contains(t, err.Error(), "password")
 	})
 }

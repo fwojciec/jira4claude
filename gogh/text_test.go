@@ -237,7 +237,7 @@ func TestTextPrinter_Transitions_ShowsAvailableTransitions(t *testing.T) {
 	assert.Contains(t, output, "Done")
 }
 
-func TestTextPrinter_Transitions_ShowsEmptyList(t *testing.T) {
+func TestTextPrinter_Transitions_ShowsEmptyListWithContext(t *testing.T) {
 	t.Parallel()
 
 	var out, errOut bytes.Buffer
@@ -249,6 +249,7 @@ func TestTextPrinter_Transitions_ShowsEmptyList(t *testing.T) {
 	output := out.String()
 	assert.Contains(t, output, "No transitions")
 	assert.Contains(t, output, "TEST-123")
+	assert.Contains(t, output, "terminal state")
 }
 
 func TestTextPrinter_Links_ShowsLinksForIssue(t *testing.T) {
@@ -278,7 +279,7 @@ func TestTextPrinter_Links_ShowsLinksForIssue(t *testing.T) {
 	assert.Contains(t, output, "TEST-456")
 }
 
-func TestTextPrinter_Links_ShowsNoLinksMessage(t *testing.T) {
+func TestTextPrinter_Links_ShowsNoLinksMessageWithClarity(t *testing.T) {
 	t.Parallel()
 
 	var out, errOut bytes.Buffer
@@ -288,7 +289,7 @@ func TestTextPrinter_Links_ShowsNoLinksMessage(t *testing.T) {
 	p.Links("TEST-123", []*jira4claude.IssueLink{})
 
 	output := out.String()
-	assert.Contains(t, output, "No links")
+	assert.Contains(t, output, "No issue links found")
 	assert.Contains(t, output, "TEST-123")
 }
 

@@ -278,11 +278,11 @@ func (c *IssueTransitionCmd) Run(ctx *IssueContext) error {
 		if transitionID == "" {
 			available := make([]string, len(transitions))
 			for i, t := range transitions {
-				available[i] = t.Name
+				available[i] = `"` + t.Name + `"`
 			}
 			return &jira4claude.Error{
 				Code:    jira4claude.EValidation,
-				Message: "status not found: " + c.Status + "; available: " + strings.Join(available, ", "),
+				Message: `status "` + c.Status + `" not found; available: ` + strings.Join(available, ", "),
 			}
 		}
 	}

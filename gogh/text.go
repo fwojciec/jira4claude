@@ -98,7 +98,7 @@ func (p *TextPrinter) Issues(issues []*jira4claude.Issue) {
 // Transitions prints available transitions for an issue.
 func (p *TextPrinter) Transitions(key string, ts []*jira4claude.Transition) {
 	if len(ts) == 0 {
-		fmt.Fprintf(p.io.Out, "No transitions for %s\n", p.styles.Key(key))
+		fmt.Fprintf(p.io.Out, "No transitions for %s (issue may be in terminal state)\n", p.styles.Key(key))
 		return
 	}
 
@@ -111,7 +111,7 @@ func (p *TextPrinter) Transitions(key string, ts []*jira4claude.Transition) {
 // Links prints issue links.
 func (p *TextPrinter) Links(key string, links []*jira4claude.IssueLink) {
 	if len(links) == 0 {
-		fmt.Fprintf(p.io.Out, "No links for %s\n", p.styles.Key(key))
+		fmt.Fprintf(p.io.Out, "No issue links found for %s\n", p.styles.Key(key))
 		return
 	}
 
