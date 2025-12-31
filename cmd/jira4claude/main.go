@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -48,6 +49,7 @@ type CreateCmd struct {
 	Description string   `help:"Issue description" short:"d"`
 	Priority    string   `help:"Issue priority"`
 	Labels      []string `help:"Issue labels (can be repeated)" short:"l"`
+	Parent      string   `help:"Parent issue key (creates a Subtask)" short:"P"`
 }
 
 // ViewCmd views an issue.
@@ -60,6 +62,7 @@ type ListCmd struct {
 	Project  string   `help:"Filter by project" short:"p"`
 	Status   string   `help:"Filter by status" short:"s"`
 	Assignee string   `help:"Filter by assignee (use 'me' for current user)" short:"a"`
+	Parent   string   `help:"Filter by parent issue (for subtasks)" short:"P"`
 	Labels   []string `help:"Filter by labels (must have all)" short:"l"`
 	JQL      string   `help:"Raw JQL query (overrides other filters)"`
 	Limit    int      `help:"Maximum number of results" default:"50"`
@@ -210,13 +213,19 @@ func (c *CreateCmd) Run(app *App) error {
 		project = app.config.Project
 	}
 
+	issueType := c.Type
+	if c.Parent != "" {
+		issueType = "Subtask"
+	}
+
 	issue := &jira4claude.Issue{
 		Project:     project,
-		Type:        c.Type,
+		Type:        issueType,
 		Summary:     c.Summary,
 		Description: c.Description,
 		Priority:    c.Priority,
 		Labels:      c.Labels,
+		Parent:      c.Parent,
 	}
 
 	created, err := app.service.Create(context.Background(), issue)
@@ -244,7 +253,7 @@ func (c *ViewCmd) Run(app *App) error {
 		return printJSON(issueToMap(issue, app.config.Server))
 	}
 
-	printIssueDetail(issue, app.config.Server)
+	printIssueDetail(os.Stdout, issue, app.config.Server)
 	return nil
 }
 
@@ -254,6 +263,7 @@ func (c *ListCmd) Run(app *App) error {
 		Project:  c.Project,
 		Status:   c.Status,
 		Assignee: c.Assignee,
+		Parent:   c.Parent,
 		Labels:   c.Labels,
 		JQL:      c.JQL,
 		Limit:    c.Limit,
@@ -571,6 +581,7 @@ func issueToMap(issue *jira4claude.Issue, server string) map[string]any {
 		"type":        issue.Type,
 		"priority":    issue.Priority,
 		"labels":      issue.Labels,
+		"parent":      issue.Parent,
 		"created":     issue.Created,
 		"updated":     issue.Updated,
 		"url":         fmt.Sprintf("%s/browse/%s", server, issue.Key),
@@ -623,34 +634,37 @@ func issueToMap(issue *jira4claude.Issue, server string) map[string]any {
 	return m
 }
 
-func printIssueDetail(issue *jira4claude.Issue, server string) {
-	fmt.Printf("%s  %s\n", keyStyle.Render(issue.Key), issue.Summary)
-	fmt.Printf("Status: %s  Type: %s", statusStyle.Render(issue.Status), issue.Type)
+func printIssueDetail(w io.Writer, issue *jira4claude.Issue, server string) {
+	fmt.Fprintf(w, "%s  %s\n", keyStyle.Render(issue.Key), issue.Summary)
+	fmt.Fprintf(w, "Status: %s  Type: %s", statusStyle.Render(issue.Status), issue.Type)
 	if issue.Priority != "" {
-		fmt.Printf("  Priority: %s", priorityStyle.Render(issue.Priority))
+		fmt.Fprintf(w, "  Priority: %s", priorityStyle.Render(issue.Priority))
 	}
-	fmt.Println()
+	fmt.Fprintln(w)
 
 	if issue.Assignee != nil {
-		fmt.Printf("Assignee: %s\n", issue.Assignee.DisplayName)
+		fmt.Fprintf(w, "Assignee: %s\n", issue.Assignee.DisplayName)
 	}
 	if issue.Reporter != nil {
-		fmt.Printf("Reporter: %s\n", issue.Reporter.DisplayName)
+		fmt.Fprintf(w, "Reporter: %s\n", issue.Reporter.DisplayName)
+	}
+	if issue.Parent != "" {
+		fmt.Fprintf(w, "Parent: %s\n", keyStyle.Render(issue.Parent))
 	}
 	if len(issue.Labels) > 0 {
-		fmt.Printf("Labels: %s\n", labelStyle.Render(strings.Join(issue.Labels, ", ")))
+		fmt.Fprintf(w, "Labels: %s\n", labelStyle.Render(strings.Join(issue.Labels, ", ")))
 	}
 	if len(issue.Links) > 0 {
-		fmt.Println("Links:")
+		fmt.Fprintln(w, "Links:")
 		for _, link := range issue.Links {
 			if link.OutwardIssue != nil {
-				fmt.Printf("  %s %s (%s)\n",
+				fmt.Fprintf(w, "  %s %s (%s)\n",
 					link.Type.Outward,
 					keyStyle.Render(link.OutwardIssue.Key),
 					link.OutwardIssue.Summary)
 			}
 			if link.InwardIssue != nil {
-				fmt.Printf("  %s %s (%s)\n",
+				fmt.Fprintf(w, "  %s %s (%s)\n",
 					link.Type.Inward,
 					keyStyle.Render(link.InwardIssue.Key),
 					link.InwardIssue.Summary)
@@ -659,10 +673,10 @@ func printIssueDetail(issue *jira4claude.Issue, server string) {
 	}
 
 	if issue.Description != "" {
-		fmt.Printf("\n%s\n", issue.Description)
+		fmt.Fprintf(w, "\n%s\n", issue.Description)
 	}
 
-	fmt.Printf("\n%s/browse/%s\n", server, issue.Key)
+	fmt.Fprintf(w, "\n%s/browse/%s\n", server, issue.Key)
 }
 
 func printIssueTable(issues []*jira4claude.Issue) {
