@@ -65,6 +65,20 @@ func (p *TextPrinter) Issue(issue *jira4claude.Issue) {
 		fmt.Fprintf(p.io.Out, "\n%s\n", issue.Description)
 	}
 
+	if len(issue.Comments) > 0 {
+		fmt.Fprintln(p.io.Out, "\n## Comments")
+		for _, comment := range issue.Comments {
+			author := "Unknown"
+			if comment.Author != nil {
+				author = comment.Author.DisplayName
+			}
+			fmt.Fprintf(p.io.Out, "\n**%s** (%s):\n%s\n",
+				author,
+				comment.Created.Format("2006-01-02 15:04"),
+				comment.Body)
+		}
+	}
+
 	if p.io.ServerURL != "" {
 		fmt.Fprintf(p.io.Out, "\n%s/browse/%s\n", p.io.ServerURL, issue.Key)
 	}

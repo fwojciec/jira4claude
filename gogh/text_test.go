@@ -4,11 +4,17 @@ import (
 	"bytes"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/fwojciec/jira4claude"
 	"github.com/fwojciec/jira4claude/gogh"
 	"github.com/stretchr/testify/assert"
 )
+
+func parseTime(s string) time.Time {
+	t, _ := time.Parse("2006-01-02T15:04:05.000-0700", s)
+	return t
+}
 
 func TestTextPrinter_Issue_ShowsKeyAndSummaryAndStatus(t *testing.T) {
 	t.Parallel()
@@ -123,6 +129,62 @@ func TestTextPrinter_Issue_ShowsLinks(t *testing.T) {
 	assert.Contains(t, output, "TEST-456")
 	assert.Contains(t, output, "is blocked by")
 	assert.Contains(t, output, "TEST-789")
+}
+
+func TestTextPrinter_Issue_ShowsComments(t *testing.T) {
+	t.Parallel()
+
+	var out, errOut bytes.Buffer
+	io := gogh.NewIO(&out, &errOut)
+	p := gogh.NewTextPrinter(io)
+
+	issue := &jira4claude.Issue{
+		Key:     "TEST-123",
+		Summary: "Test issue",
+		Status:  "Open",
+		Comments: []*jira4claude.Comment{
+			{
+				ID:      "10001",
+				Author:  &jira4claude.User{DisplayName: "John Doe"},
+				Body:    "First comment",
+				Created: parseTime("2024-01-15T10:30:00.000+0000"),
+			},
+			{
+				ID:      "10002",
+				Author:  &jira4claude.User{DisplayName: "Jane Smith"},
+				Body:    "Second comment",
+				Created: parseTime("2024-01-16T14:20:00.000+0000"),
+			},
+		},
+	}
+
+	p.Issue(issue)
+
+	output := out.String()
+	assert.Contains(t, output, "## Comments")
+	assert.Contains(t, output, "John Doe")
+	assert.Contains(t, output, "First comment")
+	assert.Contains(t, output, "Jane Smith")
+	assert.Contains(t, output, "Second comment")
+}
+
+func TestTextPrinter_Issue_NoCommentsSection_WhenNoComments(t *testing.T) {
+	t.Parallel()
+
+	var out, errOut bytes.Buffer
+	io := gogh.NewIO(&out, &errOut)
+	p := gogh.NewTextPrinter(io)
+
+	issue := &jira4claude.Issue{
+		Key:     "TEST-123",
+		Summary: "Test issue",
+		Status:  "Open",
+	}
+
+	p.Issue(issue)
+
+	output := out.String()
+	assert.NotContains(t, output, "Comments")
 }
 
 func TestTextPrinter_Issues_ShowsTableWithHeaders(t *testing.T) {

@@ -122,6 +122,25 @@ func issueToMap(issue *jira4claude.Issue) map[string]any {
 		}
 		m["links"] = links
 	}
+	if len(issue.Comments) > 0 {
+		comments := make([]map[string]any, len(issue.Comments))
+		for i, comment := range issue.Comments {
+			comments[i] = commentToMap(comment)
+		}
+		m["comments"] = comments
+	}
+	return m
+}
+
+func commentToMap(comment *jira4claude.Comment) map[string]any {
+	m := map[string]any{
+		"id":      comment.ID,
+		"body":    comment.Body,
+		"created": comment.Created,
+	}
+	if comment.Author != nil {
+		m["author"] = userToMap(comment.Author)
+	}
 	return m
 }
 

@@ -137,6 +137,55 @@ func TestJSONPrinter_Issue_WithLinks(t *testing.T) {
 	assert.Equal(t, "TEST-456", outwardIssue["key"])
 }
 
+func TestJSONPrinter_Issue_WithComments(t *testing.T) {
+	t.Parallel()
+
+	var out bytes.Buffer
+	p := gogh.NewJSONPrinter(&out)
+
+	issue := &jira4claude.Issue{
+		Key:     "TEST-123",
+		Summary: "Test issue",
+		Status:  "Open",
+		Comments: []*jira4claude.Comment{
+			{
+				ID: "10001",
+				Author: &jira4claude.User{
+					AccountID:   "user123",
+					DisplayName: "John Doe",
+					Email:       "john@example.com",
+				},
+				Body: "First comment",
+			},
+			{
+				ID:   "10002",
+				Body: "Second comment",
+			},
+		},
+	}
+
+	p.Issue(issue)
+
+	var result map[string]any
+	err := json.Unmarshal(out.Bytes(), &result)
+	require.NoError(t, err)
+
+	comments, ok := result["comments"].([]any)
+	require.True(t, ok, "comments should be an array")
+	require.Len(t, comments, 2)
+
+	comment1 := comments[0].(map[string]any)
+	assert.Equal(t, "10001", comment1["id"])
+	assert.Equal(t, "First comment", comment1["body"])
+	author1 := comment1["author"].(map[string]any)
+	assert.Equal(t, "user123", author1["accountId"])
+	assert.Equal(t, "John Doe", author1["displayName"])
+
+	comment2 := comments[1].(map[string]any)
+	assert.Equal(t, "10002", comment2["id"])
+	assert.Equal(t, "Second comment", comment2["body"])
+}
+
 func TestJSONPrinter_Issues(t *testing.T) {
 	t.Parallel()
 
