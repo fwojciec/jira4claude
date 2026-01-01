@@ -95,15 +95,6 @@ j4c link list PROJ-123
 j4c link delete PROJ-123 PROJ-124
 ```
 
-### Configuration
-
-```bash
-# Initialize project config
-j4c init --server=https://yourcompany.atlassian.net --project=PROJ
-```
-
-This creates `.jira4claude.yaml` in the current directory.
-
 ## Output Modes
 
 ### Human-Readable (Default)
