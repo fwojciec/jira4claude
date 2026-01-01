@@ -43,6 +43,21 @@ j4c init --server=https://yourcompany.atlassian.net --project=PROJ
 
 This creates `.jira4claude.yaml` with your server and default project.
 
+## Exit Codes
+
+The CLI uses semantic exit codes for programmatic error handling:
+
+| Code | Meaning |
+|------|---------|
+| 0 | Success |
+| 1 | Validation error (invalid input) |
+| 2 | Unauthorized (authentication failed) |
+| 3 | Forbidden (permission denied) |
+| 4 | Not found |
+| 5 | Conflict |
+| 6 | Rate limit exceeded |
+| 7 | Internal error |
+
 ## Status
 
 Alpha. Built to solve a specific workflow problem.

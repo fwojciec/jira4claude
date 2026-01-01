@@ -73,7 +73,7 @@ func main() {
 		}
 		if err := ctx.Run(configCtx); err != nil {
 			printer.Error(err)
-			os.Exit(1)
+			os.Exit(jira4claude.ExitCode(err))
 		}
 		return
 	}
@@ -82,7 +82,7 @@ func main() {
 	cfg, err := loadConfig(cli.Config)
 	if err != nil {
 		printer.Error(err)
-		os.Exit(1)
+		os.Exit(jira4claude.ExitCode(err))
 	}
 
 	// Set server URL on printers for URL output
@@ -95,7 +95,7 @@ func main() {
 	client, err := http.NewClient(cfg.Server)
 	if err != nil {
 		printer.Error(err)
-		os.Exit(1)
+		os.Exit(jira4claude.ExitCode(err))
 	}
 	svc := http.NewIssueService(client)
 
@@ -106,7 +106,7 @@ func main() {
 	// Run command
 	if err := ctx.Run(issueCtx, linkCtx); err != nil {
 		printer.Error(err)
-		os.Exit(1)
+		os.Exit(jira4claude.ExitCode(err))
 	}
 }
 
