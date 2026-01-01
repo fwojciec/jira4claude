@@ -31,7 +31,7 @@ go build -o j4c ./cmd/j4c
 
 Extract task ID from branch name and fetch details:
 ```bash
-./j4c issue view <task-id> --markdown
+./j4c issue view <task-id>
 ```
 
 Display the task summary to orient the session.

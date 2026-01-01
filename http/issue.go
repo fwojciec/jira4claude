@@ -435,7 +435,7 @@ func parseIssueResponse(body []byte) (*jira4claude.Issue, error) {
 		Key:            resp.Key,
 		Project:        resp.Fields.Project.Key,
 		Summary:        resp.Fields.Summary,
-		Description:    ADFToText(resp.Fields.Description),
+		Description:    ADFToGFM(resp.Fields.Description),
 		DescriptionADF: resp.Fields.Description,
 		Status:         resp.Fields.Status.Name,
 		Type:           resp.Fields.IssueType.Name,
@@ -523,7 +523,7 @@ func mapComments(resp *commentsResponse) []*jira4claude.Comment {
 	for i, c := range resp.Comments {
 		comment := &jira4claude.Comment{
 			ID:      c.ID,
-			Body:    ADFToText(c.Body),
+			Body:    ADFToGFM(c.Body),
 			BodyADF: c.Body,
 			Author:  mapUser(c.Author),
 		}
@@ -660,7 +660,7 @@ func parseCommentResponse(body []byte) (*jira4claude.Comment, error) {
 
 	comment := &jira4claude.Comment{
 		ID:      resp.ID,
-		Body:    ADFToText(resp.Body),
+		Body:    ADFToGFM(resp.Body),
 		BodyADF: resp.Body,
 	}
 

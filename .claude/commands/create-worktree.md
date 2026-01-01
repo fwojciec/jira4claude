@@ -23,7 +23,7 @@ If any checks fail, stop and explain the issue to the user.
 
 Fetch the task from Jira to verify it exists and is workable:
 ```bash
-./j4c issue view $ARGUMENTS --markdown
+./j4c issue view $ARGUMENTS
 ```
 
 If task is already "Done" or doesn't exist, stop and inform the user.

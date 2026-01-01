@@ -21,7 +21,7 @@ If any checks fail, stop and resolve with the user before continuing.
 ### 2. Task Selection
 
 **If a task ID was provided via argument ($1)**:
-- Fetch the task from Jira: `./j4c issue view $1 --markdown`
+- Fetch the task from Jira: `./j4c issue view $1`
 - Skip to step 3 (Branch Setup)
 
 **If no task ID was provided**:
@@ -37,7 +37,7 @@ Once you have a task ID:
    ```bash
    ./j4c issue transition <task-id> --status="Start Progress"
    ```
-3. Show task details: `./j4c issue view <task-id> --markdown`
+3. Show task details: `./j4c issue view <task-id>`
 
 **Note**: Use `./j4c issue transitions <task-id>` to see available transitions.
 
