@@ -62,15 +62,17 @@ func (p *TextPrinter) Issue(issue *jira4claude.Issue) {
 		fmt.Fprintln(p.io.Out, "Links:")
 		for _, link := range issue.Links {
 			if link.OutwardIssue != nil {
-				fmt.Fprintf(p.io.Out, "  %s %s (%s)\n",
+				fmt.Fprintf(p.io.Out, "  %s %s [%s] (%s)\n",
 					link.Type.Outward,
 					p.styles.Key(link.OutwardIssue.Key),
+					p.styles.Status(link.OutwardIssue.Status),
 					link.OutwardIssue.Summary)
 			}
 			if link.InwardIssue != nil {
-				fmt.Fprintf(p.io.Out, "  %s %s (%s)\n",
+				fmt.Fprintf(p.io.Out, "  %s %s [%s] (%s)\n",
 					link.Type.Inward,
 					p.styles.Key(link.InwardIssue.Key),
+					p.styles.Status(link.InwardIssue.Status),
 					link.InwardIssue.Summary)
 			}
 		}
@@ -177,15 +179,17 @@ func (p *TextPrinter) Links(key string, links []*jira4claude.IssueLink) {
 	fmt.Fprintf(p.io.Out, "Links for %s:\n", p.styles.Key(key))
 	for _, link := range links {
 		if link.OutwardIssue != nil {
-			fmt.Fprintf(p.io.Out, "  %s %s (%s)\n",
+			fmt.Fprintf(p.io.Out, "  %s %s [%s] (%s)\n",
 				link.Type.Outward,
 				p.styles.Key(link.OutwardIssue.Key),
+				p.styles.Status(link.OutwardIssue.Status),
 				link.OutwardIssue.Summary)
 		}
 		if link.InwardIssue != nil {
-			fmt.Fprintf(p.io.Out, "  %s %s (%s)\n",
+			fmt.Fprintf(p.io.Out, "  %s %s [%s] (%s)\n",
 				link.Type.Inward,
 				p.styles.Key(link.InwardIssue.Key),
+				p.styles.Status(link.InwardIssue.Status),
 				link.InwardIssue.Summary)
 		}
 	}
