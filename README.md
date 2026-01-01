@@ -1,22 +1,27 @@
 # jira4claude
 
-Minimal Jira CLI for AI agents - zero interactivity, readable flags, clean output.
+A minimal Jira CLI designed for AI coding agents.
 
 ![Demo of Claude Code using j4c to list and view Jira tasks](assets/demo.gif)
 
 ## Why?
 
-The official jira-cli hangs in non-interactive contexts (like Claude Code) because it prompts for optional fields. AI agents need predictable, non-interactive commands with structured output.
+AI agents need CLI tools that:
+- Never prompt for input or hang waiting for user interaction
+- Produce predictable, parseable output
+- Have explicit flags instead of interactive menus
+
+This CLI is built specifically for that use case.
 
 ## Design Principles
 
 - **Agent-first** - never prompt, never hang, always explicit
-- **Minimal scope** - only commands agents actually need (~8 endpoints, not 417)
-- **Clean output** - structured JSON, no ANSI colors, no spinners
+- **Minimal scope** - only the commands agents actually need
+- **Clean output** - human-readable tables, optional JSON for parsing
 
 ## Status
 
-Under development.
+Alpha. Built to solve a specific workflow problem.
 
 ## License
 
