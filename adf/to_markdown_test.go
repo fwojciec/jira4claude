@@ -3,7 +3,6 @@ package adf_test
 import (
 	"testing"
 
-	"github.com/fwojciec/jira4claude"
 	"github.com/fwojciec/jira4claude/adf"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -32,9 +31,9 @@ func TestConverter_ToMarkdown(t *testing.T) {
 			},
 		}
 
-		result, err := converter.ToMarkdown(adfDoc)
+		result, warnings := converter.ToMarkdown(adfDoc)
 
-		require.NoError(t, err)
+		assert.Empty(t, warnings)
 		assert.Equal(t, "Hello, world!", result)
 	})
 
@@ -71,9 +70,9 @@ func TestConverter_ToMarkdown(t *testing.T) {
 			},
 		}
 
-		result, err := converter.ToMarkdown(adfDoc)
+		result, warnings := converter.ToMarkdown(adfDoc)
 
-		require.NoError(t, err)
+		assert.Empty(t, warnings)
 		assert.Equal(t, "This is **bold** text.", result)
 	})
 
@@ -110,9 +109,9 @@ func TestConverter_ToMarkdown(t *testing.T) {
 			},
 		}
 
-		result, err := converter.ToMarkdown(adfDoc)
+		result, warnings := converter.ToMarkdown(adfDoc)
 
-		require.NoError(t, err)
+		assert.Empty(t, warnings)
 		assert.Equal(t, "This is *italic* text.", result)
 	})
 
@@ -149,9 +148,9 @@ func TestConverter_ToMarkdown(t *testing.T) {
 			},
 		}
 
-		result, err := converter.ToMarkdown(adfDoc)
+		result, warnings := converter.ToMarkdown(adfDoc)
 
-		require.NoError(t, err)
+		assert.Empty(t, warnings)
 		assert.Equal(t, "Use the `fmt.Println` function.", result)
 	})
 
@@ -178,9 +177,9 @@ func TestConverter_ToMarkdown(t *testing.T) {
 			},
 		}
 
-		result, err := converter.ToMarkdown(adfDoc)
+		result, warnings := converter.ToMarkdown(adfDoc)
 
-		require.NoError(t, err)
+		assert.Empty(t, warnings)
 		assert.Equal(t, "```go\nfmt.Println(\"hello\")\n```", result)
 	})
 
@@ -207,9 +206,9 @@ func TestConverter_ToMarkdown(t *testing.T) {
 			},
 		}
 
-		result, err := converter.ToMarkdown(adfDoc)
+		result, warnings := converter.ToMarkdown(adfDoc)
 
-		require.NoError(t, err)
+		assert.Empty(t, warnings)
 		assert.Equal(t, "## My Heading", result)
 	})
 
@@ -257,9 +256,9 @@ func TestConverter_ToMarkdown(t *testing.T) {
 			},
 		}
 
-		result, err := converter.ToMarkdown(adfDoc)
+		result, warnings := converter.ToMarkdown(adfDoc)
 
-		require.NoError(t, err)
+		assert.Empty(t, warnings)
 		assert.Equal(t, "- Item 1\n- Item 2", result)
 	})
 
@@ -307,9 +306,9 @@ func TestConverter_ToMarkdown(t *testing.T) {
 			},
 		}
 
-		result, err := converter.ToMarkdown(adfDoc)
+		result, warnings := converter.ToMarkdown(adfDoc)
 
-		require.NoError(t, err)
+		assert.Empty(t, warnings)
 		assert.Equal(t, "1. First\n2. Second", result)
 	})
 
@@ -349,9 +348,9 @@ func TestConverter_ToMarkdown(t *testing.T) {
 			},
 		}
 
-		result, err := converter.ToMarkdown(adfDoc)
+		result, warnings := converter.ToMarkdown(adfDoc)
 
-		require.NoError(t, err)
+		assert.Empty(t, warnings)
 		assert.Equal(t, "Visit [Google](https://google.com) for more.", result)
 	})
 
@@ -380,9 +379,9 @@ func TestConverter_ToMarkdown(t *testing.T) {
 			},
 		}
 
-		result, err := converter.ToMarkdown(adfDoc)
+		result, warnings := converter.ToMarkdown(adfDoc)
 
-		require.NoError(t, err)
+		assert.Empty(t, warnings)
 		assert.Equal(t, "> This is a quote.", result)
 	})
 
@@ -415,9 +414,9 @@ func TestConverter_ToMarkdown(t *testing.T) {
 			},
 		}
 
-		result, err := converter.ToMarkdown(adfDoc)
+		result, warnings := converter.ToMarkdown(adfDoc)
 
-		require.NoError(t, err)
+		assert.Empty(t, warnings)
 		assert.Equal(t, "First paragraph.\n\nSecond paragraph.", result)
 	})
 
@@ -457,9 +456,9 @@ func TestConverter_ToMarkdown(t *testing.T) {
 			},
 		}
 
-		result, err := converter.ToMarkdown(adfDoc)
+		result, warnings := converter.ToMarkdown(adfDoc)
 
-		require.NoError(t, err)
+		assert.Empty(t, warnings)
 		assert.Equal(t, "This is ***bold and italic*** text.", result)
 	})
 
@@ -467,9 +466,9 @@ func TestConverter_ToMarkdown(t *testing.T) {
 		t.Parallel()
 
 		converter := adf.New()
-		result, err := converter.ToMarkdown(nil)
+		result, warnings := converter.ToMarkdown(nil)
 
-		require.NoError(t, err)
+		assert.Empty(t, warnings)
 		assert.Empty(t, result)
 	})
 
@@ -483,13 +482,13 @@ func TestConverter_ToMarkdown(t *testing.T) {
 			"content": []any{},
 		}
 
-		result, err := converter.ToMarkdown(adfDoc)
+		result, warnings := converter.ToMarkdown(adfDoc)
 
-		require.NoError(t, err)
+		assert.Empty(t, warnings)
 		assert.Empty(t, result)
 	})
 
-	t.Run("returns error when content is skipped", func(t *testing.T) {
+	t.Run("returns warning when content is skipped", func(t *testing.T) {
 		t.Parallel()
 
 		converter := adf.New()
@@ -525,14 +524,94 @@ func TestConverter_ToMarkdown(t *testing.T) {
 			},
 		}
 
-		result, err := converter.ToMarkdown(adfDoc)
+		result, warnings := converter.ToMarkdown(adfDoc)
 
 		// Should still return converted content (best effort)
 		assert.Equal(t, "Before\n\nAfter", result)
 
-		// Should return validation error listing skipped content
-		require.Error(t, err)
-		assert.Equal(t, jira4claude.EValidation, jira4claude.ErrorCode(err))
-		assert.Contains(t, err.Error(), "table")
+		// Should return warning listing skipped content
+		require.Len(t, warnings, 1)
+		assert.Contains(t, warnings[0], "table")
+	})
+
+	t.Run("accumulates multiple warnings for different skipped node types", func(t *testing.T) {
+		t.Parallel()
+
+		converter := adf.New()
+		// ADF with multiple unsupported node types
+		adfDoc := map[string]any{
+			"type":    "doc",
+			"version": 1,
+			"content": []any{
+				map[string]any{
+					"type": "paragraph",
+					"content": []any{
+						map[string]any{
+							"type": "text",
+							"text": "Start",
+						},
+					},
+				},
+				map[string]any{
+					"type": "table",
+					"content": []any{
+						map[string]any{"type": "tableRow"},
+					},
+				},
+				map[string]any{
+					"type":    "panel",
+					"content": []any{},
+				},
+				map[string]any{
+					"type": "rule",
+				},
+				map[string]any{
+					"type": "paragraph",
+					"content": []any{
+						map[string]any{
+							"type": "text",
+							"text": "End",
+						},
+					},
+				},
+			},
+		}
+
+		result, warnings := converter.ToMarkdown(adfDoc)
+
+		// Should still return converted content (best effort)
+		assert.Equal(t, "Start\n\nEnd", result)
+
+		// Should return individual warnings for each skipped node type, sorted alphabetically
+		require.Len(t, warnings, 3)
+		assert.Contains(t, warnings[0], "panel")
+		assert.Contains(t, warnings[1], "rule")
+		assert.Contains(t, warnings[2], "table")
+	})
+
+	t.Run("returns empty warnings slice when no content is skipped", func(t *testing.T) {
+		t.Parallel()
+
+		converter := adf.New()
+		adfDoc := map[string]any{
+			"type":    "doc",
+			"version": 1,
+			"content": []any{
+				map[string]any{
+					"type": "paragraph",
+					"content": []any{
+						map[string]any{
+							"type": "text",
+							"text": "Hello",
+						},
+					},
+				},
+			},
+		}
+
+		result, warnings := converter.ToMarkdown(adfDoc)
+
+		assert.Equal(t, "Hello", result)
+		assert.Empty(t, warnings)
 	})
 }

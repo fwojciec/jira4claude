@@ -13,7 +13,7 @@ import (
 // TODO(J4C-76): Propagate conversion warnings to user via MessagePrinter.Warning
 func markdownToADF(markdown string) jira4claude.ADF {
 	converter := adf.New()
-	adfDoc, _ := converter.ToADF(markdown) //nolint:errcheck // TODO(J4C-76)
+	adfDoc, _ := converter.ToADF(markdown) // warnings ignored until J4C-76
 	return adfDoc
 }
 

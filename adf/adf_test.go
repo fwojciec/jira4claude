@@ -6,7 +6,6 @@ import (
 	"github.com/fwojciec/jira4claude"
 	"github.com/fwojciec/jira4claude/adf"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 func TestNew(t *testing.T) {
@@ -66,11 +65,11 @@ This is a paragraph with **bold** and *italic* text.
 			converter := adf.New()
 
 			// Markdown -> ADF -> Markdown
-			adfDoc, err := converter.ToADF(tc.markdown)
-			require.NoError(t, err)
+			adfDoc, warnings := converter.ToADF(tc.markdown)
+			assert.Empty(t, warnings)
 
-			result, err := converter.ToMarkdown(adfDoc)
-			require.NoError(t, err)
+			result, warnings := converter.ToMarkdown(adfDoc)
+			assert.Empty(t, warnings)
 
 			assert.Equal(t, tc.markdown, result)
 		})

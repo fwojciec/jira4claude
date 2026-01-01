@@ -3,7 +3,6 @@ package adf_test
 import (
 	"testing"
 
-	"github.com/fwojciec/jira4claude"
 	"github.com/fwojciec/jira4claude/adf"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -16,7 +15,7 @@ func TestConverter_ToADF(t *testing.T) {
 		t.Parallel()
 
 		converter := adf.New()
-		result, err := converter.ToADF("Hello, world!")
+		result, warnings := converter.ToADF("Hello, world!")
 
 		expected := map[string]any{
 			"type":    "doc",
@@ -34,7 +33,7 @@ func TestConverter_ToADF(t *testing.T) {
 			},
 		}
 
-		require.NoError(t, err)
+		assert.Empty(t, warnings)
 		assert.Equal(t, expected, result)
 	})
 
@@ -42,7 +41,7 @@ func TestConverter_ToADF(t *testing.T) {
 		t.Parallel()
 
 		converter := adf.New()
-		result, err := converter.ToADF("This is **bold** text.")
+		result, warnings := converter.ToADF("This is **bold** text.")
 
 		expected := map[string]any{
 			"type":    "doc",
@@ -73,7 +72,7 @@ func TestConverter_ToADF(t *testing.T) {
 			},
 		}
 
-		require.NoError(t, err)
+		assert.Empty(t, warnings)
 		assert.Equal(t, expected, result)
 	})
 
@@ -81,7 +80,7 @@ func TestConverter_ToADF(t *testing.T) {
 		t.Parallel()
 
 		converter := adf.New()
-		result, err := converter.ToADF("This is *italic* text.")
+		result, warnings := converter.ToADF("This is *italic* text.")
 
 		expected := map[string]any{
 			"type":    "doc",
@@ -112,7 +111,7 @@ func TestConverter_ToADF(t *testing.T) {
 			},
 		}
 
-		require.NoError(t, err)
+		assert.Empty(t, warnings)
 		assert.Equal(t, expected, result)
 	})
 
@@ -120,7 +119,7 @@ func TestConverter_ToADF(t *testing.T) {
 		t.Parallel()
 
 		converter := adf.New()
-		result, err := converter.ToADF("Use the `fmt.Println` function.")
+		result, warnings := converter.ToADF("Use the `fmt.Println` function.")
 
 		expected := map[string]any{
 			"type":    "doc",
@@ -151,7 +150,7 @@ func TestConverter_ToADF(t *testing.T) {
 			},
 		}
 
-		require.NoError(t, err)
+		assert.Empty(t, warnings)
 		assert.Equal(t, expected, result)
 	})
 
@@ -159,7 +158,7 @@ func TestConverter_ToADF(t *testing.T) {
 		t.Parallel()
 
 		converter := adf.New()
-		result, err := converter.ToADF("```go\nfmt.Println(\"hello\")\n```")
+		result, warnings := converter.ToADF("```go\nfmt.Println(\"hello\")\n```")
 
 		expected := map[string]any{
 			"type":    "doc",
@@ -180,7 +179,7 @@ func TestConverter_ToADF(t *testing.T) {
 			},
 		}
 
-		require.NoError(t, err)
+		assert.Empty(t, warnings)
 		assert.Equal(t, expected, result)
 	})
 
@@ -188,7 +187,7 @@ func TestConverter_ToADF(t *testing.T) {
 		t.Parallel()
 
 		converter := adf.New()
-		result, err := converter.ToADF("# Heading 1\n\n## Heading 2")
+		result, warnings := converter.ToADF("# Heading 1\n\n## Heading 2")
 
 		expected := map[string]any{
 			"type":    "doc",
@@ -221,7 +220,7 @@ func TestConverter_ToADF(t *testing.T) {
 			},
 		}
 
-		require.NoError(t, err)
+		assert.Empty(t, warnings)
 		assert.Equal(t, expected, result)
 	})
 
@@ -229,7 +228,7 @@ func TestConverter_ToADF(t *testing.T) {
 		t.Parallel()
 
 		converter := adf.New()
-		result, err := converter.ToADF("- Item 1\n- Item 2")
+		result, warnings := converter.ToADF("- Item 1\n- Item 2")
 
 		expected := map[string]any{
 			"type":    "doc",
@@ -271,7 +270,7 @@ func TestConverter_ToADF(t *testing.T) {
 			},
 		}
 
-		require.NoError(t, err)
+		assert.Empty(t, warnings)
 		assert.Equal(t, expected, result)
 	})
 
@@ -279,7 +278,7 @@ func TestConverter_ToADF(t *testing.T) {
 		t.Parallel()
 
 		converter := adf.New()
-		result, err := converter.ToADF("1. First\n2. Second")
+		result, warnings := converter.ToADF("1. First\n2. Second")
 
 		expected := map[string]any{
 			"type":    "doc",
@@ -321,7 +320,7 @@ func TestConverter_ToADF(t *testing.T) {
 			},
 		}
 
-		require.NoError(t, err)
+		assert.Empty(t, warnings)
 		assert.Equal(t, expected, result)
 	})
 
@@ -329,7 +328,7 @@ func TestConverter_ToADF(t *testing.T) {
 		t.Parallel()
 
 		converter := adf.New()
-		result, err := converter.ToADF("Visit [Google](https://google.com) for more.")
+		result, warnings := converter.ToADF("Visit [Google](https://google.com) for more.")
 
 		expected := map[string]any{
 			"type":    "doc",
@@ -363,7 +362,7 @@ func TestConverter_ToADF(t *testing.T) {
 			},
 		}
 
-		require.NoError(t, err)
+		assert.Empty(t, warnings)
 		assert.Equal(t, expected, result)
 	})
 
@@ -371,7 +370,7 @@ func TestConverter_ToADF(t *testing.T) {
 		t.Parallel()
 
 		converter := adf.New()
-		result, err := converter.ToADF("> This is a quote.")
+		result, warnings := converter.ToADF("> This is a quote.")
 
 		expected := map[string]any{
 			"type":    "doc",
@@ -394,7 +393,7 @@ func TestConverter_ToADF(t *testing.T) {
 			},
 		}
 
-		require.NoError(t, err)
+		assert.Empty(t, warnings)
 		assert.Equal(t, expected, result)
 	})
 
@@ -402,7 +401,7 @@ func TestConverter_ToADF(t *testing.T) {
 		t.Parallel()
 
 		converter := adf.New()
-		result, err := converter.ToADF("This is ***bold and italic*** text.")
+		result, warnings := converter.ToADF("This is ***bold and italic*** text.")
 
 		expected := map[string]any{
 			"type":    "doc",
@@ -436,7 +435,7 @@ func TestConverter_ToADF(t *testing.T) {
 			},
 		}
 
-		require.NoError(t, err)
+		assert.Empty(t, warnings)
 		assert.Equal(t, expected, result)
 	})
 
@@ -444,7 +443,7 @@ func TestConverter_ToADF(t *testing.T) {
 		t.Parallel()
 
 		converter := adf.New()
-		result, err := converter.ToADF("")
+		result, warnings := converter.ToADF("")
 
 		expected := map[string]any{
 			"type":    "doc",
@@ -452,16 +451,16 @@ func TestConverter_ToADF(t *testing.T) {
 			"content": []any{},
 		}
 
-		require.NoError(t, err)
+		assert.Empty(t, warnings)
 		assert.Equal(t, expected, result)
 	})
 
-	t.Run("returns error when content is skipped", func(t *testing.T) {
+	t.Run("returns warning when content is skipped", func(t *testing.T) {
 		t.Parallel()
 
 		converter := adf.New()
 		// Horizontal rules (thematic breaks) are not supported
-		result, err := converter.ToADF("Before\n\n---\n\nAfter")
+		result, warnings := converter.ToADF("Before\n\n---\n\nAfter")
 
 		// Should still return converted content (best effort)
 		require.NotNil(t, result)
@@ -472,9 +471,35 @@ func TestConverter_ToADF(t *testing.T) {
 		require.True(t, ok)
 		assert.Len(t, content, 2) // "Before" and "After" paragraphs
 
-		// Should return validation error listing skipped content
-		require.Error(t, err)
-		assert.Equal(t, jira4claude.EValidation, jira4claude.ErrorCode(err))
-		assert.Contains(t, err.Error(), "ThematicBreak")
+		// Should return warning listing skipped content
+		require.Len(t, warnings, 1)
+		assert.Contains(t, warnings[0], "ThematicBreak")
+	})
+
+	t.Run("accumulates multiple warnings for different skipped node types", func(t *testing.T) {
+		t.Parallel()
+
+		converter := adf.New()
+		// Multiple unsupported block elements: horizontal rule and raw HTML block
+		result, warnings := converter.ToADF("Start\n\n---\n\n<div>html block</div>\n\nEnd")
+
+		// Should still return converted content (best effort)
+		require.NotNil(t, result)
+		assert.Equal(t, "doc", result["type"])
+
+		// Should return warnings for each skipped type, sorted alphabetically
+		require.Len(t, warnings, 2)
+		assert.Contains(t, warnings[0], "HTMLBlock")
+		assert.Contains(t, warnings[1], "ThematicBreak")
+	})
+
+	t.Run("returns empty warnings slice when no content is skipped", func(t *testing.T) {
+		t.Parallel()
+
+		converter := adf.New()
+		result, warnings := converter.ToADF("Hello")
+
+		require.NotNil(t, result)
+		assert.Empty(t, warnings)
 	})
 }

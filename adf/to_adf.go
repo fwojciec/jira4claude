@@ -3,9 +3,8 @@ package adf
 import (
 	"fmt"
 	"reflect"
-	"strings"
+	"sort"
 
-	"github.com/fwojciec/jira4claude"
 	"github.com/yuin/goldmark"
 	"github.com/yuin/goldmark/ast"
 	"github.com/yuin/goldmark/extension"
@@ -14,6 +13,7 @@ import (
 )
 
 // skippedCollector tracks node types that were skipped during conversion.
+// Each unique node type generates one warning.
 type skippedCollector struct {
 	types map[string]struct{}
 }
@@ -26,28 +26,29 @@ func (s *skippedCollector) add(nodeType string) {
 	s.types[nodeType] = struct{}{}
 }
 
-func (s *skippedCollector) hasSkipped() bool {
-	return len(s.types) > 0
-}
-
-func (s *skippedCollector) error() error {
-	if !s.hasSkipped() {
+// warnings returns a slice of warning messages for each skipped node type.
+// Warnings are sorted alphabetically by node type for deterministic output.
+// Returns nil if no nodes were skipped.
+func (s *skippedCollector) warnings() []string {
+	if len(s.types) == 0 {
 		return nil
 	}
 	types := make([]string, 0, len(s.types))
 	for t := range s.types {
 		types = append(types, t)
 	}
-	return &jira4claude.Error{
-		Code:    jira4claude.EValidation,
-		Message: fmt.Sprintf("skipped unsupported elements: %s", strings.Join(types, ", ")),
+	sort.Strings(types)
+	warnings := make([]string, len(types))
+	for i, t := range types {
+		warnings[i] = fmt.Sprintf("skipped unsupported node type '%s'", t)
 	}
+	return warnings
 }
 
 // toADF converts GitHub-flavored markdown to Atlassian Document Format (ADF).
 // The result can be used directly in Jira API requests for description and comment fields.
-// Returns an error if any elements were skipped during conversion.
-func toADF(markdown string) (map[string]any, error) {
+// Returns warnings for any elements that were skipped during conversion.
+func toADF(markdown string) (map[string]any, []string) {
 	md := goldmark.New(
 		goldmark.WithExtensions(extension.GFM),
 		goldmark.WithParserOptions(
@@ -68,7 +69,7 @@ func toADF(markdown string) (map[string]any, error) {
 		"type":    "doc",
 		"version": 1,
 		"content": content,
-	}, skipped.error()
+	}, skipped.warnings()
 }
 
 // convertNode recursively converts goldmark AST nodes to ADF nodes.

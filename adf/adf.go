@@ -16,11 +16,13 @@ func New() *Converter {
 }
 
 // ToADF converts GitHub-flavored markdown to ADF.
-func (c *Converter) ToADF(markdown string) (map[string]any, error) {
+// Returns the ADF document and any warnings about skipped/unsupported content.
+func (c *Converter) ToADF(markdown string) (jira4claude.ADF, []string) {
 	return toADF(markdown)
 }
 
 // ToMarkdown converts ADF to GitHub-flavored markdown.
-func (c *Converter) ToMarkdown(adfDoc map[string]any) (string, error) {
+// Returns the markdown string and any warnings about skipped/unsupported content.
+func (c *Converter) ToMarkdown(adfDoc jira4claude.ADF) (string, []string) {
 	return toMarkdown(adfDoc)
 }
