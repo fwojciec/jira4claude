@@ -109,8 +109,8 @@ jira4claude issue view INT-123
 # List issues
 jira4claude issue list --project=INT --status=Open --assignee=me
 
-# Edit issue
-jira4claude issue edit INT-123 --summary="New title" --priority=High
+# Update issue
+jira4claude issue update INT-123 --summary="New title" --priority=High
 
 # Add comment
 jira4claude issue comment INT-123 --body="This is fixed in PR #456"

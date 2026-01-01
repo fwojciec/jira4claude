@@ -32,7 +32,7 @@ type IssueCmd struct {
 	List        IssueListCmd        `cmd:"" help:"List issues"`
 	Ready       IssueReadyCmd       `cmd:"" help:"List issues ready to work on"`
 	Create      IssueCreateCmd      `cmd:"" help:"Create an issue"`
-	Edit        IssueEditCmd        `cmd:"" help:"Edit an issue"`
+	Update      IssueUpdateCmd      `cmd:"" help:"Update an issue"`
 	Transitions IssueTransitionsCmd `cmd:"" help:"List available transitions"`
 	Transition  IssueTransitionCmd  `cmd:"" help:"Transition an issue"`
 	Assign      IssueAssignCmd      `cmd:"" help:"Assign an issue"`
@@ -191,8 +191,8 @@ func (c *IssueCreateCmd) Run(ctx *IssueContext) error {
 	return nil
 }
 
-// IssueEditCmd edits an issue.
-type IssueEditCmd struct {
+// IssueUpdateCmd updates an issue.
+type IssueUpdateCmd struct {
 	Key         string   `arg:"" help:"Issue key"`
 	Summary     *string  `help:"New summary" short:"s"`
 	Description *string  `help:"New description" short:"d"`
@@ -202,8 +202,8 @@ type IssueEditCmd struct {
 	ClearLabels bool     `help:"Clear all labels" name:"clear-labels"`
 }
 
-// Run executes the edit command.
-func (c *IssueEditCmd) Run(ctx *IssueContext) error {
+// Run executes the update command.
+func (c *IssueUpdateCmd) Run(ctx *IssueContext) error {
 	// Always convert description as GFM (plain text is valid GFM)
 	description := c.Description
 	if description != nil && *description != "" {

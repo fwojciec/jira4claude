@@ -158,9 +158,9 @@ func TestIssueCreateCmd(t *testing.T) {
 	})
 }
 
-// IssueEditCmd tests
+// IssueUpdateCmd tests
 
-func TestIssueEditCmd(t *testing.T) {
+func TestIssueUpdateCmd(t *testing.T) {
 	t.Parallel()
 
 	t.Run("always converts description as GFM", func(t *testing.T) {
@@ -177,7 +177,7 @@ func TestIssueEditCmd(t *testing.T) {
 		var buf bytes.Buffer
 		ctx := makeIssueContext(t, svc, &buf)
 		description := "**bold** and *italic*"
-		cmd := main.IssueEditCmd{Key: "TEST-1", Description: &description}
+		cmd := main.IssueUpdateCmd{Key: "TEST-1", Description: &description}
 		err := cmd.Run(ctx)
 
 		require.NoError(t, err)
@@ -200,7 +200,7 @@ func TestIssueEditCmd(t *testing.T) {
 		var buf bytes.Buffer
 		ctx := makeIssueContext(t, svc, &buf)
 		description := "plain text without formatting"
-		cmd := main.IssueEditCmd{Key: "TEST-1", Description: &description}
+		cmd := main.IssueUpdateCmd{Key: "TEST-1", Description: &description}
 		err := cmd.Run(ctx)
 
 		require.NoError(t, err)
@@ -223,7 +223,7 @@ func TestIssueEditCmd(t *testing.T) {
 		var buf bytes.Buffer
 		ctx := makeIssueContext(t, svc, &buf)
 		description := ""
-		cmd := main.IssueEditCmd{Key: "TEST-1", Description: &description}
+		cmd := main.IssueUpdateCmd{Key: "TEST-1", Description: &description}
 		err := cmd.Run(ctx)
 
 		require.NoError(t, err)

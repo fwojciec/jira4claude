@@ -23,7 +23,7 @@ j4c issue view KEY
 j4c issue list [--project, --status, --assignee, --jql, --limit]
 j4c issue ready [--project, --limit]
 j4c issue create -s "summary" [--project, --type, --description, --priority, --labels, --parent]
-j4c issue edit KEY [--summary, --description, --priority, --assignee, --labels]
+j4c issue update KEY [--summary, --description, --priority, --assignee, --labels]
 j4c issue transitions KEY
 j4c issue transition KEY (-s STATUS | -i ID)
 j4c issue assign KEY [--account-id]
@@ -53,7 +53,7 @@ j4c init --server URL --project KEY
 
 - **Entity-centric** - Commands grouped by resource (`issue`, `link`), like `gh`
 - **Mirrors Jira API** - Resource structure matches REST API
-- **Friendly verbs** - `view` not `get`, `edit` not `update`, `create`/`delete`
+- **Friendly verbs** - `view` not `get`, `update` for modifications, `create`/`delete`
 - **Plural for list, singular for action** - `issue transitions` lists, `issue transition` executes
 
 ## Package Structure
