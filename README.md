@@ -188,18 +188,6 @@ This CLI is designed as a tool for AI coding assistants. Key design decisions:
 j4c issue view $ISSUE_KEY --json | jq '.description'
 ```
 
-### Error Handling Pattern
-
-```bash
-j4c issue view PROJ-123 --json
-case $? in
-  0) echo "Success" ;;
-  2) echo "Check your API token" ;;
-  4) echo "Issue not found" ;;
-  *) echo "Unexpected error" ;;
-esac
-```
-
 ## Status
 
 Alpha. The API is subject to change. Built to solve a specific workflow problem with AI coding assistants.
