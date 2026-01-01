@@ -1,6 +1,6 @@
 ---
 description: Create a git worktree for a Jira task to enable parallel development
-allowed-tools: Bash(git:*), Bash(mkdir:*), Bash(grep:*), Bash(cp:*)
+allowed-tools: Bash(git:*), Bash(mkdir:*), Bash(grep:*), Bash(cp:*), Bash([:*)
 ---
 
 ## Current State
