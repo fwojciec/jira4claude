@@ -22,10 +22,10 @@ This feedback loop is essential for improving the tool.
 
 ## Building the CLI
 
-If `j4c` binary doesn't exist, build it:
+If `j4c` binary doesn't exist, install it:
 
 ```bash
-go build -o j4c ./cmd/j4c
+go install ./cmd/j4c
 ```
 
 ## Handling Missing Config
