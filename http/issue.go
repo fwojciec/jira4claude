@@ -47,7 +47,7 @@ func (s *IssueService) Create(ctx context.Context, issue *jira4claude.Issue) (*j
 	}
 
 	if issue.Description != "" {
-		reqBody.Fields.Description = textOrADF(issue.Description)
+		reqBody.Fields.Description = textOrADF(issue.Description, s.client.Converter())
 	}
 	if issue.Priority != "" {
 		reqBody.Fields.Priority = &priorityRef{Name: issue.Priority}
@@ -101,7 +101,7 @@ func (s *IssueService) Get(ctx context.Context, key string) (*jira4claude.Issue,
 		return nil, err
 	}
 
-	return parseIssueResponse(body)
+	return parseIssueResponse(body, s.client.Converter())
 }
 
 // List returns issues matching the filter criteria.
@@ -146,7 +146,7 @@ func (s *IssueService) List(ctx context.Context, filter jira4claude.IssueFilter)
 
 	issues := make([]*jira4claude.Issue, 0, len(searchResp.Issues))
 	for _, raw := range searchResp.Issues {
-		issue, err := parseIssueResponse(raw)
+		issue, err := parseIssueResponse(raw, s.client.Converter())
 		if err != nil {
 			return nil, err
 		}
@@ -189,7 +189,7 @@ func (s *IssueService) Update(ctx context.Context, key string, update jira4claud
 		reqBody.Fields.Summary = update.Summary
 	}
 	if update.Description != nil {
-		reqBody.Fields.Description = textOrADF(*update.Description)
+		reqBody.Fields.Description = textOrADF(*update.Description, s.client.Converter())
 	}
 	if update.Priority != nil {
 		reqBody.Fields.Priority = &priorityRef{Name: *update.Priority}
@@ -237,7 +237,7 @@ func (s *IssueService) Delete(ctx context.Context, key string) error {
 // AddComment adds a comment to an issue.
 func (s *IssueService) AddComment(ctx context.Context, key, body string) (*jira4claude.Comment, error) {
 	reqBody := map[string]any{
-		"body": textOrADF(body),
+		"body": textOrADF(body, s.client.Converter()),
 	}
 
 	req, err := s.client.NewJSONRequest(ctx, http.MethodPost, issuePath(key, "comment"), reqBody)
@@ -250,7 +250,7 @@ func (s *IssueService) AddComment(ctx context.Context, key, body string) (*jira4
 		return nil, err
 	}
 
-	return parseCommentResponse(respBody)
+	return parseCommentResponse(respBody, s.client.Converter())
 }
 
 // Transitions returns available workflow transitions for an issue.
@@ -421,7 +421,7 @@ type findLinkLinkedResponse struct {
 }
 
 // parseIssueResponse parses the JSON response from Jira into a domain Issue.
-func parseIssueResponse(body []byte) (*jira4claude.Issue, error) {
+func parseIssueResponse(body []byte, converter jira4claude.Converter) (*jira4claude.Issue, error) {
 	var resp issueResponse
 	if err := json.Unmarshal(body, &resp); err != nil {
 		return nil, &jira4claude.Error{
@@ -431,11 +431,12 @@ func parseIssueResponse(body []byte) (*jira4claude.Issue, error) {
 		}
 	}
 
+	description, _ := converter.ToMarkdown(resp.Fields.Description) //nolint:errcheck // TODO(J4C-76): propagate warnings
 	issue := &jira4claude.Issue{
 		Key:            resp.Key,
 		Project:        resp.Fields.Project.Key,
 		Summary:        resp.Fields.Summary,
-		Description:    ADFToGFM(resp.Fields.Description),
+		Description:    description,
 		DescriptionADF: resp.Fields.Description,
 		Status:         resp.Fields.Status.Name,
 		Type:           resp.Fields.IssueType.Name,
@@ -463,7 +464,7 @@ func parseIssueResponse(body []byte) (*jira4claude.Issue, error) {
 	}
 
 	issue.Links = mapIssueLinks(resp.Fields.IssueLinks)
-	issue.Comments = mapComments(resp.Fields.Comment)
+	issue.Comments = mapComments(resp.Fields.Comment, converter)
 
 	return issue, nil
 }
@@ -515,15 +516,16 @@ func mapIssueLinks(links []issueLinkResponse) []*jira4claude.IssueLink {
 }
 
 // mapComments converts a commentsResponse to domain Comments. Returns nil if input is nil or empty.
-func mapComments(resp *commentsResponse) []*jira4claude.Comment {
+func mapComments(resp *commentsResponse, converter jira4claude.Converter) []*jira4claude.Comment {
 	if resp == nil || len(resp.Comments) == 0 {
 		return nil
 	}
 	result := make([]*jira4claude.Comment, len(resp.Comments))
 	for i, c := range resp.Comments {
+		body, _ := converter.ToMarkdown(c.Body) //nolint:errcheck // TODO(J4C-76): propagate warnings
 		comment := &jira4claude.Comment{
 			ID:      c.ID,
-			Body:    ADFToGFM(c.Body),
+			Body:    body,
 			BodyADF: c.Body,
 			Author:  mapUser(c.Author),
 		}
@@ -648,7 +650,7 @@ type commentResponse struct {
 }
 
 // parseCommentResponse parses the JSON response from Jira into a domain Comment.
-func parseCommentResponse(body []byte) (*jira4claude.Comment, error) {
+func parseCommentResponse(body []byte, converter jira4claude.Converter) (*jira4claude.Comment, error) {
 	var resp commentResponse
 	if err := json.Unmarshal(body, &resp); err != nil {
 		return nil, &jira4claude.Error{
@@ -658,9 +660,10 @@ func parseCommentResponse(body []byte) (*jira4claude.Comment, error) {
 		}
 	}
 
+	commentBody, _ := converter.ToMarkdown(resp.Body) //nolint:errcheck // TODO(J4C-76): propagate warnings
 	comment := &jira4claude.Comment{
 		ID:      resp.ID,
-		Body:    ADFToGFM(resp.Body),
+		Body:    commentBody,
 		BodyADF: resp.Body,
 	}
 
