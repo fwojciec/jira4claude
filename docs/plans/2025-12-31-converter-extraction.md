@@ -15,9 +15,10 @@ The `http` package has a direct dependency on goldmark (markdown parser). Per Be
 package jira4claude
 
 // Converter handles conversion between markdown and Atlassian Document Format.
+// Methods return errors to report any skipped or unsupported content.
 type Converter interface {
-    ToADF(markdown string) map[string]any
-    ToMarkdown(adf map[string]any) string
+    ToADF(markdown string) (map[string]any, error)
+    ToMarkdown(adf map[string]any) (string, error)
 }
 ```
 
@@ -43,11 +44,11 @@ type Converter struct{}
 
 func New() *Converter { return &Converter{} }
 
-func (c *Converter) ToADF(markdown string) map[string]any {
+func (c *Converter) ToADF(markdown string) (map[string]any, error) {
     return toADF(markdown)
 }
 
-func (c *Converter) ToMarkdown(adf map[string]any) string {
+func (c *Converter) ToMarkdown(adf map[string]any) (string, error) {
     return toMarkdown(adf)
 }
 ```
@@ -61,15 +62,15 @@ package mock
 var _ jira4claude.Converter = (*Converter)(nil)
 
 type Converter struct {
-    ToADFFn      func(markdown string) map[string]any
-    ToMarkdownFn func(adf map[string]any) string
+    ToADFFn      func(markdown string) (map[string]any, error)
+    ToMarkdownFn func(adf map[string]any) (string, error)
 }
 
-func (c *Converter) ToADF(markdown string) map[string]any {
+func (c *Converter) ToADF(markdown string) (map[string]any, error) {
     return c.ToADFFn(markdown)
 }
 
-func (c *Converter) ToMarkdown(adf map[string]any) string {
+func (c *Converter) ToMarkdown(adf map[string]any) (string, error) {
     return c.ToMarkdownFn(adf)
 }
 ```
@@ -91,9 +92,9 @@ func NewClient(baseURL, project string, converter jira4claude.Converter) *Client
 The `textOrADF` helper stays in HTTP as a method on Client:
 
 ```go
-func (c *Client) textOrADF(text string) map[string]any {
+func (c *Client) textOrADF(text string) (map[string]any, error) {
     if adf := tryParseADF(text); adf != nil {
-        return adf
+        return adf, nil
     }
     return c.converter.ToADF(text)
 }
