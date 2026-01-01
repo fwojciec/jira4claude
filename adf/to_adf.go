@@ -331,6 +331,31 @@ func mapEqual(a, b map[string]any) bool {
 	return true
 }
 
+// textNodeWithMarks creates an ADF text node with the given text and marks.
+func textNodeWithMarks(text string, marks []map[string]any) map[string]any {
+	result := map[string]any{
+		"type": "text",
+		"text": text,
+	}
+	if len(marks) > 0 {
+		marksCopy := make([]any, len(marks))
+		for i, m := range marks {
+			marksCopy[i] = m
+		}
+		result["marks"] = marksCopy
+	}
+	return result
+}
+
+// convertChildren recursively converts all children of a node with the given marks.
+func convertChildren(node ast.Node, source []byte, marks []map[string]any) []any {
+	var content []any
+	for child := node.FirstChild(); child != nil; child = child.NextSibling() {
+		content = append(content, convertInlineNode(child, source, marks)...)
+	}
+	return content
+}
+
 // convertInlineNode converts inline nodes (text, emphasis, etc.) to ADF text nodes.
 func convertInlineNode(node ast.Node, source []byte, marks []map[string]any) []any {
 	switch n := node.(type) {
@@ -339,56 +364,25 @@ func convertInlineNode(node ast.Node, source []byte, marks []map[string]any) []a
 		if text == "" {
 			return nil
 		}
-		result := map[string]any{
-			"type": "text",
-			"text": text,
-		}
-		if len(marks) > 0 {
-			marksCopy := make([]any, len(marks))
-			for i, m := range marks {
-				marksCopy[i] = m
-			}
-			result["marks"] = marksCopy
-		}
-		return []any{result}
+		return []any{textNodeWithMarks(text, marks)}
 
 	case *ast.Emphasis:
 		markType := "em"
 		if n.Level == 2 {
 			markType = "strong"
 		}
-		newMark := map[string]any{"type": markType}
-		newMarks := append(marks, newMark)
-		var content []any
-		for child := n.FirstChild(); child != nil; child = child.NextSibling() {
-			content = append(content, convertInlineNode(child, source, newMarks)...)
-		}
-		return content
+		newMarks := append(marks, map[string]any{"type": markType})
+		return convertChildren(n, source, newMarks)
 
 	case *ast.CodeSpan:
-		// Extract code span text from child text segments
 		var codeText string
 		for child := n.FirstChild(); child != nil; child = child.NextSibling() {
 			if textNode, ok := child.(*ast.Text); ok {
 				codeText += string(textNode.Segment.Value(source))
 			}
 		}
-		newMark := map[string]any{"type": "code"}
-		result := map[string]any{
-			"type": "text",
-			"text": codeText,
-		}
-		if len(marks) > 0 {
-			allMarks := make([]any, len(marks)+1)
-			for i, m := range marks {
-				allMarks[i] = m
-			}
-			allMarks[len(marks)] = newMark
-			result["marks"] = allMarks
-		} else {
-			result["marks"] = []any{newMark}
-		}
-		return []any{result}
+		newMarks := append(marks, map[string]any{"type": "code"})
+		return []any{textNodeWithMarks(codeText, newMarks)}
 
 	case *ast.Link:
 		newMark := map[string]any{
@@ -397,19 +391,9 @@ func convertInlineNode(node ast.Node, source []byte, marks []map[string]any) []a
 				"href": string(n.Destination),
 			},
 		}
-		newMarks := append(marks, newMark)
-		var content []any
-		for child := n.FirstChild(); child != nil; child = child.NextSibling() {
-			content = append(content, convertInlineNode(child, source, newMarks)...)
-		}
-		return content
+		return convertChildren(n, source, append(marks, newMark))
 
 	default:
-		// For other inline nodes, recursively process children
-		var content []any
-		for child := node.FirstChild(); child != nil; child = child.NextSibling() {
-			content = append(content, convertInlineNode(child, source, marks)...)
-		}
-		return content
+		return convertChildren(node, source, marks)
 	}
 }
