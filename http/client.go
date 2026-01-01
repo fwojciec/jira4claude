@@ -65,7 +65,7 @@ func WithMaxRetries(n int) Option {
 }
 
 // WithRetryBaseDelay sets the base delay for exponential backoff.
-// Default is 100ms. Actual delays are baseDelay * 2^attempt.
+// Default is 100ms. Delays double each retry: baseDelay, 2*baseDelay, 4*baseDelay, etc.
 func WithRetryBaseDelay(d time.Duration) Option {
 	return func(c *clientConfig) {
 		c.retryBaseDelay = d
