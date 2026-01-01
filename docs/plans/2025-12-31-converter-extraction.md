@@ -15,12 +15,23 @@ The `http` package has a direct dependency on goldmark (markdown parser). Per Be
 package jira4claude
 
 // Converter handles conversion between markdown and Atlassian Document Format.
-// Methods return errors to report any skipped or unsupported content.
+// Both methods return best-effort results alongside errors listing any skipped content.
 type Converter interface {
+    // ToADF converts GitHub-flavored markdown to ADF.
+    // Returns EValidation error if any markdown elements couldn't be converted.
     ToADF(markdown string) (map[string]any, error)
+
+    // ToMarkdown converts ADF to GitHub-flavored markdown.
+    // Returns EValidation error if any ADF nodes couldn't be converted.
     ToMarkdown(adf map[string]any) (string, error)
 }
 ```
+
+**Error semantics:**
+- Both methods always return converted content (best effort)
+- Error is non-nil when content was skipped
+- Error code is `EValidation`, message lists skipped elements
+- Caller decides: use partial result, log warning, or fail
 
 ### Implementation Package
 
@@ -45,11 +56,11 @@ type Converter struct{}
 func New() *Converter { return &Converter{} }
 
 func (c *Converter) ToADF(markdown string) (map[string]any, error) {
-    return toADF(markdown)
+    return toADF(markdown)  // returns (result, nil) or (result, &jira4claude.Error{...})
 }
 
 func (c *Converter) ToMarkdown(adf map[string]any) (string, error) {
-    return toMarkdown(adf)
+    return toMarkdown(adf)  // returns (result, nil) or (result, &jira4claude.Error{...})
 }
 ```
 
@@ -96,9 +107,11 @@ func (c *Client) textOrADF(text string) (map[string]any, error) {
     if adf := tryParseADF(text); adf != nil {
         return adf, nil
     }
-    return c.converter.ToADF(text)
+    return c.converter.ToADF(text)  // propagates error if elements skipped
 }
 ```
+
+Callers (e.g., `CreateIssue`, `UpdateIssue`) propagate the error. The CLI can then warn the user about skipped content before proceeding.
 
 ### Wiring in Main
 
