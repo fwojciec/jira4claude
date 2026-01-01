@@ -6,6 +6,7 @@ import (
 
 	"github.com/alecthomas/kong"
 	"github.com/fwojciec/jira4claude"
+	"github.com/fwojciec/jira4claude/adf"
 	"github.com/fwojciec/jira4claude/gogh"
 	"github.com/fwojciec/jira4claude/http"
 	"github.com/fwojciec/jira4claude/yaml"
@@ -23,9 +24,10 @@ type CLI struct {
 
 // IssueContext provides dependencies for issue commands.
 type IssueContext struct {
-	Service jira4claude.IssueService
-	Printer jira4claude.Printer
-	Config  *jira4claude.Config
+	Service   jira4claude.IssueService
+	Printer   jira4claude.Printer
+	Converter jira4claude.Converter
+	Config    *jira4claude.Config
 }
 
 // LinkContext provides dependencies for link commands.
@@ -100,7 +102,8 @@ func main() {
 	svc := http.NewIssueService(client)
 
 	// Build contexts
-	issueCtx := &IssueContext{Service: svc, Printer: printer, Config: cfg}
+	conv := adf.New()
+	issueCtx := &IssueContext{Service: svc, Printer: printer, Converter: conv, Config: cfg}
 	linkCtx := &LinkContext{Service: svc, Printer: printer, Config: cfg}
 
 	// Run command

@@ -6,16 +6,7 @@ import (
 	"strings"
 
 	"github.com/fwojciec/jira4claude"
-	"github.com/fwojciec/jira4claude/adf"
 )
-
-// markdownToADF converts markdown text to ADF.
-// TODO(J4C-76): Propagate conversion warnings to user via MessagePrinter.Warning
-func markdownToADF(markdown string) jira4claude.ADF {
-	converter := adf.New()
-	adfDoc, _ := converter.ToADF(markdown) // warnings ignored until J4C-76
-	return adfDoc
-}
 
 // IssueCmd groups issue subcommands.
 type IssueCmd struct {
@@ -139,9 +130,10 @@ func (c *IssueCreateCmd) Run(ctx *IssueContext) error {
 	}
 
 	// Convert description to ADF (plain text is valid GFM)
+	// TODO(J4C-76): Propagate conversion warnings to user via MessagePrinter.Warning
 	var description jira4claude.ADF
 	if c.Description != "" {
-		description = markdownToADF(c.Description)
+		description, _ = ctx.Converter.ToADF(c.Description) // warnings ignored until J4C-76
 	}
 
 	issue := &jira4claude.Issue{
@@ -177,10 +169,11 @@ type IssueUpdateCmd struct {
 // Run executes the update command.
 func (c *IssueUpdateCmd) Run(ctx *IssueContext) error {
 	// Convert description to ADF (plain text is valid GFM)
+	// TODO(J4C-76): Propagate conversion warnings to user via MessagePrinter.Warning
 	var description *jira4claude.ADF
 	if c.Description != nil && *c.Description != "" {
-		adf := markdownToADF(*c.Description)
-		description = &adf
+		adfDoc, _ := ctx.Converter.ToADF(*c.Description) // warnings ignored until J4C-76
+		description = &adfDoc
 	}
 
 	update := jira4claude.IssueUpdate{
@@ -301,7 +294,8 @@ type IssueCommentCmd struct {
 // Run executes the comment command.
 func (c *IssueCommentCmd) Run(ctx *IssueContext) error {
 	// Convert body to ADF (plain text is valid GFM)
-	body := markdownToADF(c.Body)
+	// TODO(J4C-76): Propagate conversion warnings to user via MessagePrinter.Warning
+	body, _ := ctx.Converter.ToADF(c.Body) // warnings ignored until J4C-76
 
 	comment, err := ctx.Service.AddComment(context.Background(), c.Key, body)
 	if err != nil {

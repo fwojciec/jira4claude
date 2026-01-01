@@ -20,10 +20,31 @@ func makeIssueContext(t *testing.T, svc jira4claude.IssueService, out *bytes.Buf
 	t.Helper()
 	io := gogh.NewIO(out, out)
 	printer := gogh.NewTextPrinter(io)
+	converter := &mock.Converter{
+		ToADFFn: func(markdown string) (jira4claude.ADF, []string) {
+			// Simple mock that creates a valid ADF document
+			return jira4claude.ADF{
+				"type":    "doc",
+				"version": 1,
+				"content": []any{
+					map[string]any{
+						"type": "paragraph",
+						"content": []any{
+							map[string]any{
+								"type": "text",
+								"text": markdown,
+							},
+						},
+					},
+				},
+			}, nil
+		},
+	}
 	return &main.IssueContext{
-		Service: svc,
-		Printer: printer,
-		Config:  &jira4claude.Config{Project: "TEST", Server: "https://test.atlassian.net"},
+		Service:   svc,
+		Printer:   printer,
+		Converter: converter,
+		Config:    &jira4claude.Config{Project: "TEST", Server: "https://test.atlassian.net"},
 	}
 }
 
@@ -56,9 +77,10 @@ func TestIssueTransitionCmd_InvalidStatusShowsQuotedOptions(t *testing.T) {
 	}
 
 	ctx := &main.IssueContext{
-		Service: svc,
-		Printer: printer,
-		Config:  &jira4claude.Config{Project: "TEST"},
+		Service:   svc,
+		Printer:   printer,
+		Converter: &mock.Converter{}, // Not used by transitions, but required
+		Config:    &jira4claude.Config{Project: "TEST"},
 	}
 
 	cmd := &main.IssueTransitionCmd{
