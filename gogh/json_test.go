@@ -155,11 +155,19 @@ func TestJSONPrinter_Issue_WithComments(t *testing.T) {
 					DisplayName: "John Doe",
 					Email:       "john@example.com",
 				},
-				Body: "First comment",
+				Body: jira4claude.ADF{"type": "doc", "content": []any{
+					map[string]any{"type": "paragraph", "content": []any{
+						map[string]any{"type": "text", "text": "First comment"},
+					}},
+				}},
 			},
 			{
-				ID:   "10002",
-				Body: "Second comment",
+				ID: "10002",
+				Body: jira4claude.ADF{"type": "doc", "content": []any{
+					map[string]any{"type": "paragraph", "content": []any{
+						map[string]any{"type": "text", "text": "Second comment"},
+					}},
+				}},
 			},
 		},
 	}
@@ -176,14 +184,18 @@ func TestJSONPrinter_Issue_WithComments(t *testing.T) {
 
 	comment1 := comments[0].(map[string]any)
 	assert.Equal(t, "10001", comment1["id"])
-	assert.Equal(t, "First comment", comment1["body"])
+	// Body is now ADF (map[string]any), not a string
+	body1 := comment1["body"].(map[string]any)
+	assert.Equal(t, "doc", body1["type"])
 	author1 := comment1["author"].(map[string]any)
 	assert.Equal(t, "user123", author1["accountId"])
 	assert.Equal(t, "John Doe", author1["displayName"])
 
 	comment2 := comments[1].(map[string]any)
 	assert.Equal(t, "10002", comment2["id"])
-	assert.Equal(t, "Second comment", comment2["body"])
+	// Body is now ADF (map[string]any), not a string
+	body2 := comment2["body"].(map[string]any)
+	assert.Equal(t, "doc", body2["type"])
 }
 
 func TestJSONPrinter_Issues(t *testing.T) {
@@ -496,7 +508,11 @@ func TestJSONPrinter_Comment(t *testing.T) {
 			DisplayName: "John Doe",
 			Email:       "john@example.com",
 		},
-		Body:    "This is a test comment",
+		Body: jira4claude.ADF{"type": "doc", "content": []any{
+			map[string]any{"type": "paragraph", "content": []any{
+				map[string]any{"type": "text", "text": "This is a test comment"},
+			}},
+		}},
 		Created: parseTime("2024-01-15T10:30:00.000+0000"),
 	}
 
@@ -506,7 +522,9 @@ func TestJSONPrinter_Comment(t *testing.T) {
 	err := json.Unmarshal(out.Bytes(), &result)
 	require.NoError(t, err)
 	assert.Equal(t, "10001", result["id"])
-	assert.Equal(t, "This is a test comment", result["body"])
+	// Body is now ADF (map[string]any), not a string
+	body := result["body"].(map[string]any)
+	assert.Equal(t, "doc", body["type"])
 
 	author, ok := result["author"].(map[string]any)
 	require.True(t, ok, "author should be a map")
@@ -521,8 +539,12 @@ func TestJSONPrinter_Comment_WithoutAuthor(t *testing.T) {
 	p := gogh.NewJSONPrinter(&out)
 
 	comment := &jira4claude.Comment{
-		ID:      "10002",
-		Body:    "Comment without author",
+		ID: "10002",
+		Body: jira4claude.ADF{"type": "doc", "content": []any{
+			map[string]any{"type": "paragraph", "content": []any{
+				map[string]any{"type": "text", "text": "Comment without author"},
+			}},
+		}},
 		Created: parseTime("2024-01-15T10:30:00.000+0000"),
 	}
 
@@ -532,7 +554,9 @@ func TestJSONPrinter_Comment_WithoutAuthor(t *testing.T) {
 	err := json.Unmarshal(out.Bytes(), &result)
 	require.NoError(t, err)
 	assert.Equal(t, "10002", result["id"])
-	assert.Equal(t, "Comment without author", result["body"])
+	// Body is now ADF (map[string]any), not a string
+	body := result["body"].(map[string]any)
+	assert.Equal(t, "doc", body["type"])
 	_, hasAuthor := result["author"]
 	assert.False(t, hasAuthor, "author should not be present when nil")
 }

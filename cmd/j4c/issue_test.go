@@ -3,7 +3,6 @@ package main_test
 import (
 	"bytes"
 	"context"
-	"strings"
 	"testing"
 	"time"
 
@@ -103,8 +102,8 @@ func TestIssueCreateCmd(t *testing.T) {
 
 		require.NoError(t, err)
 		require.NotNil(t, capturedIssue)
-		// Description should be pre-converted ADF JSON (always, no flag needed)
-		assert.True(t, strings.HasPrefix(capturedIssue.Description, `{"content":[`))
+		// Description should be ADF (map[string]any)
+		assert.Equal(t, "doc", capturedIssue.Description["type"])
 	})
 
 	t.Run("plain text input is valid GFM", func(t *testing.T) {
@@ -128,8 +127,8 @@ func TestIssueCreateCmd(t *testing.T) {
 
 		require.NoError(t, err)
 		require.NotNil(t, capturedIssue)
-		// Plain text is valid GFM and should be converted to ADF JSON
-		assert.True(t, strings.HasPrefix(capturedIssue.Description, `{"content":[`))
+		// Plain text is valid GFM and should be converted to ADF
+		assert.Equal(t, "doc", capturedIssue.Description["type"])
 	})
 
 	t.Run("skips conversion when description is empty", func(t *testing.T) {
@@ -182,8 +181,8 @@ func TestIssueUpdateCmd(t *testing.T) {
 
 		require.NoError(t, err)
 		require.NotNil(t, capturedUpdate.Description)
-		// Description should be pre-converted ADF JSON (always, no flag needed)
-		assert.True(t, strings.HasPrefix(*capturedUpdate.Description, `{"content":[`))
+		// Description should be ADF (map[string]any)
+		assert.Equal(t, "doc", (*capturedUpdate.Description)["type"])
 	})
 
 	t.Run("plain text input is valid GFM", func(t *testing.T) {
@@ -205,8 +204,8 @@ func TestIssueUpdateCmd(t *testing.T) {
 
 		require.NoError(t, err)
 		require.NotNil(t, capturedUpdate.Description)
-		// Plain text is valid GFM and should be converted to ADF JSON
-		assert.True(t, strings.HasPrefix(*capturedUpdate.Description, `{"content":[`))
+		// Plain text is valid GFM and should be converted to ADF
+		assert.Equal(t, "doc", (*capturedUpdate.Description)["type"])
 	})
 
 	t.Run("skips conversion when description is empty", func(t *testing.T) {
@@ -227,9 +226,8 @@ func TestIssueUpdateCmd(t *testing.T) {
 		err := cmd.Run(ctx)
 
 		require.NoError(t, err)
-		require.NotNil(t, capturedUpdate.Description)
-		// Description should remain empty
-		assert.Empty(t, *capturedUpdate.Description)
+		// Empty description is not converted - nil is passed
+		assert.Nil(t, capturedUpdate.Description)
 	})
 }
 
@@ -241,9 +239,9 @@ func TestIssueCommentCmd(t *testing.T) {
 	t.Run("always converts body as GFM", func(t *testing.T) {
 		t.Parallel()
 
-		var capturedBody string
+		var capturedBody jira4claude.ADF
 		svc := &mock.IssueService{
-			AddCommentFn: func(ctx context.Context, key, body string) (*jira4claude.Comment, error) {
+			AddCommentFn: func(ctx context.Context, key string, body jira4claude.ADF) (*jira4claude.Comment, error) {
 				capturedBody = body
 				return &jira4claude.Comment{
 					ID:      "12345",
@@ -260,16 +258,16 @@ func TestIssueCommentCmd(t *testing.T) {
 		err := cmd.Run(ctx)
 
 		require.NoError(t, err)
-		// Body should be pre-converted ADF JSON (always, no flag needed)
-		assert.True(t, strings.HasPrefix(capturedBody, `{"content":[`))
+		// Body should be ADF (map[string]any)
+		assert.Equal(t, "doc", capturedBody["type"])
 	})
 
 	t.Run("plain text input is valid GFM", func(t *testing.T) {
 		t.Parallel()
 
-		var capturedBody string
+		var capturedBody jira4claude.ADF
 		svc := &mock.IssueService{
-			AddCommentFn: func(ctx context.Context, key, body string) (*jira4claude.Comment, error) {
+			AddCommentFn: func(ctx context.Context, key string, body jira4claude.ADF) (*jira4claude.Comment, error) {
 				capturedBody = body
 				return &jira4claude.Comment{
 					ID:      "12345",
@@ -286,8 +284,8 @@ func TestIssueCommentCmd(t *testing.T) {
 		err := cmd.Run(ctx)
 
 		require.NoError(t, err)
-		// Plain text is valid GFM and should be converted to ADF JSON
-		assert.True(t, strings.HasPrefix(capturedBody, `{"content":[`))
+		// Plain text is valid GFM and should be converted to ADF
+		assert.Equal(t, "doc", capturedBody["type"])
 	})
 }
 
@@ -501,7 +499,7 @@ func TestIssueReadyCmd(t *testing.T) {
 func TestIssueViewCmd(t *testing.T) {
 	t.Parallel()
 
-	t.Run("always displays description as markdown", func(t *testing.T) {
+	t.Run("displays ADF description", func(t *testing.T) {
 		t.Parallel()
 
 		svc := &mock.IssueService{
@@ -511,8 +509,8 @@ func TestIssueViewCmd(t *testing.T) {
 					Summary: "Test issue",
 					Status:  "To Do",
 					Type:    "Task",
-					// DescriptionADF contains a heading that should render as "# Hello"
-					DescriptionADF: map[string]any{
+					// Description is now ADF - the printer outputs it as JSON
+					Description: jira4claude.ADF{
 						"type":    "doc",
 						"version": 1,
 						"content": []any{
@@ -540,21 +538,22 @@ func TestIssueViewCmd(t *testing.T) {
 		err := cmd.Run(ctx)
 
 		require.NoError(t, err)
-		assert.Contains(t, buf.String(), "# Hello")
+		// TODO(J4C-80): After view model migration, this should check for "# Hello" markdown output
+		// For now, the printer outputs ADF as JSON so we check for the text content
+		assert.Contains(t, buf.String(), "Hello")
 	})
 
-	t.Run("falls back to plain text when no ADF available", func(t *testing.T) {
+	t.Run("handles nil description", func(t *testing.T) {
 		t.Parallel()
 
 		svc := &mock.IssueService{
 			GetFn: func(ctx context.Context, key string) (*jira4claude.Issue, error) {
 				return &jira4claude.Issue{
-					Key:            "TEST-1",
-					Summary:        "Test issue",
-					Status:         "To Do",
-					Type:           "Task",
-					Description:    "Plain text description",
-					DescriptionADF: nil,
+					Key:         "TEST-1",
+					Summary:     "Test issue",
+					Status:      "To Do",
+					Type:        "Task",
+					Description: nil,
 				}, nil
 			},
 		}
@@ -565,10 +564,11 @@ func TestIssueViewCmd(t *testing.T) {
 		err := cmd.Run(ctx)
 
 		require.NoError(t, err)
-		assert.Contains(t, buf.String(), "Plain text description")
+		// No description should be shown when nil
+		assert.NotContains(t, buf.String(), "description")
 	})
 
-	t.Run("always displays comment bodies as markdown", func(t *testing.T) {
+	t.Run("displays comment bodies as ADF", func(t *testing.T) {
 		t.Parallel()
 
 		svc := &mock.IssueService{
@@ -582,8 +582,8 @@ func TestIssueViewCmd(t *testing.T) {
 						{
 							ID:     "10001",
 							Author: &jira4claude.User{DisplayName: "John Doe"},
-							Body:   "Comment text",
-							BodyADF: map[string]any{
+							// Body is now ADF - the printer outputs it as JSON
+							Body: jira4claude.ADF{
 								"type":    "doc",
 								"version": 1,
 								"content": []any{
@@ -618,8 +618,10 @@ func TestIssueViewCmd(t *testing.T) {
 		err := cmd.Run(ctx)
 
 		require.NoError(t, err)
-		// Comment body should contain markdown bold syntax
-		assert.Contains(t, buf.String(), "Comment with **bold**")
+		// TODO(J4C-80): After view model migration, this should check for markdown output
+		// For now, the printer outputs ADF as JSON so we check for the text content
+		assert.Contains(t, buf.String(), "Comment with ")
+		assert.Contains(t, buf.String(), "bold")
 	})
 }
 

@@ -76,15 +76,21 @@ func TestTextPrinter_Issue_ShowsDescription(t *testing.T) {
 	p := gogh.NewTextPrinter(io)
 
 	issue := &jira4claude.Issue{
-		Key:         "TEST-123",
-		Summary:     "Test issue",
-		Status:      "Open",
-		Description: "This is the issue description.",
+		Key:     "TEST-123",
+		Summary: "Test issue",
+		Status:  "Open",
+		Description: jira4claude.ADF{"type": "doc", "content": []any{
+			map[string]any{"type": "paragraph", "content": []any{
+				map[string]any{"type": "text", "text": "This is the issue description."},
+			}},
+		}},
 	}
 
 	p.Issue(issue)
 
 	output := out.String()
+	// TODO(J4C-80): After view model migration, this should check for markdown output
+	// For now, the printer outputs ADF as JSON
 	assert.Contains(t, output, "This is the issue description.")
 }
 
@@ -144,15 +150,23 @@ func TestTextPrinter_Issue_ShowsComments(t *testing.T) {
 		Status:  "Open",
 		Comments: []*jira4claude.Comment{
 			{
-				ID:      "10001",
-				Author:  &jira4claude.User{DisplayName: "John Doe"},
-				Body:    "First comment",
+				ID:     "10001",
+				Author: &jira4claude.User{DisplayName: "John Doe"},
+				Body: jira4claude.ADF{"type": "doc", "content": []any{
+					map[string]any{"type": "paragraph", "content": []any{
+						map[string]any{"type": "text", "text": "First comment"},
+					}},
+				}},
 				Created: parseTime("2024-01-15T10:30:00.000+0000"),
 			},
 			{
-				ID:      "10002",
-				Author:  &jira4claude.User{DisplayName: "Jane Smith"},
-				Body:    "Second comment",
+				ID:     "10002",
+				Author: &jira4claude.User{DisplayName: "Jane Smith"},
+				Body: jira4claude.ADF{"type": "doc", "content": []any{
+					map[string]any{"type": "paragraph", "content": []any{
+						map[string]any{"type": "text", "text": "Second comment"},
+					}},
+				}},
 				Created: parseTime("2024-01-16T14:20:00.000+0000"),
 			},
 		},
@@ -163,6 +177,8 @@ func TestTextPrinter_Issue_ShowsComments(t *testing.T) {
 	output := out.String()
 	assert.Contains(t, output, "## Comments")
 	assert.Contains(t, output, "John Doe")
+	// TODO(J4C-80): After view model migration, output will be markdown
+	// For now, ADF is serialized as JSON
 	assert.Contains(t, output, "First comment")
 	assert.Contains(t, output, "Jane Smith")
 	assert.Contains(t, output, "Second comment")
@@ -557,9 +573,13 @@ func TestTextPrinter_Comment_ShowsAuthorTimestampAndBody(t *testing.T) {
 	p := gogh.NewTextPrinter(io)
 
 	comment := &jira4claude.Comment{
-		ID:      "10001",
-		Author:  &jira4claude.User{DisplayName: "John Doe"},
-		Body:    "This is a test comment",
+		ID:     "10001",
+		Author: &jira4claude.User{DisplayName: "John Doe"},
+		Body: jira4claude.ADF{"type": "doc", "content": []any{
+			map[string]any{"type": "paragraph", "content": []any{
+				map[string]any{"type": "text", "text": "This is a test comment"},
+			}},
+		}},
 		Created: parseTime("2024-01-15T10:30:00.000+0000"),
 	}
 
@@ -568,6 +588,7 @@ func TestTextPrinter_Comment_ShowsAuthorTimestampAndBody(t *testing.T) {
 	output := out.String()
 	assert.Contains(t, output, "John Doe")
 	assert.Contains(t, output, "2024-01-15 10:30")
+	// TODO(J4C-80): After view model migration, output will be markdown
 	assert.Contains(t, output, "This is a test comment")
 }
 
@@ -579,8 +600,12 @@ func TestTextPrinter_Comment_ShowsUnknownWhenNoAuthor(t *testing.T) {
 	p := gogh.NewTextPrinter(io)
 
 	comment := &jira4claude.Comment{
-		ID:      "10001",
-		Body:    "Comment without author",
+		ID: "10001",
+		Body: jira4claude.ADF{"type": "doc", "content": []any{
+			map[string]any{"type": "paragraph", "content": []any{
+				map[string]any{"type": "text", "text": "Comment without author"},
+			}},
+		}},
 		Created: parseTime("2024-01-15T10:30:00.000+0000"),
 	}
 

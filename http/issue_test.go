@@ -32,13 +32,30 @@ func TestIssueService_Create(t *testing.T) {
 		client := newTestClient(t, server.URL, "user@example.com", "api-token")
 		svc := jirahttp.NewIssueService(client)
 
-		// Pre-converted ADF JSON (as created by CLI when parsing GFM input)
-		adfJSON := `{"content":[{"content":[{"marks":[{"type":"strong"}],"text":"bold","type":"text"}],"type":"paragraph"}],"type":"doc","version":1}`
+		// ADF document (now passed directly as map[string]any)
+		adfDoc := jira4claude.ADF{
+			"type":    "doc",
+			"version": 1,
+			"content": []any{
+				map[string]any{
+					"type": "paragraph",
+					"content": []any{
+						map[string]any{
+							"type": "text",
+							"text": "bold",
+							"marks": []any{
+								map[string]any{"type": "strong"},
+							},
+						},
+					},
+				},
+			},
+		}
 
 		issue := &jira4claude.Issue{
 			Project:     "TEST",
 			Summary:     "Test issue",
-			Description: adfJSON,
+			Description: adfDoc,
 			Type:        "Task",
 		}
 
@@ -62,88 +79,8 @@ func TestIssueService_Create(t *testing.T) {
 		assert.Equal(t, "strong", marks[0].(map[string]any)["type"])
 	})
 
-	t.Run("falls back to GFMToADF for invalid JSON starting with brace", func(t *testing.T) {
-		t.Parallel()
-
-		var receivedRequest map[string]any
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			_ = json.NewDecoder(r.Body).Decode(&receivedRequest)
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusCreated)
-			_, _ = w.Write([]byte(`{"key": "TEST-1"}`))
-		}))
-		defer server.Close()
-
-		client := newTestClient(t, server.URL, "user@example.com", "api-token")
-		svc := jirahttp.NewIssueService(client)
-
-		// Text that starts with { but is not valid JSON
-		issue := &jira4claude.Issue{
-			Project:     "TEST",
-			Summary:     "Test issue",
-			Description: "{this is not valid JSON}",
-			Type:        "Task",
-		}
-
-		_, err := svc.Create(context.Background(), issue)
-
-		require.NoError(t, err)
-
-		// Verify it was converted via GFMToADF (has text node with literal content)
-		fields := receivedRequest["fields"].(map[string]any)
-		desc := fields["description"].(map[string]any)
-		assert.Equal(t, "doc", desc["type"])
-		content := desc["content"].([]any)
-		require.Len(t, content, 1)
-		paragraph := content[0].(map[string]any)
-		paragraphContent := paragraph["content"].([]any)
-		require.Len(t, paragraphContent, 1)
-		textNode := paragraphContent[0].(map[string]any)
-		assert.Equal(t, "{this is not valid JSON}", textNode["text"])
-	})
-
-	t.Run("falls back to GFMToADF for JSON with wrong type field", func(t *testing.T) {
-		t.Parallel()
-
-		var receivedRequest map[string]any
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			_ = json.NewDecoder(r.Body).Decode(&receivedRequest)
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusCreated)
-			_, _ = w.Write([]byte(`{"key": "TEST-1"}`))
-		}))
-		defer server.Close()
-
-		client := newTestClient(t, server.URL, "user@example.com", "api-token")
-		svc := jirahttp.NewIssueService(client)
-
-		// Valid JSON but type is "paragraph", not "doc"
-		issue := &jira4claude.Issue{
-			Project:     "TEST",
-			Summary:     "Test issue",
-			Description: `{"type":"paragraph","content":[]}`,
-			Type:        "Task",
-		}
-
-		_, err := svc.Create(context.Background(), issue)
-
-		require.NoError(t, err)
-
-		// Verify it was converted via GFMToADF (the JSON string is now wrapped)
-		fields := receivedRequest["fields"].(map[string]any)
-		desc := fields["description"].(map[string]any)
-		assert.Equal(t, "doc", desc["type"])
-		content := desc["content"].([]any)
-		require.Len(t, content, 1)
-		paragraph := content[0].(map[string]any)
-		paragraphContent := paragraph["content"].([]any)
-		require.Len(t, paragraphContent, 1)
-		textNode := paragraphContent[0].(map[string]any)
-		// The original JSON string should be treated as plain text
-		textValue := textNode["text"].(string)
-		assert.Contains(t, textValue, `"type":"paragraph"`)
-		assert.Contains(t, textValue, `"content":[]`)
-	})
+	// Tests for "falls back to GFMToADF" removed: conversion now happens at CLI boundary,
+	// not in HTTP layer. See J4C-80 for the full migration.
 
 	t.Run("creates issue and returns it with key", func(t *testing.T) {
 		t.Parallel()
@@ -177,10 +114,14 @@ func TestIssueService_Create(t *testing.T) {
 		svc := jirahttp.NewIssueService(client)
 
 		issue := &jira4claude.Issue{
-			Project:     "TEST",
-			Summary:     "Test issue",
-			Description: "This is a test description",
-			Type:        "Task",
+			Project: "TEST",
+			Summary: "Test issue",
+			Description: jira4claude.ADF{"type": "doc", "version": 1, "content": []any{
+				map[string]any{"type": "paragraph", "content": []any{
+					map[string]any{"type": "text", "text": "This is a test description"},
+				}},
+			}},
+			Type: "Task",
 		}
 
 		result, err := svc.Create(context.Background(), issue)
@@ -393,7 +334,8 @@ func TestIssueService_Get(t *testing.T) {
 		assert.Equal(t, "TEST-1", issue.Key)
 		assert.Equal(t, "TEST", issue.Project)
 		assert.Equal(t, "Test issue", issue.Summary)
-		assert.Equal(t, "Description here", issue.Description)
+		// Description is now ADF (map[string]any)
+		assert.Equal(t, "doc", issue.Description["type"])
 		assert.Equal(t, "To Do", issue.Status)
 		assert.Equal(t, "Task", issue.Type)
 		assert.Equal(t, "Medium", issue.Priority)
@@ -631,20 +573,20 @@ func TestIssueService_Get(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, issue.Comments, 2)
 
-		// First comment
+		// First comment - Body is now ADF (map[string]any)
 		assert.Equal(t, "10001", issue.Comments[0].ID)
 		require.NotNil(t, issue.Comments[0].Author)
 		assert.Equal(t, "user123", issue.Comments[0].Author.AccountID)
 		assert.Equal(t, "John Doe", issue.Comments[0].Author.DisplayName)
-		assert.Equal(t, "First comment", issue.Comments[0].Body)
+		assert.Equal(t, "doc", issue.Comments[0].Body["type"])
 		assert.False(t, issue.Comments[0].Created.IsZero())
 
-		// Second comment
+		// Second comment - Body is now ADF (map[string]any)
 		assert.Equal(t, "10002", issue.Comments[1].ID)
 		require.NotNil(t, issue.Comments[1].Author)
 		assert.Equal(t, "user456", issue.Comments[1].Author.AccountID)
 		assert.Equal(t, "Jane Smith", issue.Comments[1].Author.DisplayName)
-		assert.Equal(t, "Second comment", issue.Comments[1].Body)
+		assert.Equal(t, "doc", issue.Comments[1].Body["type"])
 		assert.False(t, issue.Comments[1].Created.IsZero())
 	})
 
@@ -712,11 +654,9 @@ func TestIssueService_Get(t *testing.T) {
 
 		require.NoError(t, err)
 		require.Len(t, issue.Comments, 1)
-		// Body should be GFM (with bold formatting)
-		assert.Equal(t, "Comment with **bold**", issue.Comments[0].Body)
-		// BodyADF should preserve original ADF
-		require.NotNil(t, issue.Comments[0].BodyADF)
-		assert.Equal(t, "doc", issue.Comments[0].BodyADF["type"])
+		// Body is now ADF directly
+		require.NotNil(t, issue.Comments[0].Body)
+		assert.Equal(t, "doc", issue.Comments[0].Body["type"])
 	})
 }
 
@@ -979,7 +919,7 @@ func TestIssueService_List(t *testing.T) {
 func TestIssueService_Update(t *testing.T) {
 	t.Parallel()
 
-	t.Run("uses pre-converted ADF when description is ADF JSON", func(t *testing.T) {
+	t.Run("passes ADF description directly to API", func(t *testing.T) {
 		t.Parallel()
 
 		var receivedRequest map[string]any
@@ -1001,16 +941,33 @@ func TestIssueService_Update(t *testing.T) {
 		client := newTestClient(t, server.URL, "user@example.com", "api-token")
 		svc := jirahttp.NewIssueService(client)
 
-		// Pre-converted ADF JSON (as created by CLI when parsing GFM input)
-		adfJSON := `{"content":[{"content":[{"marks":[{"type":"em"}],"text":"italic","type":"text"}],"type":"paragraph"}],"type":"doc","version":1}`
+		// ADF document (now passed directly as map[string]any)
+		adfDoc := jira4claude.ADF{
+			"type":    "doc",
+			"version": 1,
+			"content": []any{
+				map[string]any{
+					"type": "paragraph",
+					"content": []any{
+						map[string]any{
+							"type": "text",
+							"text": "italic",
+							"marks": []any{
+								map[string]any{"type": "em"},
+							},
+						},
+					},
+				},
+			},
+		}
 
 		_, err := svc.Update(context.Background(), "TEST-1", jira4claude.IssueUpdate{
-			Description: &adfJSON,
+			Description: &adfDoc,
 		})
 
 		require.NoError(t, err)
 
-		// Verify the ADF was passed through as-is, not re-converted
+		// Verify the ADF was passed through as-is
 		fields := receivedRequest["fields"].(map[string]any)
 		desc := fields["description"].(map[string]any)
 		assert.Equal(t, "doc", desc["type"])
@@ -1061,7 +1018,11 @@ func TestIssueService_Update(t *testing.T) {
 		svc := jirahttp.NewIssueService(client)
 
 		newSummary := "Updated summary"
-		newDescription := "Updated description"
+		newDescription := jira4claude.ADF{"type": "doc", "version": 1, "content": []any{
+			map[string]any{"type": "paragraph", "content": []any{
+				map[string]any{"type": "text", "text": "Updated description"},
+			}},
+		}}
 		newPriority := "High"
 		result, err := svc.Update(context.Background(), "TEST-1", jira4claude.IssueUpdate{
 			Summary:     &newSummary,
@@ -1170,7 +1131,7 @@ func TestIssueService_Update(t *testing.T) {
 func TestIssueService_AddComment(t *testing.T) {
 	t.Parallel()
 
-	t.Run("uses pre-converted ADF when body is ADF JSON", func(t *testing.T) {
+	t.Run("passes ADF body directly to API", func(t *testing.T) {
 		t.Parallel()
 
 		var receivedRequest map[string]any
@@ -1190,14 +1151,31 @@ func TestIssueService_AddComment(t *testing.T) {
 		client := newTestClient(t, server.URL, "user@example.com", "api-token")
 		svc := jirahttp.NewIssueService(client)
 
-		// Pre-converted ADF JSON (as created by CLI when parsing GFM input)
-		adfJSON := `{"content":[{"content":[{"marks":[{"type":"code"}],"text":"code","type":"text"}],"type":"paragraph"}],"type":"doc","version":1}`
+		// ADF document (now passed directly as map[string]any)
+		adfDoc := jira4claude.ADF{
+			"type":    "doc",
+			"version": 1,
+			"content": []any{
+				map[string]any{
+					"type": "paragraph",
+					"content": []any{
+						map[string]any{
+							"type": "text",
+							"text": "code",
+							"marks": []any{
+								map[string]any{"type": "code"},
+							},
+						},
+					},
+				},
+			},
+		}
 
-		_, err := svc.AddComment(context.Background(), "TEST-1", adfJSON)
+		_, err := svc.AddComment(context.Background(), "TEST-1", adfDoc)
 
 		require.NoError(t, err)
 
-		// Verify the ADF was passed through as-is, not re-converted
+		// Verify the ADF was passed through as-is
 		body := receivedRequest["body"].(map[string]any)
 		assert.Equal(t, "doc", body["type"])
 		content := body["content"].([]any)
@@ -1246,13 +1224,19 @@ func TestIssueService_AddComment(t *testing.T) {
 		client := newTestClient(t, server.URL, "user@example.com", "api-token")
 		svc := jirahttp.NewIssueService(client)
 
-		comment, err := svc.AddComment(context.Background(), "TEST-1", "This is a comment")
+		adfDoc := jira4claude.ADF{"type": "doc", "version": 1, "content": []any{
+			map[string]any{"type": "paragraph", "content": []any{
+				map[string]any{"type": "text", "text": "This is a comment"},
+			}},
+		}}
+		comment, err := svc.AddComment(context.Background(), "TEST-1", adfDoc)
 
 		require.NoError(t, err)
 		assert.Equal(t, "10001", comment.ID)
 		assert.Equal(t, "123", comment.Author.AccountID)
 		assert.Equal(t, "John Doe", comment.Author.DisplayName)
-		assert.Equal(t, "This is a comment", comment.Body)
+		// Body is now ADF (map[string]any), not a string
+		assert.Equal(t, "doc", comment.Body["type"])
 		assert.False(t, comment.Created.IsZero())
 
 		// Verify request body is in ADF format
@@ -1272,7 +1256,12 @@ func TestIssueService_AddComment(t *testing.T) {
 		client := newTestClient(t, server.URL, "user@example.com", "api-token")
 		svc := jirahttp.NewIssueService(client)
 
-		_, err := svc.AddComment(context.Background(), "NOTFOUND-1", "Comment text")
+		adfDoc := jira4claude.ADF{"type": "doc", "version": 1, "content": []any{
+			map[string]any{"type": "paragraph", "content": []any{
+				map[string]any{"type": "text", "text": "Comment text"},
+			}},
+		}}
+		_, err := svc.AddComment(context.Background(), "NOTFOUND-1", adfDoc)
 
 		require.Error(t, err)
 		assert.Equal(t, jira4claude.ENotFound, jira4claude.ErrorCode(err))
@@ -1307,13 +1296,28 @@ func TestIssueService_AddComment(t *testing.T) {
 		client := newTestClient(t, server.URL, "user@example.com", "api-token")
 		svc := jirahttp.NewIssueService(client)
 
-		// Use double newlines to create paragraph breaks (GFM behavior)
-		comment, err := svc.AddComment(context.Background(), "TEST-1", "Paragraph 1\n\nParagraph 2\n\nParagraph 3")
+		// ADF with multiple paragraphs
+		adfDoc := jira4claude.ADF{
+			"type":    "doc",
+			"version": 1,
+			"content": []any{
+				map[string]any{"type": "paragraph", "content": []any{
+					map[string]any{"type": "text", "text": "Paragraph 1"},
+				}},
+				map[string]any{"type": "paragraph", "content": []any{
+					map[string]any{"type": "text", "text": "Paragraph 2"},
+				}},
+				map[string]any{"type": "paragraph", "content": []any{
+					map[string]any{"type": "text", "text": "Paragraph 3"},
+				}},
+			},
+		}
+		comment, err := svc.AddComment(context.Background(), "TEST-1", adfDoc)
 
 		require.NoError(t, err)
 		assert.Equal(t, "10002", comment.ID)
-		// Body is converted from ADF to GFM
-		assert.Equal(t, "Paragraph 1\n\nParagraph 2\n\nParagraph 3", comment.Body)
+		// Body is now ADF (map[string]any), not a string
+		assert.Equal(t, "doc", comment.Body["type"])
 
 		// Verify request body has ADF format with paragraph nodes
 		body := receivedRequest["body"].(map[string]any)

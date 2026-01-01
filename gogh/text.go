@@ -1,6 +1,7 @@
 package gogh
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -8,6 +9,19 @@ import (
 	"github.com/charmbracelet/lipgloss/table"
 	"github.com/fwojciec/jira4claude"
 )
+
+// adfToString converts an ADF document to a string for display.
+// TODO(J4C-80): Replace with proper ADF-to-markdown conversion at CLI boundary.
+func adfToString(adf jira4claude.ADF) string {
+	if adf == nil {
+		return ""
+	}
+	b, err := json.Marshal(adf)
+	if err != nil {
+		return "[ADF conversion error]"
+	}
+	return string(b)
+}
 
 // TextPrinter outputs human-readable text format with styled terminal output.
 type TextPrinter struct {
@@ -62,8 +76,8 @@ func (p *TextPrinter) Issue(issue *jira4claude.Issue) {
 		}
 	}
 
-	if issue.Description != "" {
-		fmt.Fprintf(p.io.Out, "\n%s\n", issue.Description)
+	if desc := adfToString(issue.Description); desc != "" {
+		fmt.Fprintf(p.io.Out, "\n%s\n", desc)
 	}
 
 	if len(issue.Comments) > 0 {
@@ -76,7 +90,7 @@ func (p *TextPrinter) Issue(issue *jira4claude.Issue) {
 			fmt.Fprintf(p.io.Out, "\n**%s** (%s):\n%s\n",
 				author,
 				comment.Created.Format("2006-01-02 15:04"),
-				comment.Body)
+				adfToString(comment.Body))
 		}
 	}
 
@@ -150,7 +164,7 @@ func (p *TextPrinter) Comment(comment *jira4claude.Comment) {
 	fmt.Fprintf(p.io.Out, "**%s** (%s):\n%s\n",
 		author,
 		comment.Created.Format("2006-01-02 15:04"),
-		comment.Body)
+		adfToString(comment.Body))
 }
 
 // Links prints issue links.
