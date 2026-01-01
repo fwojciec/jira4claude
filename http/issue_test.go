@@ -871,6 +871,109 @@ func TestIssueService_List(t *testing.T) {
 		assert.Contains(t, receivedJQL, "project = \"TEST\"")
 		assert.Contains(t, receivedJQL, "parent = \"TEST-1\"")
 	})
+
+	t.Run("includes assignee in JQL filter", func(t *testing.T) {
+		t.Parallel()
+
+		var receivedJQL string
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			receivedJQL = r.URL.Query().Get("jql")
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"issues": []}`))
+		}))
+		defer server.Close()
+
+		client := newTestClient(t, server.URL, "user@example.com", "api-token")
+		svc := jirahttp.NewIssueService(client)
+
+		_, err := svc.List(context.Background(), jira4claude.IssueFilter{
+			Project:  "TEST",
+			Assignee: "john.doe",
+		})
+
+		require.NoError(t, err)
+		assert.Contains(t, receivedJQL, "project = \"TEST\"")
+		assert.Contains(t, receivedJQL, "assignee = \"john.doe\"")
+	})
+
+	t.Run("combines all filter fields in JQL", func(t *testing.T) {
+		t.Parallel()
+
+		var receivedJQL string
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			receivedJQL = r.URL.Query().Get("jql")
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"issues": []}`))
+		}))
+		defer server.Close()
+
+		client := newTestClient(t, server.URL, "user@example.com", "api-token")
+		svc := jirahttp.NewIssueService(client)
+
+		_, err := svc.List(context.Background(), jira4claude.IssueFilter{
+			Project:  "TEST",
+			Status:   "In Progress",
+			Assignee: "john.doe",
+			Parent:   "TEST-1",
+			Labels:   []string{"bug", "urgent"},
+		})
+
+		require.NoError(t, err)
+		assert.Contains(t, receivedJQL, "project = \"TEST\"")
+		assert.Contains(t, receivedJQL, "status = \"In Progress\"")
+		assert.Contains(t, receivedJQL, "assignee = \"john.doe\"")
+		assert.Contains(t, receivedJQL, "parent = \"TEST-1\"")
+		assert.Contains(t, receivedJQL, "labels = \"bug\"")
+		assert.Contains(t, receivedJQL, "labels = \"urgent\"")
+		// Verify clauses are joined with AND
+		assert.Contains(t, receivedJQL, " AND ")
+	})
+
+	t.Run("sends empty JQL when no filters provided", func(t *testing.T) {
+		t.Parallel()
+
+		var receivedJQL string
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			receivedJQL = r.URL.Query().Get("jql")
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"issues": []}`))
+		}))
+		defer server.Close()
+
+		client := newTestClient(t, server.URL, "user@example.com", "api-token")
+		svc := jirahttp.NewIssueService(client)
+
+		_, err := svc.List(context.Background(), jira4claude.IssueFilter{})
+
+		require.NoError(t, err)
+		assert.Empty(t, receivedJQL)
+	})
+
+	t.Run("omits maxResults when limit is zero", func(t *testing.T) {
+		t.Parallel()
+
+		var receivedMaxResults string
+		var hasMaxResults bool
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			receivedMaxResults = r.URL.Query().Get("maxResults")
+			hasMaxResults = r.URL.Query().Has("maxResults")
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"issues": []}`))
+		}))
+		defer server.Close()
+
+		client := newTestClient(t, server.URL, "user@example.com", "api-token")
+		svc := jirahttp.NewIssueService(client)
+
+		_, err := svc.List(context.Background(), jira4claude.IssueFilter{
+			Project: "TEST",
+			Limit:   0,
+		})
+
+		require.NoError(t, err)
+		assert.False(t, hasMaxResults, "maxResults should not be present when Limit is 0")
+		assert.Empty(t, receivedMaxResults)
+	})
 }
 
 func TestIssueService_Update(t *testing.T) {

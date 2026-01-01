@@ -521,6 +521,172 @@ func TestIssueViewCmd(t *testing.T) {
 	})
 }
 
+// IssueListCmd tests
+
+func TestIssueListCmd(t *testing.T) {
+	t.Parallel()
+
+	t.Run("uses config project when project flag not specified", func(t *testing.T) {
+		t.Parallel()
+
+		var capturedFilter jira4claude.IssueFilter
+		svc := &mock.IssueService{
+			ListFn: func(ctx context.Context, filter jira4claude.IssueFilter) ([]*jira4claude.Issue, error) {
+				capturedFilter = filter
+				return []*jira4claude.Issue{}, nil
+			},
+		}
+
+		var buf bytes.Buffer
+		ctx := makeIssueContext(t, svc, &buf)
+		// Config has Project set to "TEST" via makeIssueContext
+		cmd := main.IssueListCmd{}
+		err := cmd.Run(ctx)
+
+		require.NoError(t, err)
+		assert.Equal(t, "TEST", capturedFilter.Project)
+	})
+
+	t.Run("uses specified project over config project", func(t *testing.T) {
+		t.Parallel()
+
+		var capturedFilter jira4claude.IssueFilter
+		svc := &mock.IssueService{
+			ListFn: func(ctx context.Context, filter jira4claude.IssueFilter) ([]*jira4claude.Issue, error) {
+				capturedFilter = filter
+				return []*jira4claude.Issue{}, nil
+			},
+		}
+
+		var buf bytes.Buffer
+		ctx := makeIssueContext(t, svc, &buf)
+		cmd := main.IssueListCmd{Project: "OVERRIDE"}
+		err := cmd.Run(ctx)
+
+		require.NoError(t, err)
+		assert.Equal(t, "OVERRIDE", capturedFilter.Project)
+	})
+
+	t.Run("does not use config project when JQL is specified", func(t *testing.T) {
+		t.Parallel()
+
+		var capturedFilter jira4claude.IssueFilter
+		svc := &mock.IssueService{
+			ListFn: func(ctx context.Context, filter jira4claude.IssueFilter) ([]*jira4claude.Issue, error) {
+				capturedFilter = filter
+				return []*jira4claude.Issue{}, nil
+			},
+		}
+
+		var buf bytes.Buffer
+		ctx := makeIssueContext(t, svc, &buf)
+		cmd := main.IssueListCmd{JQL: "project = CUSTOM"}
+		err := cmd.Run(ctx)
+
+		require.NoError(t, err)
+		// When JQL is provided, project should not be set from config
+		assert.Empty(t, capturedFilter.Project)
+		assert.Equal(t, "project = CUSTOM", capturedFilter.JQL)
+	})
+
+	t.Run("passes all filter flags to service", func(t *testing.T) {
+		t.Parallel()
+
+		var capturedFilter jira4claude.IssueFilter
+		svc := &mock.IssueService{
+			ListFn: func(ctx context.Context, filter jira4claude.IssueFilter) ([]*jira4claude.Issue, error) {
+				capturedFilter = filter
+				return []*jira4claude.Issue{}, nil
+			},
+		}
+
+		var buf bytes.Buffer
+		ctx := makeIssueContext(t, svc, &buf)
+		cmd := main.IssueListCmd{
+			Project:  "MYPROJ",
+			Status:   "In Progress",
+			Assignee: "john.doe",
+			Parent:   "MYPROJ-1",
+			Labels:   []string{"bug", "urgent"},
+			Limit:    25,
+		}
+		err := cmd.Run(ctx)
+
+		require.NoError(t, err)
+		assert.Equal(t, "MYPROJ", capturedFilter.Project)
+		assert.Equal(t, "In Progress", capturedFilter.Status)
+		assert.Equal(t, "john.doe", capturedFilter.Assignee)
+		assert.Equal(t, "MYPROJ-1", capturedFilter.Parent)
+		assert.Equal(t, []string{"bug", "urgent"}, capturedFilter.Labels)
+		assert.Equal(t, 25, capturedFilter.Limit)
+	})
+
+	t.Run("passes JQL to service", func(t *testing.T) {
+		t.Parallel()
+
+		var capturedFilter jira4claude.IssueFilter
+		svc := &mock.IssueService{
+			ListFn: func(ctx context.Context, filter jira4claude.IssueFilter) ([]*jira4claude.Issue, error) {
+				capturedFilter = filter
+				return []*jira4claude.Issue{}, nil
+			},
+		}
+
+		var buf bytes.Buffer
+		ctx := makeIssueContext(t, svc, &buf)
+		cmd := main.IssueListCmd{
+			JQL:   "assignee = currentUser() ORDER BY created DESC",
+			Limit: 10,
+		}
+		err := cmd.Run(ctx)
+
+		require.NoError(t, err)
+		assert.Equal(t, "assignee = currentUser() ORDER BY created DESC", capturedFilter.JQL)
+		assert.Equal(t, 10, capturedFilter.Limit)
+	})
+
+	t.Run("returns error from service", func(t *testing.T) {
+		t.Parallel()
+
+		svc := &mock.IssueService{
+			ListFn: func(ctx context.Context, filter jira4claude.IssueFilter) ([]*jira4claude.Issue, error) {
+				return nil, &jira4claude.Error{Code: jira4claude.ENotFound, Message: "Project not found"}
+			},
+		}
+
+		var buf bytes.Buffer
+		ctx := makeIssueContext(t, svc, &buf)
+		cmd := main.IssueListCmd{Project: "NONEXISTENT"}
+		err := cmd.Run(ctx)
+
+		require.Error(t, err)
+		assert.Equal(t, jira4claude.ENotFound, jira4claude.ErrorCode(err))
+	})
+
+	t.Run("prints issues to output", func(t *testing.T) {
+		t.Parallel()
+
+		svc := &mock.IssueService{
+			ListFn: func(ctx context.Context, filter jira4claude.IssueFilter) ([]*jira4claude.Issue, error) {
+				return []*jira4claude.Issue{
+					makeIssue("TEST-1"),
+					makeIssue("TEST-2"),
+				}, nil
+			},
+		}
+
+		var buf bytes.Buffer
+		ctx := makeIssueContext(t, svc, &buf)
+		cmd := main.IssueListCmd{Project: "TEST"}
+		err := cmd.Run(ctx)
+
+		require.NoError(t, err)
+		output := buf.String()
+		assert.Contains(t, output, "TEST-1")
+		assert.Contains(t, output, "TEST-2")
+	})
+}
+
 // IssueAssignCmd tests
 
 func TestIssueAssignCmd(t *testing.T) {

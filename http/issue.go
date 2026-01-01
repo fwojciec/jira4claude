@@ -272,10 +272,7 @@ func (s *IssueService) Transitions(ctx context.Context, key string) ([]*jira4cla
 	}
 
 	var transitionsResp struct {
-		Transitions []struct {
-			ID   string `json:"id"`
-			Name string `json:"name"`
-		} `json:"transitions"`
+		Transitions []transitionResponse `json:"transitions"`
 	}
 	if err := json.Unmarshal(respBody, &transitionsResp); err != nil {
 		return nil, &jira4claude.Error{
@@ -285,15 +282,7 @@ func (s *IssueService) Transitions(ctx context.Context, key string) ([]*jira4cla
 		}
 	}
 
-	transitions := make([]*jira4claude.Transition, len(transitionsResp.Transitions))
-	for i, t := range transitionsResp.Transitions {
-		transitions[i] = &jira4claude.Transition{
-			ID:   t.ID,
-			Name: t.Name,
-		}
-	}
-
-	return transitions, nil
+	return mapTransitions(transitionsResp.Transitions), nil
 }
 
 // Transition moves an issue to a new status.
@@ -393,6 +382,12 @@ type userResponse struct {
 	AccountID    string `json:"accountId"`
 	DisplayName  string `json:"displayName"`
 	EmailAddress string `json:"emailAddress"`
+}
+
+// transitionResponse represents a single transition in the Jira API response.
+type transitionResponse struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
 }
 
 // parseIssueResponse parses the JSON response from Jira into a domain Issue.
@@ -508,6 +503,21 @@ func mapComments(resp *commentsResponse) []*jira4claude.Comment {
 			}
 		}
 		result[i] = comment
+	}
+	return result
+}
+
+// mapTransitions converts a slice of transitionResponse to domain Transitions. Returns nil if input is empty.
+func mapTransitions(transitions []transitionResponse) []*jira4claude.Transition {
+	if len(transitions) == 0 {
+		return nil
+	}
+	result := make([]*jira4claude.Transition, len(transitions))
+	for i, t := range transitions {
+		result[i] = &jira4claude.Transition{
+			ID:   t.ID,
+			Name: t.Name,
+		}
 	}
 	return result
 }
