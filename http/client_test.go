@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/fwojciec/jira4claude"
-	"github.com/fwojciec/jira4claude/adf"
 	jirahttp "github.com/fwojciec/jira4claude/http"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -34,8 +33,7 @@ func TestNewClient(t *testing.T) {
 `
 		require.NoError(t, os.WriteFile(netrcPath, []byte(netrcContent), 0o600))
 
-		conv := newTestConverter()
-		client, err := jirahttp.NewClient("https://test.atlassian.net", conv, jirahttp.WithNetrcPath(netrcPath))
+		client, err := jirahttp.NewClient("https://test.atlassian.net", jirahttp.WithNetrcPath(netrcPath))
 		require.NoError(t, err)
 		assert.NotNil(t, client)
 	})
@@ -43,8 +41,7 @@ func TestNewClient(t *testing.T) {
 	t.Run("returns EUnauthorized when netrc file not found", func(t *testing.T) {
 		t.Parallel()
 
-		conv := newTestConverter()
-		_, err := jirahttp.NewClient("https://test.atlassian.net", conv, jirahttp.WithNetrcPath("/nonexistent/netrc"))
+		_, err := jirahttp.NewClient("https://test.atlassian.net", jirahttp.WithNetrcPath("/nonexistent/netrc"))
 		require.Error(t, err)
 		assert.Equal(t, jira4claude.EUnauthorized, jira4claude.ErrorCode(err))
 		assert.Contains(t, err.Error(), "netrc")
@@ -61,8 +58,7 @@ func TestNewClient(t *testing.T) {
 `
 		require.NoError(t, os.WriteFile(netrcPath, []byte(netrcContent), 0o600))
 
-		conv := newTestConverter()
-		_, err := jirahttp.NewClient("https://test.atlassian.net", conv, jirahttp.WithNetrcPath(netrcPath))
+		_, err := jirahttp.NewClient("https://test.atlassian.net", jirahttp.WithNetrcPath(netrcPath))
 		require.Error(t, err)
 		assert.Equal(t, jira4claude.EUnauthorized, jira4claude.ErrorCode(err))
 		assert.Contains(t, err.Error(), "test.atlassian.net")
@@ -78,8 +74,7 @@ func TestNewClient(t *testing.T) {
 `
 		require.NoError(t, os.WriteFile(netrcPath, []byte(netrcContent), 0o600))
 
-		conv := newTestConverter()
-		_, err := jirahttp.NewClient("https://test.atlassian.net", conv, jirahttp.WithNetrcPath(netrcPath))
+		_, err := jirahttp.NewClient("https://test.atlassian.net", jirahttp.WithNetrcPath(netrcPath))
 		require.Error(t, err)
 		assert.Equal(t, jira4claude.EUnauthorized, jira4claude.ErrorCode(err))
 		assert.Contains(t, err.Error(), "login")
@@ -95,8 +90,7 @@ func TestNewClient(t *testing.T) {
 `
 		require.NoError(t, os.WriteFile(netrcPath, []byte(netrcContent), 0o600))
 
-		conv := newTestConverter()
-		_, err := jirahttp.NewClient("https://test.atlassian.net", conv, jirahttp.WithNetrcPath(netrcPath))
+		_, err := jirahttp.NewClient("https://test.atlassian.net", jirahttp.WithNetrcPath(netrcPath))
 		require.Error(t, err)
 		assert.Equal(t, jira4claude.EUnauthorized, jira4claude.ErrorCode(err))
 		assert.Contains(t, err.Error(), "password")
@@ -431,7 +425,7 @@ func TestClient_DoRequest(t *testing.T) {
 	})
 }
 
-// newTestClient creates a Client with credentials and mock converter for testing.
+// newTestClient creates a Client with credentials for testing.
 func newTestClient(t *testing.T, baseURL, username, password string, opts ...jirahttp.Option) *jirahttp.Client {
 	t.Helper()
 
@@ -446,21 +440,13 @@ func newTestClient(t *testing.T, baseURL, username, password string, opts ...jir
 	netrcContent := fmt.Sprintf("machine %s\n  login %s\n  password %s\n", u.Host, username, password)
 	require.NoError(t, os.WriteFile(netrcPath, []byte(netrcContent), 0o600))
 
-	// Create mock converter for tests
-	conv := newTestConverter()
-
 	// Prepend netrc path option, then user options
 	allOpts := append([]jirahttp.Option{jirahttp.WithNetrcPath(netrcPath)}, opts...)
 
-	client, err := jirahttp.NewClient(baseURL, conv, allOpts...)
+	client, err := jirahttp.NewClient(baseURL, allOpts...)
 	require.NoError(t, err)
 
 	return client
-}
-
-// newTestConverter creates a Converter for testing.
-func newTestConverter() *adf.Converter {
-	return adf.New()
 }
 
 func TestClient_DoRequest_Retry(t *testing.T) {

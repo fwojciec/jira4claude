@@ -27,7 +27,6 @@ type Client struct {
 	username       string
 	password       string
 	httpClient     *http.Client
-	converter      jira4claude.Converter
 	maxRetries     int
 	retryBaseDelay time.Duration
 }
@@ -74,8 +73,7 @@ func WithRetryBaseDelay(d time.Duration) Option {
 
 // NewClient creates a new Client configured for the given Jira server.
 // It reads credentials from the netrc file for authentication.
-// The converter is used for ADF/markdown conversions.
-func NewClient(baseURL string, converter jira4claude.Converter, opts ...Option) (*Client, error) {
+func NewClient(baseURL string, opts ...Option) (*Client, error) {
 	cfg := &clientConfig{
 		httpClient:     http.DefaultClient,
 		maxRetries:     3,
@@ -141,15 +139,9 @@ func NewClient(baseURL string, converter jira4claude.Converter, opts ...Option) 
 		username:       login,
 		password:       password,
 		httpClient:     cfg.httpClient,
-		converter:      converter,
 		maxRetries:     cfg.maxRetries,
 		retryBaseDelay: cfg.retryBaseDelay,
 	}, nil
-}
-
-// Converter returns the converter used by this client.
-func (c *Client) Converter() jira4claude.Converter {
-	return c.converter
 }
 
 // Do executes an HTTP request with Jira authentication.
