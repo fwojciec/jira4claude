@@ -80,11 +80,9 @@ This creates `.jira4claude.yaml` and adds it to `.gitignore`.
 3. Scope constraints prevent over-engineering
 4. Validation requirements must be testable/observable
 
-## Markdown in Descriptions and Comments
+## Formatting Descriptions and Comments
 
-The CLI supports GitHub-flavored markdown when using the `--markdown` flag. Markdown is converted to Atlassian Document Format (ADF) automatically.
-
-**Supported formatting:**
+**Always use GitHub-flavored markdown (GFM)** for descriptions and comments. The CLI automatically converts GFM to Jira's format. Do not use Jira wiki markup or plain unformatted text.
 
 | Markdown | Result in Jira |
 |----------|----------------|
@@ -98,8 +96,6 @@ The CLI supports GitHub-flavored markdown when using the `--markdown` flag. Mark
 | ` ``` ` blocks | Code blocks |
 | `[text](url)` | Links |
 | Blank lines | Paragraph breaks |
-
-**Always use `--markdown` flag** when creating or commenting with formatted text.
 
 ## Commands
 
@@ -125,17 +121,15 @@ This shows tasks where all blockers are Done (or have no blockers).
 
 ### Show Task Details
 
-Get full details for a specific task with formatted output:
+Get full details for a specific task:
 
 ```bash
-j4c issue view J4C-123 --markdown
+j4c issue view J4C-123
 ```
-
-The `--markdown` flag converts the description back to readable markdown. Without it, formatting is collapsed into plain text.
 
 ### Create Task
 
-Create a new task with markdown description:
+Create a new task:
 
 ```bash
 j4c issue create \
@@ -146,11 +140,8 @@ Description with markdown formatting.
 
 ## Validation Requirements
 
-- Test requirement here" \
-  --markdown
+- Test requirement here"
 ```
-
-The `--markdown` flag enables GitHub-flavored markdown parsing.
 
 ### Link Tasks (Blocks Relationship)
 
@@ -261,10 +252,10 @@ Common transitions (may vary by workflow):
 
 ### Add Comment
 
-Add a comment to a task (with markdown):
+Add a comment to a task:
 
 ```bash
-j4c issue comment J4C-123 --body="Comment text here" --markdown
+j4c issue comment J4C-123 --body="Comment text here"
 ```
 
 ## When to Use --json
