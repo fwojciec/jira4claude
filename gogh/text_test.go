@@ -137,6 +137,49 @@ func TestTextPrinter_Issue_ShowsLinks(t *testing.T) {
 	assert.Contains(t, output, "TEST-789")
 }
 
+func TestTextPrinter_Issue_ShowsLinkedIssueStatus(t *testing.T) {
+	t.Parallel()
+
+	var out, errOut bytes.Buffer
+	io := gogh.NewIO(&out, &errOut)
+	p := gogh.NewTextPrinter(io)
+
+	issue := &jira4claude.Issue{
+		Key:     "TEST-123",
+		Summary: "Test issue",
+		Status:  "Open",
+		Links: []*jira4claude.IssueLink{
+			{
+				Type: jira4claude.IssueLinkType{
+					Outward: "blocks",
+				},
+				OutwardIssue: &jira4claude.LinkedIssue{
+					Key:     "TEST-456",
+					Summary: "Blocked issue",
+					Status:  "To Do",
+				},
+			},
+			{
+				Type: jira4claude.IssueLinkType{
+					Inward: "is blocked by",
+				},
+				InwardIssue: &jira4claude.LinkedIssue{
+					Key:     "TEST-789",
+					Summary: "Blocking issue",
+					Status:  "Done",
+				},
+			},
+		},
+	}
+
+	p.Issue(issue)
+
+	output := out.String()
+	// Status should appear in brackets before the summary
+	assert.Contains(t, output, "[To Do]")
+	assert.Contains(t, output, "[Done]")
+}
+
 func TestTextPrinter_Issue_ShowsComments(t *testing.T) {
 	t.Parallel()
 
@@ -355,6 +398,44 @@ func TestTextPrinter_Links_ShowsLinksForIssue(t *testing.T) {
 	assert.Contains(t, output, "TEST-123")
 	assert.Contains(t, output, "blocks")
 	assert.Contains(t, output, "TEST-456")
+}
+
+func TestTextPrinter_Links_ShowsLinkedIssueStatus(t *testing.T) {
+	t.Parallel()
+
+	var out, errOut bytes.Buffer
+	io := gogh.NewIO(&out, &errOut)
+	p := gogh.NewTextPrinter(io)
+
+	links := []*jira4claude.IssueLink{
+		{
+			Type: jira4claude.IssueLinkType{
+				Outward: "blocks",
+			},
+			OutwardIssue: &jira4claude.LinkedIssue{
+				Key:     "TEST-456",
+				Summary: "Blocked issue",
+				Status:  "To Do",
+			},
+		},
+		{
+			Type: jira4claude.IssueLinkType{
+				Inward: "is blocked by",
+			},
+			InwardIssue: &jira4claude.LinkedIssue{
+				Key:     "TEST-789",
+				Summary: "Blocking issue",
+				Status:  "Done",
+			},
+		},
+	}
+
+	p.Links("TEST-123", links)
+
+	output := out.String()
+	// Status should appear in brackets before the summary
+	assert.Contains(t, output, "[To Do]")
+	assert.Contains(t, output, "[Done]")
 }
 
 func TestTextPrinter_Links_ShowsNoLinksMessageWithClarity(t *testing.T) {
