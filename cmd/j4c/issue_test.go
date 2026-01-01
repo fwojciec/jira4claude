@@ -891,3 +891,65 @@ func TestIssueListCmd(t *testing.T) {
 		assert.Contains(t, output, "TEST-2")
 	})
 }
+
+// IssueAssignCmd tests
+
+func TestIssueAssignCmd(t *testing.T) {
+	t.Parallel()
+
+	t.Run("prints success message when assigning to user", func(t *testing.T) {
+		t.Parallel()
+
+		svc := &mock.IssueService{
+			AssignFn: func(ctx context.Context, key, accountID string) error {
+				return nil
+			},
+		}
+
+		var buf bytes.Buffer
+		ctx := makeIssueContext(t, svc, &buf)
+		cmd := main.IssueAssignCmd{Key: "TEST-1", AccountID: "abc123"}
+		err := cmd.Run(ctx)
+
+		require.NoError(t, err)
+		assert.Contains(t, buf.String(), "Assigned:")
+		assert.Contains(t, buf.String(), "TEST-1")
+	})
+
+	t.Run("prints unassign message when account ID is empty", func(t *testing.T) {
+		t.Parallel()
+
+		svc := &mock.IssueService{
+			AssignFn: func(ctx context.Context, key, accountID string) error {
+				return nil
+			},
+		}
+
+		var buf bytes.Buffer
+		ctx := makeIssueContext(t, svc, &buf)
+		cmd := main.IssueAssignCmd{Key: "TEST-1", AccountID: ""}
+		err := cmd.Run(ctx)
+
+		require.NoError(t, err)
+		assert.Contains(t, buf.String(), "Unassigned:")
+		assert.Contains(t, buf.String(), "TEST-1")
+	})
+
+	t.Run("returns error when service fails", func(t *testing.T) {
+		t.Parallel()
+
+		svc := &mock.IssueService{
+			AssignFn: func(ctx context.Context, key, accountID string) error {
+				return &jira4claude.Error{Code: jira4claude.ENotFound, Message: "issue not found"}
+			},
+		}
+
+		var buf bytes.Buffer
+		ctx := makeIssueContext(t, svc, &buf)
+		cmd := main.IssueAssignCmd{Key: "NOTFOUND-1", AccountID: "abc123"}
+		err := cmd.Run(ctx)
+
+		require.Error(t, err)
+		assert.Equal(t, jira4claude.ENotFound, jira4claude.ErrorCode(err))
+	})
+}
