@@ -4,7 +4,6 @@ import (
 	"os"
 
 	"github.com/fwojciec/jira4claude"
-	"github.com/fwojciec/jira4claude/yaml"
 )
 
 // InitCmd initializes config.
@@ -14,7 +13,7 @@ type InitCmd struct {
 }
 
 // Run executes the init command.
-func (c *InitCmd) Run(ctx *MessageContext) error {
+func (c *InitCmd) Run(ctx *ConfigContext) error {
 	workDir, err := os.Getwd()
 	if err != nil {
 		return &jira4claude.Error{
@@ -24,7 +23,7 @@ func (c *InitCmd) Run(ctx *MessageContext) error {
 		}
 	}
 
-	result, err := yaml.Init(workDir, c.Server, c.Project)
+	result, err := ctx.Service.Init(workDir, c.Server, c.Project)
 	if err != nil {
 		return err
 	}

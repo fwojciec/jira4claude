@@ -81,15 +81,24 @@ func DiscoverConfig(workDir, homeDir string) (string, error) {
 	return "", notFoundErr("no config file found; searched: ./"+configFileName+", ~/"+configFileName+"\nRun: j4c init --server=URL --project=KEY", nil)
 }
 
-// InitResult contains the result of the Init operation.
-type InitResult struct {
-	ConfigCreated   bool
-	GitignoreAdded  bool
-	GitignoreExists bool
+// Compile-time interface verification.
+var _ jira4claude.ConfigService = (*Service)(nil)
+
+// Service implements jira4claude.ConfigService using YAML configuration files.
+type Service struct{}
+
+// NewService creates a new Service.
+func NewService() *Service {
+	return &Service{}
 }
 
 // Init creates a new config file in the given directory.
-func Init(dir, server, project string) (*InitResult, error) {
+func (s *Service) Init(dir, server, project string) (*jira4claude.InitResult, error) {
+	return Init(dir, server, project)
+}
+
+// Init creates a new config file in the given directory.
+func Init(dir, server, project string) (*jira4claude.InitResult, error) {
 	configPath := filepath.Join(dir, configFileName)
 
 	if err := validateConfigDoesNotExist(configPath); err != nil {
@@ -100,7 +109,7 @@ func Init(dir, server, project string) (*InitResult, error) {
 		return nil, err
 	}
 
-	result := &InitResult{ConfigCreated: true}
+	result := &jira4claude.InitResult{ConfigCreated: true}
 
 	gitignorePath := filepath.Join(dir, ".gitignore")
 	added, exists, err := ensureGitignoreEntry(gitignorePath, configFileName)
