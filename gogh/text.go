@@ -3,8 +3,9 @@ package gogh
 import (
 	"fmt"
 	"strings"
-	"text/tabwriter"
 
+	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/lipgloss/table"
 	"github.com/fwojciec/jira4claude"
 )
 
@@ -91,22 +92,40 @@ func (p *TextPrinter) Issues(issues []*jira4claude.Issue) {
 		return
 	}
 
-	w := tabwriter.NewWriter(p.io.Out, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, p.styles.Header("KEY")+"\t"+p.styles.Header("STATUS")+"\t"+p.styles.Header("ASSIGNEE")+"\t"+p.styles.Header("SUMMARY"))
+	rows := make([][]string, 0, len(issues))
 	for _, issue := range issues {
 		assignee := "-"
 		if issue.Assignee != nil {
 			assignee = issue.Assignee.DisplayName
 		}
 		summary := truncateString(issue.Summary, 50)
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\n",
-			p.styles.Key(issue.Key),
-			p.styles.Status(issue.Status),
-			assignee,
-			summary,
-		)
+		rows = append(rows, []string{issue.Key, issue.Status, assignee, summary})
 	}
-	w.Flush()
+
+	t := table.New().
+		Border(lipgloss.Border{}).
+		BorderHeader(false).
+		StyleFunc(func(row, col int) lipgloss.Style {
+			style := lipgloss.NewStyle().PaddingRight(2)
+			if p.styles.NoColor() {
+				return style
+			}
+			if row == table.HeaderRow {
+				return style.Bold(true).Underline(true)
+			}
+			switch col {
+			case 0: // KEY
+				return style.Bold(true).Foreground(lipgloss.Color("12"))
+			case 1: // STATUS
+				return style.Foreground(lipgloss.Color("10"))
+			default:
+				return style
+			}
+		}).
+		Headers("KEY", "STATUS", "ASSIGNEE", "SUMMARY").
+		Rows(rows...)
+
+	fmt.Fprintln(p.io.Out, t)
 }
 
 // Transitions prints available transitions for an issue.

@@ -69,3 +69,8 @@ func (s *Styles) Header(text string) string {
 	}
 	return s.header.Render(text)
 }
+
+// NoColor returns whether color output is disabled.
+func (s *Styles) NoColor() bool {
+	return s.noColor
+}
