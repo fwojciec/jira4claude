@@ -252,21 +252,22 @@ func applyMarks(text string, marks []any) string {
 		}
 	}
 
-	// Apply in specific order: code first (innermost), then em, then strong, then link (outermost)
+	// Apply marks in specific order.
+	// If code is present, skip em/strong since markdown doesn't support emphasis inside backticks.
 	result := text
 
 	if hasCode {
 		result = "`" + result + "`"
-	}
-	if hasEm && hasStrong {
-		// Combined: use ***
-		result = "***" + result + "***"
 	} else {
-		if hasEm {
-			result = "*" + result + "*"
-		}
-		if hasStrong {
-			result = "**" + result + "**"
+		if hasEm && hasStrong {
+			result = "***" + result + "***"
+		} else {
+			if hasEm {
+				result = "*" + result + "*"
+			}
+			if hasStrong {
+				result = "**" + result + "**"
+			}
 		}
 	}
 	if linkHref != "" {
