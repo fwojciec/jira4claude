@@ -68,9 +68,7 @@ func (s *IssueService) Create(ctx context.Context, issue *jira4claude.Issue) (*j
 	}
 
 	// Parse response
-	var createResp struct {
-		Key string `json:"key"`
-	}
+	var createResp createIssueResponse
 	if err := json.Unmarshal(respBody, &createResp); err != nil {
 		return nil, &jira4claude.Error{
 			Code:    jira4claude.EInternal,
@@ -135,9 +133,7 @@ func (s *IssueService) List(ctx context.Context, filter jira4claude.IssueFilter)
 	}
 
 	// Parse response
-	var searchResp struct {
-		Issues []json.RawMessage `json:"issues"`
-	}
+	var searchResp searchResponse
 	if err := json.Unmarshal(respBody, &searchResp); err != nil {
 		return nil, &jira4claude.Error{
 			Code:    jira4claude.EInternal,
@@ -271,9 +267,7 @@ func (s *IssueService) Transitions(ctx context.Context, key string) ([]*jira4cla
 		return nil, err
 	}
 
-	var transitionsResp struct {
-		Transitions []transitionResponse `json:"transitions"`
-	}
+	var transitionsResp transitionsListResponse
 	if err := json.Unmarshal(respBody, &transitionsResp); err != nil {
 		return nil, &jira4claude.Error{
 			Code:    jira4claude.EInternal,
@@ -388,6 +382,40 @@ type userResponse struct {
 type transitionResponse struct {
 	ID   string `json:"id"`
 	Name string `json:"name"`
+}
+
+// createIssueResponse represents the JSON structure returned by Jira API when creating an issue.
+type createIssueResponse struct {
+	Key string `json:"key"`
+}
+
+// searchResponse represents the JSON structure returned by Jira API for issue search.
+type searchResponse struct {
+	Issues []json.RawMessage `json:"issues"`
+}
+
+// transitionsListResponse represents the JSON structure returned by Jira API for transitions.
+type transitionsListResponse struct {
+	Transitions []transitionResponse `json:"transitions"`
+}
+
+// findLinkIssueResponse represents the minimal issue structure for finding links.
+type findLinkIssueResponse struct {
+	Fields struct {
+		IssueLinks []findLinkIssueLinkResponse `json:"issuelinks"`
+	} `json:"fields"`
+}
+
+// findLinkIssueLinkResponse represents a link entry when searching for a specific link.
+type findLinkIssueLinkResponse struct {
+	ID           string                  `json:"id"`
+	OutwardIssue *findLinkLinkedResponse `json:"outwardIssue"`
+	InwardIssue  *findLinkLinkedResponse `json:"inwardIssue"`
+}
+
+// findLinkLinkedResponse represents a linked issue key when searching for a specific link.
+type findLinkLinkedResponse struct {
+	Key string `json:"key"`
 }
 
 // parseIssueResponse parses the JSON response from Jira into a domain Issue.
@@ -584,19 +612,7 @@ func (s *IssueService) findLinkID(ctx context.Context, key1, key2 string) (strin
 	}
 
 	// Parse the issue to find the link
-	var issueResp struct {
-		Fields struct {
-			IssueLinks []struct {
-				ID           string `json:"id"`
-				OutwardIssue *struct {
-					Key string `json:"key"`
-				} `json:"outwardIssue"`
-				InwardIssue *struct {
-					Key string `json:"key"`
-				} `json:"inwardIssue"`
-			} `json:"issuelinks"`
-		} `json:"fields"`
-	}
+	var issueResp findLinkIssueResponse
 	if err := json.Unmarshal(respBody, &issueResp); err != nil {
 		return "", &jira4claude.Error{
 			Code:    jira4claude.EInternal,
