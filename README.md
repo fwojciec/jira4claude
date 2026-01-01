@@ -171,35 +171,6 @@ The CLI uses semantic exit codes for programmatic error handling:
 | 6 | `ERateLimit` | Rate limit exceeded |
 | 7 | `EInternal` | Internal/unexpected error |
 
-## Configuration
-
-### Credentials
-
-Add your Jira credentials to `~/.netrc`:
-
-```
-machine yourcompany.atlassian.net
-  login your-email@example.com
-  password your-api-token
-```
-
-### Project Config
-
-Initialize per-project configuration:
-
-```bash
-j4c init --server=https://yourcompany.atlassian.net --project=PROJ
-```
-
-This creates `.jira4claude.yaml`:
-
-```yaml
-server: https://yourcompany.atlassian.net
-project: PROJ
-```
-
-The `--project` flag on commands overrides the default.
-
 ## For AI Agent Developers
 
 This CLI is designed as a tool for AI coding assistants. Key design decisions:
