@@ -3,6 +3,7 @@ package adf_test
 import (
 	"testing"
 
+	"github.com/fwojciec/jira4claude"
 	"github.com/fwojciec/jira4claude/adf"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -453,5 +454,27 @@ func TestConverter_ToADF(t *testing.T) {
 
 		require.NoError(t, err)
 		assert.Equal(t, expected, result)
+	})
+
+	t.Run("returns error when content is skipped", func(t *testing.T) {
+		t.Parallel()
+
+		converter := adf.New()
+		// Horizontal rules (thematic breaks) are not supported
+		result, err := converter.ToADF("Before\n\n---\n\nAfter")
+
+		// Should still return converted content (best effort)
+		require.NotNil(t, result)
+		assert.Equal(t, "doc", result["type"])
+
+		// Content should have the paragraphs that were converted
+		content, ok := result["content"].([]any)
+		require.True(t, ok)
+		assert.Len(t, content, 2) // "Before" and "After" paragraphs
+
+		// Should return validation error listing skipped content
+		require.Error(t, err)
+		assert.Equal(t, jira4claude.EValidation, jira4claude.ErrorCode(err))
+		assert.Contains(t, err.Error(), "ThematicBreak")
 	})
 }

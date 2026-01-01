@@ -1,6 +1,11 @@
 package adf
 
 import (
+	"fmt"
+	"reflect"
+	"strings"
+
+	"github.com/fwojciec/jira4claude"
 	"github.com/yuin/goldmark"
 	"github.com/yuin/goldmark/ast"
 	"github.com/yuin/goldmark/extension"
@@ -8,8 +13,40 @@ import (
 	"github.com/yuin/goldmark/text"
 )
 
+// skippedCollector tracks node types that were skipped during conversion.
+type skippedCollector struct {
+	types map[string]struct{}
+}
+
+func newSkippedCollector() *skippedCollector {
+	return &skippedCollector{types: make(map[string]struct{})}
+}
+
+func (s *skippedCollector) add(nodeType string) {
+	s.types[nodeType] = struct{}{}
+}
+
+func (s *skippedCollector) hasSkipped() bool {
+	return len(s.types) > 0
+}
+
+func (s *skippedCollector) error() error {
+	if !s.hasSkipped() {
+		return nil
+	}
+	types := make([]string, 0, len(s.types))
+	for t := range s.types {
+		types = append(types, t)
+	}
+	return &jira4claude.Error{
+		Code:    jira4claude.EValidation,
+		Message: fmt.Sprintf("skipped unsupported elements: %s", strings.Join(types, ", ")),
+	}
+}
+
 // toADF converts GitHub-flavored markdown to Atlassian Document Format (ADF).
 // The result can be used directly in Jira API requests for description and comment fields.
+// Returns an error if any elements were skipped during conversion.
 func toADF(markdown string) (map[string]any, error) {
 	md := goldmark.New(
 		goldmark.WithExtensions(extension.GFM),
@@ -21,7 +58,8 @@ func toADF(markdown string) (map[string]any, error) {
 	reader := text.NewReader([]byte(markdown))
 	doc := md.Parser().Parse(reader)
 
-	content := convertNode(doc, []byte(markdown))
+	skipped := newSkippedCollector()
+	content := convertNode(doc, []byte(markdown), skipped)
 	if content == nil {
 		content = []any{}
 	}
@@ -30,15 +68,15 @@ func toADF(markdown string) (map[string]any, error) {
 		"type":    "doc",
 		"version": 1,
 		"content": content,
-	}, nil
+	}, skipped.error()
 }
 
 // convertNode recursively converts goldmark AST nodes to ADF nodes.
-func convertNode(node ast.Node, source []byte) []any {
+func convertNode(node ast.Node, source []byte, skipped *skippedCollector) []any {
 	var content []any
 
 	for child := node.FirstChild(); child != nil; child = child.NextSibling() {
-		adfNode := nodeToADF(child, source)
+		adfNode := nodeToADF(child, source, skipped)
 		if adfNode != nil {
 			content = append(content, adfNode)
 		}
@@ -48,7 +86,7 @@ func convertNode(node ast.Node, source []byte) []any {
 }
 
 // nodeToADF converts a single goldmark AST node to an ADF node.
-func nodeToADF(node ast.Node, source []byte) map[string]any {
+func nodeToADF(node ast.Node, source []byte, skipped *skippedCollector) map[string]any {
 	switch n := node.(type) {
 	case *ast.Paragraph:
 		return convertParagraph(n, source)
@@ -59,10 +97,13 @@ func nodeToADF(node ast.Node, source []byte) map[string]any {
 	case *ast.FencedCodeBlock:
 		return convertFencedCodeBlock(n, source)
 	case *ast.List:
-		return convertList(n, source)
+		return convertList(n, source, skipped)
 	case *ast.Blockquote:
-		return convertBlockquote(n, source)
+		return convertBlockquote(n, source, skipped)
 	default:
+		// Record the skipped node type
+		typeName := reflect.TypeOf(node).Elem().Name()
+		skipped.add(typeName)
 		return nil
 	}
 }
@@ -140,7 +181,7 @@ func convertFencedCodeBlock(node *ast.FencedCodeBlock, source []byte) map[string
 }
 
 // convertList converts a goldmark list to an ADF bulletList or orderedList.
-func convertList(node *ast.List, source []byte) map[string]any {
+func convertList(node *ast.List, source []byte, skipped *skippedCollector) map[string]any {
 	listType := "bulletList"
 	if node.IsOrdered() {
 		listType = "orderedList"
@@ -149,7 +190,7 @@ func convertList(node *ast.List, source []byte) map[string]any {
 	var items []any
 	for child := node.FirstChild(); child != nil; child = child.NextSibling() {
 		if listItem, ok := child.(*ast.ListItem); ok {
-			items = append(items, convertListItem(listItem, source))
+			items = append(items, convertListItem(listItem, source, skipped))
 		}
 	}
 
@@ -160,8 +201,8 @@ func convertList(node *ast.List, source []byte) map[string]any {
 }
 
 // convertListItem converts a goldmark list item to an ADF listItem.
-func convertListItem(node *ast.ListItem, source []byte) map[string]any {
-	content := convertNode(node, source)
+func convertListItem(node *ast.ListItem, source []byte, skipped *skippedCollector) map[string]any {
+	content := convertNode(node, source, skipped)
 	return map[string]any{
 		"type":    "listItem",
 		"content": content,
@@ -169,8 +210,8 @@ func convertListItem(node *ast.ListItem, source []byte) map[string]any {
 }
 
 // convertBlockquote converts a goldmark blockquote to an ADF blockquote.
-func convertBlockquote(node *ast.Blockquote, source []byte) map[string]any {
-	content := convertNode(node, source)
+func convertBlockquote(node *ast.Blockquote, source []byte, skipped *skippedCollector) map[string]any {
+	content := convertNode(node, source, skipped)
 	return map[string]any{
 		"type":    "blockquote",
 		"content": content,
