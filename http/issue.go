@@ -38,26 +38,28 @@ func NewIssueService(client *Client) *IssueService {
 // Create creates a new issue and returns it with Key populated.
 func (s *IssueService) Create(ctx context.Context, issue *jira4claude.Issue) (*jira4claude.Issue, error) {
 	// Build request body
-	fields := map[string]any{
-		"project":   map[string]any{"key": issue.Project},
-		"summary":   issue.Summary,
-		"issuetype": map[string]any{"name": issue.Type},
+	reqBody := createRequest{
+		Fields: createFields{
+			Project:   projectRef{Key: issue.Project},
+			Summary:   issue.Summary,
+			IssueType: issueTypeRef{Name: issue.Type},
+		},
 	}
 
 	if issue.Description != "" {
-		fields["description"] = textOrADF(issue.Description)
+		reqBody.Fields.Description = textOrADF(issue.Description)
 	}
 	if issue.Priority != "" {
-		fields["priority"] = map[string]any{"name": issue.Priority}
+		reqBody.Fields.Priority = &priorityRef{Name: issue.Priority}
 	}
 	if len(issue.Labels) > 0 {
-		fields["labels"] = issue.Labels
+		reqBody.Fields.Labels = issue.Labels
 	}
 	if issue.Parent != "" {
-		fields["parent"] = map[string]any{"key": issue.Parent}
+		reqBody.Fields.Parent = &parentRef{Key: issue.Parent}
 	}
 
-	req, err := s.client.NewJSONRequest(ctx, http.MethodPost, "/rest/api/3/issue", map[string]any{"fields": fields})
+	req, err := s.client.NewJSONRequest(ctx, http.MethodPost, "/rest/api/3/issue", reqBody)
 	if err != nil {
 		return nil, err
 	}
@@ -181,29 +183,29 @@ func buildJQL(filter jira4claude.IssueFilter) string {
 // Update modifies an existing issue and returns the updated issue.
 func (s *IssueService) Update(ctx context.Context, key string, update jira4claude.IssueUpdate) (*jira4claude.Issue, error) {
 	// Build request body with only the fields that are set
-	fields := make(map[string]any)
+	reqBody := updateRequest{}
 
 	if update.Summary != nil {
-		fields["summary"] = *update.Summary
+		reqBody.Fields.Summary = update.Summary
 	}
 	if update.Description != nil {
-		fields["description"] = textOrADF(*update.Description)
+		reqBody.Fields.Description = textOrADF(*update.Description)
 	}
 	if update.Priority != nil {
-		fields["priority"] = map[string]any{"name": *update.Priority}
+		reqBody.Fields.Priority = &priorityRef{Name: *update.Priority}
 	}
 	if update.Assignee != nil {
 		if *update.Assignee == "" {
-			fields["assignee"] = nil
+			reqBody.Fields.Assignee = &assigneeField{AccountID: nil}
 		} else {
-			fields["assignee"] = map[string]any{"accountId": *update.Assignee}
+			reqBody.Fields.Assignee = &assigneeField{AccountID: update.Assignee}
 		}
 	}
 	if update.Labels != nil {
-		fields["labels"] = *update.Labels
+		reqBody.Fields.Labels = update.Labels
 	}
 
-	req, err := s.client.NewJSONRequest(ctx, http.MethodPut, issuePath(key), map[string]any{"fields": fields})
+	req, err := s.client.NewJSONRequest(ctx, http.MethodPut, issuePath(key), reqBody)
 	if err != nil {
 		return nil, err
 	}
