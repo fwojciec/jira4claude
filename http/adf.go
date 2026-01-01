@@ -10,12 +10,13 @@ import (
 // is already a valid ADF JSON document (starts with `{` and has a "type":"doc" field),
 // it parses and returns that directly. This allows the CLI to pre-convert markdown
 // to ADF and pass it through without double-conversion.
+// TODO(J4C-76): Propagate conversion warnings via callback pattern.
 func textOrADF(text string, converter jira4claude.Converter) map[string]any {
 	if adf := tryParseADF(text); adf != nil {
 		return adf
 	}
 	// Convert to ADF using the injected converter (plain text is valid input)
-	adf, _ := converter.ToADF(text)
+	adf, _ := converter.ToADF(text) //nolint:errcheck // TODO(J4C-76)
 	return adf
 }
 

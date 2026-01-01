@@ -431,7 +431,7 @@ func parseIssueResponse(body []byte, converter jira4claude.Converter) (*jira4cla
 		}
 	}
 
-	description, _ := converter.ToMarkdown(resp.Fields.Description)
+	description, _ := converter.ToMarkdown(resp.Fields.Description) //nolint:errcheck // TODO(J4C-76): propagate warnings
 	issue := &jira4claude.Issue{
 		Key:            resp.Key,
 		Project:        resp.Fields.Project.Key,
@@ -522,7 +522,7 @@ func mapComments(resp *commentsResponse, converter jira4claude.Converter) []*jir
 	}
 	result := make([]*jira4claude.Comment, len(resp.Comments))
 	for i, c := range resp.Comments {
-		body, _ := converter.ToMarkdown(c.Body)
+		body, _ := converter.ToMarkdown(c.Body) //nolint:errcheck // TODO(J4C-76): propagate warnings
 		comment := &jira4claude.Comment{
 			ID:      c.ID,
 			Body:    body,
@@ -660,7 +660,7 @@ func parseCommentResponse(body []byte, converter jira4claude.Converter) (*jira4c
 		}
 	}
 
-	commentBody, _ := converter.ToMarkdown(resp.Body)
+	commentBody, _ := converter.ToMarkdown(resp.Body) //nolint:errcheck // TODO(J4C-76): propagate warnings
 	comment := &jira4claude.Comment{
 		ID:      resp.ID,
 		Body:    commentBody,

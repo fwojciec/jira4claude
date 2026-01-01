@@ -13,9 +13,10 @@ import (
 // markdownToADFJSON converts markdown text to ADF JSON string.
 // The returned string can be passed to the issue service; the HTTP layer
 // will detect it as pre-converted ADF and use it directly.
+// TODO(J4C-76): Propagate conversion warnings to user via MessagePrinter.Warning
 func markdownToADFJSON(markdown string) (string, error) {
 	converter := adf.New()
-	adfDoc, _ := converter.ToADF(markdown)
+	adfDoc, _ := converter.ToADF(markdown) //nolint:errcheck // TODO(J4C-76)
 	bytes, err := json.Marshal(adfDoc)
 	if err != nil {
 		return "", &jira4claude.Error{
@@ -54,15 +55,16 @@ func (c *IssueViewCmd) Run(ctx *IssueContext) error {
 
 	// Always convert ADF to markdown when available.
 	// This ensures consistent output whether data comes from HTTP layer or mocks.
+	// TODO(J4C-76): Propagate conversion warnings to user via MessagePrinter.Warning
 	converter := adf.New()
 	if issue.DescriptionADF != nil {
-		if desc, _ := converter.ToMarkdown(issue.DescriptionADF); desc != "" {
+		if desc, _ := converter.ToMarkdown(issue.DescriptionADF); desc != "" { //nolint:errcheck // TODO(J4C-76)
 			issue.Description = desc
 		}
 	}
 	for _, comment := range issue.Comments {
 		if comment.BodyADF != nil {
-			if body, _ := converter.ToMarkdown(comment.BodyADF); body != "" {
+			if body, _ := converter.ToMarkdown(comment.BodyADF); body != "" { //nolint:errcheck // TODO(J4C-76)
 				comment.Body = body
 			}
 		}
