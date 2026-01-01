@@ -35,7 +35,7 @@ If you see: `Error: no config file found`
 Create a local config:
 
 ```bash
-j4c init --server=https://fwojciec.atlassian.net --project=J4C
+j4c init --server=https://yourcompany.atlassian.net --project=PROJ
 ```
 
 This creates `.jira4claude.yaml` and adds it to `.gitignore`.
