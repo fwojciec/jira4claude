@@ -85,7 +85,7 @@ j4c issue comment PROJ-123 --body="Fixed in PR #456"
 ### Link Operations
 
 ```bash
-# Create a dependency link
+# Create a link between issues
 j4c link create PROJ-123 Blocks PROJ-124
 
 # List links for an issue
@@ -106,10 +106,10 @@ j4c issue list --project=J4C --limit=3
 ```
 
 ```
-KEY     STATUS       TYPE  PRIORITY  SUMMARY
-J4C-62  In Progress  Task  Medium    Create comprehensive README.md
-J4C-61  Done         Task  Medium    Add semantic exit codes
-J4C-60  Done         Task  Medium    Implement link commands
+KEY     STATUS       ASSIGNEE  SUMMARY
+J4C-62  In Progress  alice     Create comprehensive README.md
+J4C-61  Done         bob       Add semantic exit codes
+J4C-60  Done         carol     Implement link commands
 ```
 
 ### JSON Mode
