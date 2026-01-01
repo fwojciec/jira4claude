@@ -116,7 +116,7 @@ func TestIssueService_Create(t *testing.T) {
 		issue := &jira4claude.Issue{
 			Project: "TEST",
 			Summary: "Test issue",
-			Description: jira4claude.ADF{"type": "doc", "content": []any{
+			Description: jira4claude.ADF{"type": "doc", "version": 1, "content": []any{
 				map[string]any{"type": "paragraph", "content": []any{
 					map[string]any{"type": "text", "text": "This is a test description"},
 				}},
@@ -1018,7 +1018,7 @@ func TestIssueService_Update(t *testing.T) {
 		svc := jirahttp.NewIssueService(client)
 
 		newSummary := "Updated summary"
-		newDescription := jira4claude.ADF{"type": "doc", "content": []any{
+		newDescription := jira4claude.ADF{"type": "doc", "version": 1, "content": []any{
 			map[string]any{"type": "paragraph", "content": []any{
 				map[string]any{"type": "text", "text": "Updated description"},
 			}},
@@ -1224,7 +1224,7 @@ func TestIssueService_AddComment(t *testing.T) {
 		client := newTestClient(t, server.URL, "user@example.com", "api-token")
 		svc := jirahttp.NewIssueService(client)
 
-		adfDoc := jira4claude.ADF{"type": "doc", "content": []any{
+		adfDoc := jira4claude.ADF{"type": "doc", "version": 1, "content": []any{
 			map[string]any{"type": "paragraph", "content": []any{
 				map[string]any{"type": "text", "text": "This is a comment"},
 			}},
@@ -1256,7 +1256,7 @@ func TestIssueService_AddComment(t *testing.T) {
 		client := newTestClient(t, server.URL, "user@example.com", "api-token")
 		svc := jirahttp.NewIssueService(client)
 
-		adfDoc := jira4claude.ADF{"type": "doc", "content": []any{
+		adfDoc := jira4claude.ADF{"type": "doc", "version": 1, "content": []any{
 			map[string]any{"type": "paragraph", "content": []any{
 				map[string]any{"type": "text", "text": "Comment text"},
 			}},
