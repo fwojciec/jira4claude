@@ -195,6 +195,11 @@ func (p *TextPrinter) Success(msg string, keys ...string) {
 	}
 }
 
+// Warning prints a warning message to stderr.
+func (p *TextPrinter) Warning(msg string) {
+	fmt.Fprintln(p.io.Err, p.styles.Warning(msg))
+}
+
 // Error prints an error message to stderr.
 func (p *TextPrinter) Error(err error) {
 	fmt.Fprintf(p.io.Err, "%s %s\n", p.styles.Error("Error:"), jira4claude.ErrorMessage(err))

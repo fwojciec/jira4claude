@@ -16,6 +16,7 @@ type Printer struct {
 	TransitionsFn func(key string, ts []*jira4claude.Transition)
 	LinksFn       func(key string, links []*jira4claude.IssueLink)
 	SuccessFn     func(msg string, keys ...string)
+	WarningFn     func(msg string)
 	ErrorFn       func(err error)
 
 	// Captured calls for assertions
@@ -34,7 +35,8 @@ type Printer struct {
 		Msg  string
 		Keys []string
 	}
-	ErrorCalls []error
+	WarningCalls []string
+	ErrorCalls   []error
 }
 
 func (p *Printer) Issue(issue *jira4claude.Issue) {
@@ -85,6 +87,13 @@ func (p *Printer) Success(msg string, keys ...string) {
 	}{msg, keys})
 	if p.SuccessFn != nil {
 		p.SuccessFn(msg, keys...)
+	}
+}
+
+func (p *Printer) Warning(msg string) {
+	p.WarningCalls = append(p.WarningCalls, msg)
+	if p.WarningFn != nil {
+		p.WarningFn(msg)
 	}
 }
 

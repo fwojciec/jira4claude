@@ -537,6 +537,47 @@ func TestJSONPrinter_Comment_WithoutAuthor(t *testing.T) {
 	assert.False(t, hasAuthor, "author should not be present when nil")
 }
 
+func TestJSONPrinter_Warning_WritesToStderr(t *testing.T) {
+	t.Parallel()
+
+	var out, errOut bytes.Buffer
+	p := gogh.NewJSONPrinterWithIO(&out, &errOut)
+
+	p.Warning("unsupported element skipped")
+
+	// Warning should go to stderr, not stdout
+	assert.Empty(t, out.String(), "warnings should not go to stdout")
+	assert.Contains(t, errOut.String(), "warning:")
+	assert.Contains(t, errOut.String(), "unsupported element skipped")
+}
+
+func TestJSONPrinter_Warning_NotInJSONFormat(t *testing.T) {
+	t.Parallel()
+
+	var out, errOut bytes.Buffer
+	p := gogh.NewJSONPrinterWithIO(&out, &errOut)
+
+	p.Warning("unsupported element skipped")
+
+	// Warning should be plain text, not JSON
+	errOutput := errOut.String()
+	assert.NotContains(t, errOutput, "{", "warnings should be plain text, not JSON")
+}
+
+func TestJSONPrinter_Warning_MultipleWarnings(t *testing.T) {
+	t.Parallel()
+
+	var out, errOut bytes.Buffer
+	p := gogh.NewJSONPrinterWithIO(&out, &errOut)
+
+	p.Warning("first warning")
+	p.Warning("second warning")
+
+	errOutput := errOut.String()
+	assert.Contains(t, errOutput, "first warning")
+	assert.Contains(t, errOutput, "second warning")
+}
+
 // Verify JSONPrinter implements Printer interface at compile time.
 // This check is in production code (gogh/json.go), but we verify the test
 // file compiles with this assignment as an additional check.

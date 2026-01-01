@@ -430,6 +430,36 @@ func TestTextPrinter_Error_UsesErrorMessage(t *testing.T) {
 	assert.Contains(t, errOut.String(), "Issue not found")
 }
 
+func TestTextPrinter_Warning_WritesToStderr(t *testing.T) {
+	t.Parallel()
+
+	var out, errOut bytes.Buffer
+	io := gogh.NewIO(&out, &errOut)
+	p := gogh.NewTextPrinter(io)
+
+	p.Warning("unsupported element skipped")
+
+	// Warning should go to stderr, not stdout
+	assert.Empty(t, out.String(), "warnings should not go to stdout")
+	assert.Contains(t, errOut.String(), "warning:")
+	assert.Contains(t, errOut.String(), "unsupported element skipped")
+}
+
+func TestTextPrinter_Warning_MultipleWarnings(t *testing.T) {
+	t.Parallel()
+
+	var out, errOut bytes.Buffer
+	io := gogh.NewIO(&out, &errOut)
+	p := gogh.NewTextPrinter(io)
+
+	p.Warning("first warning")
+	p.Warning("second warning")
+
+	errOutput := errOut.String()
+	assert.Contains(t, errOutput, "first warning")
+	assert.Contains(t, errOutput, "second warning")
+}
+
 func TestTextPrinter_Issue_ShowsURLWhenServerURLSet(t *testing.T) {
 	t.Parallel()
 
