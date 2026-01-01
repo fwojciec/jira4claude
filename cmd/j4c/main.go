@@ -60,7 +60,7 @@ func main() {
 	var printer jira4claude.Printer
 	var jsonPrinter *gogh.JSONPrinter
 	if cli.JSON {
-		jsonPrinter = gogh.NewJSONPrinter(io.Out)
+		jsonPrinter = gogh.NewJSONPrinterWithIO(io.Out, io.Err)
 		printer = jsonPrinter
 	} else {
 		printer = gogh.NewTextPrinter(io)
