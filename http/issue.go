@@ -101,7 +101,7 @@ func (s *IssueService) Get(ctx context.Context, key string) (*jira4claude.Issue,
 		return nil, err
 	}
 
-	return parseIssueResponse(body, s.client.Converter())
+	return parseIssueResponse(body)
 }
 
 // List returns issues matching the filter criteria.
@@ -146,7 +146,7 @@ func (s *IssueService) List(ctx context.Context, filter jira4claude.IssueFilter)
 
 	issues := make([]*jira4claude.Issue, 0, len(searchResp.Issues))
 	for _, raw := range searchResp.Issues {
-		issue, err := parseIssueResponse(raw, s.client.Converter())
+		issue, err := parseIssueResponse(raw)
 		if err != nil {
 			return nil, err
 		}
@@ -250,7 +250,7 @@ func (s *IssueService) AddComment(ctx context.Context, key string, body jira4cla
 		return nil, err
 	}
 
-	return parseCommentResponse(respBody, s.client.Converter())
+	return parseCommentResponse(respBody)
 }
 
 // Transitions returns available workflow transitions for an issue.
@@ -421,7 +421,7 @@ type findLinkLinkedResponse struct {
 }
 
 // parseIssueResponse parses the JSON response from Jira into a domain Issue.
-func parseIssueResponse(body []byte, converter jira4claude.Converter) (*jira4claude.Issue, error) {
+func parseIssueResponse(body []byte) (*jira4claude.Issue, error) {
 	var resp issueResponse
 	if err := json.Unmarshal(body, &resp); err != nil {
 		return nil, &jira4claude.Error{
@@ -441,9 +441,6 @@ func parseIssueResponse(body []byte, converter jira4claude.Converter) (*jira4cla
 		Priority:    resp.Fields.Priority.Name,
 		Labels:      resp.Fields.Labels,
 	}
-	// Note: converter is unused after domain types moved to ADF-only.
-	// TODO(J4C-80): Remove converter from HTTP layer entirely.
-	_ = converter
 
 	if resp.Fields.Parent != nil {
 		issue.Parent = resp.Fields.Parent.Key
@@ -465,7 +462,7 @@ func parseIssueResponse(body []byte, converter jira4claude.Converter) (*jira4cla
 	}
 
 	issue.Links = mapIssueLinks(resp.Fields.IssueLinks)
-	issue.Comments = mapComments(resp.Fields.Comment, converter)
+	issue.Comments = mapComments(resp.Fields.Comment)
 
 	return issue, nil
 }
@@ -517,10 +514,7 @@ func mapIssueLinks(links []issueLinkResponse) []*jira4claude.IssueLink {
 }
 
 // mapComments converts a commentsResponse to domain Comments. Returns nil if input is nil or empty.
-// Note: converter parameter is unused after domain types moved to ADF-only.
-// TODO(J4C-80): Remove converter parameter when HTTP layer is updated.
-func mapComments(resp *commentsResponse, converter jira4claude.Converter) []*jira4claude.Comment {
-	_ = converter // unused after ADF-only migration
+func mapComments(resp *commentsResponse) []*jira4claude.Comment {
 	if resp == nil || len(resp.Comments) == 0 {
 		return nil
 	}
@@ -652,10 +646,7 @@ type commentResponse struct {
 }
 
 // parseCommentResponse parses the JSON response from Jira into a domain Comment.
-// Note: converter parameter is unused after domain types moved to ADF-only.
-// TODO(J4C-80): Remove converter parameter when HTTP layer is updated.
-func parseCommentResponse(body []byte, converter jira4claude.Converter) (*jira4claude.Comment, error) {
-	_ = converter // unused after ADF-only migration
+func parseCommentResponse(body []byte) (*jira4claude.Comment, error) {
 	var resp commentResponse
 	if err := json.Unmarshal(body, &resp); err != nil {
 		return nil, &jira4claude.Error{
