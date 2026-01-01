@@ -37,7 +37,7 @@ Extract the task ID from the current branch name (format: `J4C-XXX`).
 
 2. Verify status:
    ```bash
-   ./j4c issue view <task-id> --markdown
+   ./j4c issue view <task-id>
    ```
 
 **Note**: Use `./j4c issue transitions <task-id>` to see available transitions if needed.

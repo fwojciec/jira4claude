@@ -82,7 +82,7 @@ func TestIssueTransitionCmd_InvalidStatusShowsQuotedOptions(t *testing.T) {
 func TestIssueCreateCmd(t *testing.T) {
 	t.Parallel()
 
-	t.Run("converts markdown description when flag is set", func(t *testing.T) {
+	t.Run("always converts description as GFM", func(t *testing.T) {
 		t.Parallel()
 
 		var capturedIssue *jira4claude.Issue
@@ -98,17 +98,16 @@ func TestIssueCreateCmd(t *testing.T) {
 		cmd := main.IssueCreateCmd{
 			Summary:     "Test issue",
 			Description: "**bold** and *italic*",
-			Markdown:    true,
 		}
 		err := cmd.Run(ctx)
 
 		require.NoError(t, err)
 		require.NotNil(t, capturedIssue)
-		// Description should be pre-converted ADF JSON when markdown flag is set
+		// Description should be pre-converted ADF JSON (always, no flag needed)
 		assert.True(t, strings.HasPrefix(capturedIssue.Description, `{"content":[`))
 	})
 
-	t.Run("keeps plain text description when markdown flag is not set", func(t *testing.T) {
+	t.Run("plain text input is valid GFM", func(t *testing.T) {
 		t.Parallel()
 
 		var capturedIssue *jira4claude.Issue
@@ -123,18 +122,17 @@ func TestIssueCreateCmd(t *testing.T) {
 		ctx := makeIssueContext(t, svc, &buf)
 		cmd := main.IssueCreateCmd{
 			Summary:     "Test issue",
-			Description: "**bold** and *italic*",
-			Markdown:    false,
+			Description: "plain text without formatting",
 		}
 		err := cmd.Run(ctx)
 
 		require.NoError(t, err)
 		require.NotNil(t, capturedIssue)
-		// Description should remain as plain text
-		assert.Equal(t, "**bold** and *italic*", capturedIssue.Description)
+		// Plain text is valid GFM and should be converted to ADF JSON
+		assert.True(t, strings.HasPrefix(capturedIssue.Description, `{"content":[`))
 	})
 
-	t.Run("skips markdown conversion when description is empty", func(t *testing.T) {
+	t.Run("skips conversion when description is empty", func(t *testing.T) {
 		t.Parallel()
 
 		var capturedIssue *jira4claude.Issue
@@ -150,7 +148,6 @@ func TestIssueCreateCmd(t *testing.T) {
 		cmd := main.IssueCreateCmd{
 			Summary:     "Test issue",
 			Description: "",
-			Markdown:    true,
 		}
 		err := cmd.Run(ctx)
 
@@ -166,7 +163,7 @@ func TestIssueCreateCmd(t *testing.T) {
 func TestIssueEditCmd(t *testing.T) {
 	t.Parallel()
 
-	t.Run("converts markdown description when flag is set", func(t *testing.T) {
+	t.Run("always converts description as GFM", func(t *testing.T) {
 		t.Parallel()
 
 		var capturedUpdate jira4claude.IssueUpdate
@@ -180,16 +177,16 @@ func TestIssueEditCmd(t *testing.T) {
 		var buf bytes.Buffer
 		ctx := makeIssueContext(t, svc, &buf)
 		description := "**bold** and *italic*"
-		cmd := main.IssueEditCmd{Key: "TEST-1", Description: &description, Markdown: true}
+		cmd := main.IssueEditCmd{Key: "TEST-1", Description: &description}
 		err := cmd.Run(ctx)
 
 		require.NoError(t, err)
 		require.NotNil(t, capturedUpdate.Description)
-		// Description should be pre-converted ADF JSON when markdown flag is set
+		// Description should be pre-converted ADF JSON (always, no flag needed)
 		assert.True(t, strings.HasPrefix(*capturedUpdate.Description, `{"content":[`))
 	})
 
-	t.Run("keeps plain text description when markdown flag is not set", func(t *testing.T) {
+	t.Run("plain text input is valid GFM", func(t *testing.T) {
 		t.Parallel()
 
 		var capturedUpdate jira4claude.IssueUpdate
@@ -202,17 +199,17 @@ func TestIssueEditCmd(t *testing.T) {
 
 		var buf bytes.Buffer
 		ctx := makeIssueContext(t, svc, &buf)
-		description := "**bold** and *italic*"
-		cmd := main.IssueEditCmd{Key: "TEST-1", Description: &description, Markdown: false}
+		description := "plain text without formatting"
+		cmd := main.IssueEditCmd{Key: "TEST-1", Description: &description}
 		err := cmd.Run(ctx)
 
 		require.NoError(t, err)
 		require.NotNil(t, capturedUpdate.Description)
-		// Description should remain as plain text
-		assert.Equal(t, "**bold** and *italic*", *capturedUpdate.Description)
+		// Plain text is valid GFM and should be converted to ADF JSON
+		assert.True(t, strings.HasPrefix(*capturedUpdate.Description, `{"content":[`))
 	})
 
-	t.Run("skips markdown conversion when description is empty", func(t *testing.T) {
+	t.Run("skips conversion when description is empty", func(t *testing.T) {
 		t.Parallel()
 
 		var capturedUpdate jira4claude.IssueUpdate
@@ -226,7 +223,7 @@ func TestIssueEditCmd(t *testing.T) {
 		var buf bytes.Buffer
 		ctx := makeIssueContext(t, svc, &buf)
 		description := ""
-		cmd := main.IssueEditCmd{Key: "TEST-1", Description: &description, Markdown: true}
+		cmd := main.IssueEditCmd{Key: "TEST-1", Description: &description}
 		err := cmd.Run(ctx)
 
 		require.NoError(t, err)
@@ -241,7 +238,7 @@ func TestIssueEditCmd(t *testing.T) {
 func TestIssueCommentCmd(t *testing.T) {
 	t.Parallel()
 
-	t.Run("converts markdown body when flag is set", func(t *testing.T) {
+	t.Run("always converts body as GFM", func(t *testing.T) {
 		t.Parallel()
 
 		var capturedBody string
@@ -259,15 +256,15 @@ func TestIssueCommentCmd(t *testing.T) {
 
 		var buf bytes.Buffer
 		ctx := makeIssueContext(t, svc, &buf)
-		cmd := main.IssueCommentCmd{Key: "TEST-1", Body: "**bold** and *italic*", Markdown: true}
+		cmd := main.IssueCommentCmd{Key: "TEST-1", Body: "**bold** and *italic*"}
 		err := cmd.Run(ctx)
 
 		require.NoError(t, err)
-		// Body should be pre-converted ADF JSON when markdown flag is set
+		// Body should be pre-converted ADF JSON (always, no flag needed)
 		assert.True(t, strings.HasPrefix(capturedBody, `{"content":[`))
 	})
 
-	t.Run("keeps plain text body when markdown flag is not set", func(t *testing.T) {
+	t.Run("plain text input is valid GFM", func(t *testing.T) {
 		t.Parallel()
 
 		var capturedBody string
@@ -285,12 +282,12 @@ func TestIssueCommentCmd(t *testing.T) {
 
 		var buf bytes.Buffer
 		ctx := makeIssueContext(t, svc, &buf)
-		cmd := main.IssueCommentCmd{Key: "TEST-1", Body: "**bold** and *italic*", Markdown: false}
+		cmd := main.IssueCommentCmd{Key: "TEST-1", Body: "plain text without formatting"}
 		err := cmd.Run(ctx)
 
 		require.NoError(t, err)
-		// Body should remain as plain text
-		assert.Equal(t, "**bold** and *italic*", capturedBody)
+		// Plain text is valid GFM and should be converted to ADF JSON
+		assert.True(t, strings.HasPrefix(capturedBody, `{"content":[`))
 	})
 }
 
@@ -504,7 +501,7 @@ func TestIssueReadyCmd(t *testing.T) {
 func TestIssueViewCmd(t *testing.T) {
 	t.Parallel()
 
-	t.Run("displays description as markdown when flag is set", func(t *testing.T) {
+	t.Run("always displays description as markdown", func(t *testing.T) {
 		t.Parallel()
 
 		svc := &mock.IssueService{
@@ -539,59 +536,14 @@ func TestIssueViewCmd(t *testing.T) {
 
 		var buf bytes.Buffer
 		ctx := makeIssueContext(t, svc, &buf)
-		cmd := main.IssueViewCmd{Key: "TEST-1", Markdown: true}
+		cmd := main.IssueViewCmd{Key: "TEST-1"}
 		err := cmd.Run(ctx)
 
 		require.NoError(t, err)
 		assert.Contains(t, buf.String(), "# Hello")
 	})
 
-	t.Run("displays description as plain text by default", func(t *testing.T) {
-		t.Parallel()
-
-		svc := &mock.IssueService{
-			GetFn: func(ctx context.Context, key string) (*jira4claude.Issue, error) {
-				return &jira4claude.Issue{
-					Key:         "TEST-1",
-					Summary:     "Test issue",
-					Status:      "To Do",
-					Type:        "Task",
-					Description: "Hello",
-					DescriptionADF: map[string]any{
-						"type":    "doc",
-						"version": 1,
-						"content": []any{
-							map[string]any{
-								"type": "heading",
-								"attrs": map[string]any{
-									"level": 1,
-								},
-								"content": []any{
-									map[string]any{
-										"type": "text",
-										"text": "Hello",
-									},
-								},
-							},
-						},
-					},
-				}, nil
-			},
-		}
-
-		var buf bytes.Buffer
-		ctx := makeIssueContext(t, svc, &buf)
-		cmd := main.IssueViewCmd{Key: "TEST-1"}
-		err := cmd.Run(ctx)
-
-		require.NoError(t, err)
-		// Should NOT contain markdown heading syntax
-		assert.NotContains(t, buf.String(), "# Hello")
-		// Should contain plain text
-		assert.Contains(t, buf.String(), "Hello")
-	})
-
-	t.Run("falls back to plain text when markdown flag is set but no ADF", func(t *testing.T) {
+	t.Run("falls back to plain text when no ADF available", func(t *testing.T) {
 		t.Parallel()
 
 		svc := &mock.IssueService{
@@ -609,68 +561,14 @@ func TestIssueViewCmd(t *testing.T) {
 
 		var buf bytes.Buffer
 		ctx := makeIssueContext(t, svc, &buf)
-		cmd := main.IssueViewCmd{Key: "TEST-1", Markdown: true}
+		cmd := main.IssueViewCmd{Key: "TEST-1"}
 		err := cmd.Run(ctx)
 
 		require.NoError(t, err)
 		assert.Contains(t, buf.String(), "Plain text description")
 	})
 
-	t.Run("displays comment bodies as markdown when flag is set", func(t *testing.T) {
-		t.Parallel()
-
-		svc := &mock.IssueService{
-			GetFn: func(ctx context.Context, key string) (*jira4claude.Issue, error) {
-				return &jira4claude.Issue{
-					Key:     "TEST-1",
-					Summary: "Test issue",
-					Status:  "To Do",
-					Type:    "Task",
-					Comments: []*jira4claude.Comment{
-						{
-							ID:     "10001",
-							Author: &jira4claude.User{DisplayName: "John Doe"},
-							Body:   "Comment text",
-							BodyADF: map[string]any{
-								"type":    "doc",
-								"version": 1,
-								"content": []any{
-									map[string]any{
-										"type": "paragraph",
-										"content": []any{
-											map[string]any{
-												"type": "text",
-												"text": "Comment with ",
-											},
-											map[string]any{
-												"type": "text",
-												"text": "bold",
-												"marks": []any{
-													map[string]any{"type": "strong"},
-												},
-											},
-										},
-									},
-								},
-							},
-							Created: time.Date(2024, 1, 15, 10, 30, 0, 0, time.UTC),
-						},
-					},
-				}, nil
-			},
-		}
-
-		var buf bytes.Buffer
-		ctx := makeIssueContext(t, svc, &buf)
-		cmd := main.IssueViewCmd{Key: "TEST-1", Markdown: true}
-		err := cmd.Run(ctx)
-
-		require.NoError(t, err)
-		// Comment body should contain markdown bold syntax
-		assert.Contains(t, buf.String(), "Comment with **bold**")
-	})
-
-	t.Run("displays comment bodies as plain text by default", func(t *testing.T) {
+	t.Run("always displays comment bodies as markdown", func(t *testing.T) {
 		t.Parallel()
 
 		svc := &mock.IssueService{
@@ -720,9 +618,8 @@ func TestIssueViewCmd(t *testing.T) {
 		err := cmd.Run(ctx)
 
 		require.NoError(t, err)
-		// Comment body should be plain text (no markdown syntax)
-		assert.Contains(t, buf.String(), "Comment text")
-		assert.NotContains(t, buf.String(), "**bold**")
+		// Comment body should contain markdown bold syntax
+		assert.Contains(t, buf.String(), "Comment with **bold**")
 	})
 }
 

@@ -41,8 +41,7 @@ type IssueCmd struct {
 
 // IssueViewCmd views an issue.
 type IssueViewCmd struct {
-	Key      string `arg:"" help:"Issue key (e.g., PROJ-123)"`
-	Markdown bool   `help:"Output description in GitHub-flavored markdown" short:"m"`
+	Key string `arg:"" help:"Issue key (e.g., PROJ-123)"`
 }
 
 // Run executes the view command.
@@ -52,20 +51,18 @@ func (c *IssueViewCmd) Run(ctx *IssueContext) error {
 		return err
 	}
 
-	// Convert ADF to GFM if markdown flag is set and ADF is available
-	if c.Markdown && issue.DescriptionADF != nil {
+	// Always convert ADF to GFM for output (plain text is valid GFM)
+	if issue.DescriptionADF != nil {
 		if desc := http.ADFToGFM(issue.DescriptionADF); desc != "" {
 			issue.Description = desc
 		}
 	}
 
-	// Convert comment bodies from ADF to GFM if markdown flag is set
-	if c.Markdown {
-		for _, comment := range issue.Comments {
-			if comment.BodyADF != nil {
-				if body := http.ADFToGFM(comment.BodyADF); body != "" {
-					comment.Body = body
-				}
+	// Always convert comment bodies from ADF to GFM
+	for _, comment := range issue.Comments {
+		if comment.BodyADF != nil {
+			if body := http.ADFToGFM(comment.BodyADF); body != "" {
+				comment.Body = body
 			}
 		}
 	}
@@ -151,7 +148,6 @@ type IssueCreateCmd struct {
 	Priority    string   `help:"Issue priority"`
 	Labels      []string `help:"Issue labels" short:"l"`
 	Parent      string   `help:"Parent issue key (creates a Subtask)" short:"P"`
-	Markdown    bool     `help:"Parse description as GitHub-flavored markdown" short:"m"`
 }
 
 // Run executes the create command.
@@ -166,8 +162,9 @@ func (c *IssueCreateCmd) Run(ctx *IssueContext) error {
 		issueType = "Subtask"
 	}
 
+	// Always convert description as GFM (plain text is valid GFM)
 	description := c.Description
-	if c.Markdown && description != "" {
+	if description != "" {
 		adfJSON, err := markdownToADFJSON(description)
 		if err != nil {
 			return err
@@ -203,13 +200,13 @@ type IssueEditCmd struct {
 	Assignee    *string  `help:"New assignee" short:"a"`
 	Labels      []string `help:"New labels" short:"l"`
 	ClearLabels bool     `help:"Clear all labels" name:"clear-labels"`
-	Markdown    bool     `help:"Parse description as GitHub-flavored markdown" short:"m"`
 }
 
 // Run executes the edit command.
 func (c *IssueEditCmd) Run(ctx *IssueContext) error {
+	// Always convert description as GFM (plain text is valid GFM)
 	description := c.Description
-	if c.Markdown && description != nil && *description != "" {
+	if description != nil && *description != "" {
 		adfJSON, err := markdownToADFJSON(*description)
 		if err != nil {
 			return err
@@ -328,15 +325,15 @@ func (c *IssueAssignCmd) Run(ctx *IssueContext) error {
 
 // IssueCommentCmd adds a comment.
 type IssueCommentCmd struct {
-	Key      string `arg:"" help:"Issue key"`
-	Body     string `help:"Comment body" short:"b" required:""`
-	Markdown bool   `help:"Parse body as GitHub-flavored markdown" short:"m"`
+	Key  string `arg:"" help:"Issue key"`
+	Body string `help:"Comment body" short:"b" required:""`
 }
 
 // Run executes the comment command.
 func (c *IssueCommentCmd) Run(ctx *IssueContext) error {
+	// Always convert body as GFM (plain text is valid GFM)
 	body := c.Body
-	if c.Markdown && body != "" {
+	if body != "" {
 		adfJSON, err := markdownToADFJSON(body)
 		if err != nil {
 			return err

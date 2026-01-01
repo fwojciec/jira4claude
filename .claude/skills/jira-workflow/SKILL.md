@@ -258,6 +258,8 @@ Add a comment to a task:
 j4c issue comment J4C-123 --body="Comment text here"
 ```
 
+Comment bodies are always parsed as GitHub-flavored markdown.
+
 ## When to Use --json
 
 Use `--json` flag when:

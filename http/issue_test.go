@@ -32,7 +32,7 @@ func TestIssueService_Create(t *testing.T) {
 		client := newTestClient(t, server.URL, "user@example.com", "api-token")
 		svc := jirahttp.NewIssueService(client)
 
-		// Pre-converted ADF JSON (as would be created by CLI with --markdown flag)
+		// Pre-converted ADF JSON (as created by CLI when parsing GFM input)
 		adfJSON := `{"content":[{"content":[{"marks":[{"type":"strong"}],"text":"bold","type":"text"}],"type":"paragraph"}],"type":"doc","version":1}`
 
 		issue := &jira4claude.Issue{
@@ -62,7 +62,7 @@ func TestIssueService_Create(t *testing.T) {
 		assert.Equal(t, "strong", marks[0].(map[string]any)["type"])
 	})
 
-	t.Run("falls back to TextToADF for invalid JSON starting with brace", func(t *testing.T) {
+	t.Run("falls back to GFMToADF for invalid JSON starting with brace", func(t *testing.T) {
 		t.Parallel()
 
 		var receivedRequest map[string]any
@@ -89,7 +89,7 @@ func TestIssueService_Create(t *testing.T) {
 
 		require.NoError(t, err)
 
-		// Verify it was converted via TextToADF (has text node with literal content)
+		// Verify it was converted via GFMToADF (has text node with literal content)
 		fields := receivedRequest["fields"].(map[string]any)
 		desc := fields["description"].(map[string]any)
 		assert.Equal(t, "doc", desc["type"])
@@ -102,7 +102,7 @@ func TestIssueService_Create(t *testing.T) {
 		assert.Equal(t, "{this is not valid JSON}", textNode["text"])
 	})
 
-	t.Run("falls back to TextToADF for JSON with wrong type field", func(t *testing.T) {
+	t.Run("falls back to GFMToADF for JSON with wrong type field", func(t *testing.T) {
 		t.Parallel()
 
 		var receivedRequest map[string]any
@@ -129,7 +129,7 @@ func TestIssueService_Create(t *testing.T) {
 
 		require.NoError(t, err)
 
-		// Verify it was converted via TextToADF (the JSON string is now wrapped)
+		// Verify it was converted via GFMToADF (the JSON string is now wrapped)
 		fields := receivedRequest["fields"].(map[string]any)
 		desc := fields["description"].(map[string]any)
 		assert.Equal(t, "doc", desc["type"])
@@ -674,7 +674,7 @@ func TestIssueService_Get(t *testing.T) {
 		assert.Nil(t, issue.Comments)
 	})
 
-	t.Run("preserves comment ADF for markdown conversion", func(t *testing.T) {
+	t.Run("returns comment body as GFM with ADF preserved", func(t *testing.T) {
 		t.Parallel()
 
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -712,9 +712,9 @@ func TestIssueService_Get(t *testing.T) {
 
 		require.NoError(t, err)
 		require.Len(t, issue.Comments, 1)
-		// Body should be plain text
-		assert.Equal(t, "Comment with bold", issue.Comments[0].Body)
-		// BodyADF should preserve original ADF for later conversion
+		// Body should be GFM (with bold formatting)
+		assert.Equal(t, "Comment with **bold**", issue.Comments[0].Body)
+		// BodyADF should preserve original ADF
 		require.NotNil(t, issue.Comments[0].BodyADF)
 		assert.Equal(t, "doc", issue.Comments[0].BodyADF["type"])
 	})
@@ -1001,7 +1001,7 @@ func TestIssueService_Update(t *testing.T) {
 		client := newTestClient(t, server.URL, "user@example.com", "api-token")
 		svc := jirahttp.NewIssueService(client)
 
-		// Pre-converted ADF JSON (as would be created by CLI with --markdown flag)
+		// Pre-converted ADF JSON (as created by CLI when parsing GFM input)
 		adfJSON := `{"content":[{"content":[{"marks":[{"type":"em"}],"text":"italic","type":"text"}],"type":"paragraph"}],"type":"doc","version":1}`
 
 		_, err := svc.Update(context.Background(), "TEST-1", jira4claude.IssueUpdate{
@@ -1190,7 +1190,7 @@ func TestIssueService_AddComment(t *testing.T) {
 		client := newTestClient(t, server.URL, "user@example.com", "api-token")
 		svc := jirahttp.NewIssueService(client)
 
-		// Pre-converted ADF JSON (as would be created by CLI with --markdown flag)
+		// Pre-converted ADF JSON (as created by CLI when parsing GFM input)
 		adfJSON := `{"content":[{"content":[{"marks":[{"type":"code"}],"text":"code","type":"text"}],"type":"paragraph"}],"type":"doc","version":1}`
 
 		_, err := svc.AddComment(context.Background(), "TEST-1", adfJSON)
@@ -1278,7 +1278,7 @@ func TestIssueService_AddComment(t *testing.T) {
 		assert.Equal(t, jira4claude.ENotFound, jira4claude.ErrorCode(err))
 	})
 
-	t.Run("handles multiline comment text", func(t *testing.T) {
+	t.Run("handles multiline comment text with paragraph breaks", func(t *testing.T) {
 		t.Parallel()
 
 		var receivedRequest map[string]any
@@ -1287,20 +1287,16 @@ func TestIssueService_AddComment(t *testing.T) {
 
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusCreated)
-			// Response uses hardBreak nodes for line breaks (proper ADF format)
+			// Response uses paragraph nodes for paragraph breaks
 			_, _ = w.Write([]byte(`{
 				"id": "10002",
 				"body": {
 					"type": "doc",
 					"version": 1,
 					"content": [
-						{"type": "paragraph", "content": [
-							{"type": "text", "text": "Line 1"},
-							{"type": "hardBreak"},
-							{"type": "text", "text": "Line 2"},
-							{"type": "hardBreak"},
-							{"type": "text", "text": "Line 3"}
-						]}
+						{"type": "paragraph", "content": [{"type": "text", "text": "Paragraph 1"}]},
+						{"type": "paragraph", "content": [{"type": "text", "text": "Paragraph 2"}]},
+						{"type": "paragraph", "content": [{"type": "text", "text": "Paragraph 3"}]}
 					]
 				},
 				"created": "2024-01-15T10:30:00.000+0000"
@@ -1311,25 +1307,22 @@ func TestIssueService_AddComment(t *testing.T) {
 		client := newTestClient(t, server.URL, "user@example.com", "api-token")
 		svc := jirahttp.NewIssueService(client)
 
-		comment, err := svc.AddComment(context.Background(), "TEST-1", "Line 1\nLine 2\nLine 3")
+		// Use double newlines to create paragraph breaks (GFM behavior)
+		comment, err := svc.AddComment(context.Background(), "TEST-1", "Paragraph 1\n\nParagraph 2\n\nParagraph 3")
 
 		require.NoError(t, err)
 		assert.Equal(t, "10002", comment.ID)
-		assert.Equal(t, "Line 1\nLine 2\nLine 3", comment.Body)
+		// Body is converted from ADF to GFM
+		assert.Equal(t, "Paragraph 1\n\nParagraph 2\n\nParagraph 3", comment.Body)
 
-		// Verify request body has ADF format with hardBreak nodes for line breaks
+		// Verify request body has ADF format with paragraph nodes
 		body := receivedRequest["body"].(map[string]any)
 		assert.Equal(t, "doc", body["type"])
 		content := body["content"].([]any)
-		require.Len(t, content, 1)
-		paragraph := content[0].(map[string]any)
-		paragraphContent := paragraph["content"].([]any)
-		require.Len(t, paragraphContent, 5) // text, hardBreak, text, hardBreak, text
-		assert.Equal(t, "Line 1", paragraphContent[0].(map[string]any)["text"])
-		assert.Equal(t, "hardBreak", paragraphContent[1].(map[string]any)["type"])
-		assert.Equal(t, "Line 2", paragraphContent[2].(map[string]any)["text"])
-		assert.Equal(t, "hardBreak", paragraphContent[3].(map[string]any)["type"])
-		assert.Equal(t, "Line 3", paragraphContent[4].(map[string]any)["text"])
+		require.Len(t, content, 3) // Three paragraphs
+		assert.Equal(t, "paragraph", content[0].(map[string]any)["type"])
+		assert.Equal(t, "paragraph", content[1].(map[string]any)["type"])
+		assert.Equal(t, "paragraph", content[2].(map[string]any)["type"])
 	})
 }
 
