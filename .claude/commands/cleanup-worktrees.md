@@ -1,6 +1,6 @@
 ---
 description: Clean up git worktrees - auto-remove merged PRs, prompt for others
-allowed-tools: Bash(git:*), Bash(gh:*), Bash(ls:*)
+allowed-tools: Bash(git:*), Bash(gh:*), Bash(ls:*), Bash([:*)
 ---
 
 ## Current State
