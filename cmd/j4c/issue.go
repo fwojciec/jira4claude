@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -10,22 +9,12 @@ import (
 	"github.com/fwojciec/jira4claude/adf"
 )
 
-// markdownToADFJSON converts markdown text to ADF JSON string.
-// The returned string can be passed to the issue service; the HTTP layer
-// will detect it as pre-converted ADF and use it directly.
+// markdownToADF converts markdown text to ADF.
 // TODO(J4C-76): Propagate conversion warnings to user via MessagePrinter.Warning
-func markdownToADFJSON(markdown string) (string, error) {
+func markdownToADF(markdown string) jira4claude.ADF {
 	converter := adf.New()
 	adfDoc, _ := converter.ToADF(markdown) //nolint:errcheck // TODO(J4C-76)
-	bytes, err := json.Marshal(adfDoc)
-	if err != nil {
-		return "", &jira4claude.Error{
-			Code:    jira4claude.EInternal,
-			Message: "failed to serialize ADF",
-			Inner:   err,
-		}
-	}
-	return string(bytes), nil
+	return adfDoc
 }
 
 // IssueCmd groups issue subcommands.
@@ -52,24 +41,8 @@ func (c *IssueViewCmd) Run(ctx *IssueContext) error {
 	if err != nil {
 		return err
 	}
-
-	// Always convert ADF to markdown when available.
-	// This ensures consistent output whether data comes from HTTP layer or mocks.
-	// TODO(J4C-76): Propagate conversion warnings to user via MessagePrinter.Warning
-	converter := adf.New()
-	if issue.DescriptionADF != nil {
-		if desc, _ := converter.ToMarkdown(issue.DescriptionADF); desc != "" { //nolint:errcheck // TODO(J4C-76)
-			issue.Description = desc
-		}
-	}
-	for _, comment := range issue.Comments {
-		if comment.BodyADF != nil {
-			if body, _ := converter.ToMarkdown(comment.BodyADF); body != "" { //nolint:errcheck // TODO(J4C-76)
-				comment.Body = body
-			}
-		}
-	}
-
+	// TODO(J4C-80): Convert ADF to markdown here at CLI boundary and use view models.
+	// For now, printer handles ADF directly (outputs as JSON).
 	ctx.Printer.Issue(issue)
 	return nil
 }
@@ -165,14 +138,10 @@ func (c *IssueCreateCmd) Run(ctx *IssueContext) error {
 		issueType = "Subtask"
 	}
 
-	// Always convert description as GFM (plain text is valid GFM)
-	description := c.Description
-	if description != "" {
-		adfJSON, err := markdownToADFJSON(description)
-		if err != nil {
-			return err
-		}
-		description = adfJSON
+	// Convert description to ADF (plain text is valid GFM)
+	var description jira4claude.ADF
+	if c.Description != "" {
+		description = markdownToADF(c.Description)
 	}
 
 	issue := &jira4claude.Issue{
@@ -207,14 +176,11 @@ type IssueUpdateCmd struct {
 
 // Run executes the update command.
 func (c *IssueUpdateCmd) Run(ctx *IssueContext) error {
-	// Always convert description as GFM (plain text is valid GFM)
-	description := c.Description
-	if description != nil && *description != "" {
-		adfJSON, err := markdownToADFJSON(*description)
-		if err != nil {
-			return err
-		}
-		description = &adfJSON
+	// Convert description to ADF (plain text is valid GFM)
+	var description *jira4claude.ADF
+	if c.Description != nil && *c.Description != "" {
+		adf := markdownToADF(*c.Description)
+		description = &adf
 	}
 
 	update := jira4claude.IssueUpdate{
@@ -334,15 +300,8 @@ type IssueCommentCmd struct {
 
 // Run executes the comment command.
 func (c *IssueCommentCmd) Run(ctx *IssueContext) error {
-	// Always convert body as GFM (plain text is valid GFM)
-	body := c.Body
-	if body != "" {
-		adfJSON, err := markdownToADFJSON(body)
-		if err != nil {
-			return err
-		}
-		body = adfJSON
-	}
+	// Convert body to ADF (plain text is valid GFM)
+	body := markdownToADF(c.Body)
 
 	comment, err := ctx.Service.AddComment(context.Background(), c.Key, body)
 	if err != nil {

@@ -46,8 +46,8 @@ func (s *IssueService) Create(ctx context.Context, issue *jira4claude.Issue) (*j
 		},
 	}
 
-	if issue.Description != "" {
-		reqBody.Fields.Description = textOrADF(issue.Description, s.client.Converter())
+	if issue.Description != nil {
+		reqBody.Fields.Description = issue.Description
 	}
 	if issue.Priority != "" {
 		reqBody.Fields.Priority = &priorityRef{Name: issue.Priority}
@@ -189,7 +189,7 @@ func (s *IssueService) Update(ctx context.Context, key string, update jira4claud
 		reqBody.Fields.Summary = update.Summary
 	}
 	if update.Description != nil {
-		reqBody.Fields.Description = textOrADF(*update.Description, s.client.Converter())
+		reqBody.Fields.Description = *update.Description
 	}
 	if update.Priority != nil {
 		reqBody.Fields.Priority = &priorityRef{Name: *update.Priority}
@@ -235,9 +235,9 @@ func (s *IssueService) Delete(ctx context.Context, key string) error {
 }
 
 // AddComment adds a comment to an issue.
-func (s *IssueService) AddComment(ctx context.Context, key, body string) (*jira4claude.Comment, error) {
+func (s *IssueService) AddComment(ctx context.Context, key string, body jira4claude.ADF) (*jira4claude.Comment, error) {
 	reqBody := map[string]any{
-		"body": textOrADF(body, s.client.Converter()),
+		"body": body,
 	}
 
 	req, err := s.client.NewJSONRequest(ctx, http.MethodPost, issuePath(key, "comment"), reqBody)
@@ -431,18 +431,19 @@ func parseIssueResponse(body []byte, converter jira4claude.Converter) (*jira4cla
 		}
 	}
 
-	description, _ := converter.ToMarkdown(resp.Fields.Description) //nolint:errcheck // TODO(J4C-76): propagate warnings
 	issue := &jira4claude.Issue{
-		Key:            resp.Key,
-		Project:        resp.Fields.Project.Key,
-		Summary:        resp.Fields.Summary,
-		Description:    description,
-		DescriptionADF: resp.Fields.Description,
-		Status:         resp.Fields.Status.Name,
-		Type:           resp.Fields.IssueType.Name,
-		Priority:       resp.Fields.Priority.Name,
-		Labels:         resp.Fields.Labels,
+		Key:         resp.Key,
+		Project:     resp.Fields.Project.Key,
+		Summary:     resp.Fields.Summary,
+		Description: resp.Fields.Description,
+		Status:      resp.Fields.Status.Name,
+		Type:        resp.Fields.IssueType.Name,
+		Priority:    resp.Fields.Priority.Name,
+		Labels:      resp.Fields.Labels,
 	}
+	// Note: converter is unused after domain types moved to ADF-only.
+	// TODO(J4C-80): Remove converter from HTTP layer entirely.
+	_ = converter
 
 	if resp.Fields.Parent != nil {
 		issue.Parent = resp.Fields.Parent.Key
@@ -516,18 +517,19 @@ func mapIssueLinks(links []issueLinkResponse) []*jira4claude.IssueLink {
 }
 
 // mapComments converts a commentsResponse to domain Comments. Returns nil if input is nil or empty.
+// Note: converter parameter is unused after domain types moved to ADF-only.
+// TODO(J4C-80): Remove converter parameter when HTTP layer is updated.
 func mapComments(resp *commentsResponse, converter jira4claude.Converter) []*jira4claude.Comment {
+	_ = converter // unused after ADF-only migration
 	if resp == nil || len(resp.Comments) == 0 {
 		return nil
 	}
 	result := make([]*jira4claude.Comment, len(resp.Comments))
 	for i, c := range resp.Comments {
-		body, _ := converter.ToMarkdown(c.Body) //nolint:errcheck // TODO(J4C-76): propagate warnings
 		comment := &jira4claude.Comment{
-			ID:      c.ID,
-			Body:    body,
-			BodyADF: c.Body,
-			Author:  mapUser(c.Author),
+			ID:     c.ID,
+			Body:   c.Body,
+			Author: mapUser(c.Author),
 		}
 		if c.Created != "" {
 			if t, err := parseJiraTime(c.Created); err == nil {
@@ -650,7 +652,10 @@ type commentResponse struct {
 }
 
 // parseCommentResponse parses the JSON response from Jira into a domain Comment.
+// Note: converter parameter is unused after domain types moved to ADF-only.
+// TODO(J4C-80): Remove converter parameter when HTTP layer is updated.
 func parseCommentResponse(body []byte, converter jira4claude.Converter) (*jira4claude.Comment, error) {
+	_ = converter // unused after ADF-only migration
 	var resp commentResponse
 	if err := json.Unmarshal(body, &resp); err != nil {
 		return nil, &jira4claude.Error{
@@ -660,11 +665,9 @@ func parseCommentResponse(body []byte, converter jira4claude.Converter) (*jira4c
 		}
 	}
 
-	commentBody, _ := converter.ToMarkdown(resp.Body) //nolint:errcheck // TODO(J4C-76): propagate warnings
 	comment := &jira4claude.Comment{
-		ID:      resp.ID,
-		Body:    commentBody,
-		BodyADF: resp.Body,
+		ID:   resp.ID,
+		Body: resp.Body,
 	}
 
 	if resp.Author != nil {
@@ -684,37 +687,5 @@ func parseCommentResponse(body []byte, converter jira4claude.Converter) (*jira4c
 	return comment, nil
 }
 
-// textOrADF converts text to ADF using the provided converter, but if the text
-// is already a valid ADF JSON document (starts with `{` and has a "type":"doc" field),
-// it parses and returns that directly. This allows the CLI to pre-convert markdown
-// to ADF and pass it through without double-conversion.
-// TODO(J4C-76): Propagate conversion warnings via callback pattern.
-func textOrADF(text string, converter jira4claude.Converter) map[string]any {
-	if adf := tryParseADF(text); adf != nil {
-		return adf
-	}
-	// Convert to ADF using the injected converter (plain text is valid input)
-	adf, _ := converter.ToADF(text) //nolint:errcheck // TODO(J4C-76)
-	return adf
-}
-
-// tryParseADF attempts to parse text as an ADF JSON document.
-// Returns the parsed ADF if successful, nil otherwise.
-func tryParseADF(text string) map[string]any {
-	// Quick check: must start with { to be valid JSON object
-	if len(text) == 0 || text[0] != '{' {
-		return nil
-	}
-
-	var adf map[string]any
-	if err := json.Unmarshal([]byte(text), &adf); err != nil {
-		return nil
-	}
-
-	// Verify this is an ADF document (has "type": "doc")
-	if docType, ok := adf["type"].(string); ok && docType == "doc" {
-		return adf
-	}
-
-	return nil
-}
+// textOrADF and tryParseADF were removed as part of J4C-79 (ADF-only domain types).
+// Conversion now happens at CLI boundary, not in HTTP layer.

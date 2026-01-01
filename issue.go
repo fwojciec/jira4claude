@@ -56,29 +56,27 @@ type LinkedIssue struct {
 type Comment struct {
 	ID      string
 	Author  *User
-	Body    string         // Plain text body
-	BodyADF map[string]any // Raw ADF for markdown conversion
+	Body    ADF // ADF document; conversion to markdown happens at CLI boundary
 	Created time.Time
 }
 
 // Issue represents a Jira issue with its core fields.
 type Issue struct {
-	Key            string
-	Project        string
-	Summary        string
-	Description    string         // Plain text description
-	DescriptionADF map[string]any // Raw ADF for markdown conversion
-	Status         string
-	Type           string
-	Priority       string
-	Assignee       *User
-	Reporter       *User
-	Labels         []string
-	Links          []*IssueLink
-	Comments       []*Comment // Comments on the issue
-	Parent         string     // Parent issue key if this is a subtask; empty otherwise
-	Created        time.Time
-	Updated        time.Time
+	Key         string
+	Project     string
+	Summary     string
+	Description ADF // ADF document; conversion to markdown happens at CLI boundary
+	Status      string
+	Type        string
+	Priority    string
+	Assignee    *User
+	Reporter    *User
+	Labels      []string
+	Links       []*IssueLink
+	Comments    []*Comment // Comments on the issue
+	Parent      string     // Parent issue key if this is a subtask; empty otherwise
+	Created     time.Time
+	Updated     time.Time
 }
 
 // IssueFilter specifies criteria for listing issues.
@@ -100,7 +98,7 @@ type IssueFilter struct {
 // For Labels: nil means no change, empty slice means clear all labels.
 type IssueUpdate struct {
 	Summary     *string
-	Description *string
+	Description *ADF // ADF document; conversion from markdown happens at CLI boundary
 	Priority    *string
 	Assignee    *string
 	Labels      *[]string
@@ -125,7 +123,8 @@ type IssueService interface {
 	Delete(ctx context.Context, key string) error
 
 	// AddComment adds a comment to an issue.
-	AddComment(ctx context.Context, key, body string) (*Comment, error)
+	// The body is an ADF document; conversion from markdown happens at CLI boundary.
+	AddComment(ctx context.Context, key string, body ADF) (*Comment, error)
 
 	// Transitions returns available workflow transitions for an issue.
 	Transitions(ctx context.Context, key string) ([]*Transition, error)
