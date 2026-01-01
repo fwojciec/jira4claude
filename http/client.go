@@ -15,6 +15,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/fwojciec/jira4claude"
 	"github.com/jdx/go-netrc"
@@ -22,19 +23,23 @@ import (
 
 // Client is an HTTP client configured for Jira API requests.
 type Client struct {
-	baseURL    *url.URL
-	username   string
-	password   string
-	httpClient *http.Client
-	converter  jira4claude.Converter
+	baseURL        *url.URL
+	username       string
+	password       string
+	httpClient     *http.Client
+	converter      jira4claude.Converter
+	maxRetries     int
+	retryBaseDelay time.Duration
 }
 
 // Option configures a Client.
 type Option func(*clientConfig)
 
 type clientConfig struct {
-	netrcPath  string
-	httpClient *http.Client
+	netrcPath      string
+	httpClient     *http.Client
+	maxRetries     int
+	retryBaseDelay time.Duration
 }
 
 // WithNetrcPath sets a custom path to the netrc file.
@@ -51,12 +56,30 @@ func WithHTTPClient(client *http.Client) Option {
 	}
 }
 
+// WithMaxRetries sets the maximum number of retries for transient failures.
+// Default is 3. Set to 0 to disable retries.
+func WithMaxRetries(n int) Option {
+	return func(c *clientConfig) {
+		c.maxRetries = n
+	}
+}
+
+// WithRetryBaseDelay sets the base delay for exponential backoff.
+// Default is 100ms. Actual delays are baseDelay * 2^attempt.
+func WithRetryBaseDelay(d time.Duration) Option {
+	return func(c *clientConfig) {
+		c.retryBaseDelay = d
+	}
+}
+
 // NewClient creates a new Client configured for the given Jira server.
 // It reads credentials from the netrc file for authentication.
 // The converter is used for ADF/markdown conversions.
 func NewClient(baseURL string, converter jira4claude.Converter, opts ...Option) (*Client, error) {
 	cfg := &clientConfig{
-		httpClient: http.DefaultClient,
+		httpClient:     http.DefaultClient,
+		maxRetries:     3,
+		retryBaseDelay: 100 * time.Millisecond,
 	}
 	for _, opt := range opts {
 		opt(cfg)
@@ -114,11 +137,13 @@ func NewClient(baseURL string, converter jira4claude.Converter, opts ...Option) 
 	}
 
 	return &Client{
-		baseURL:    u,
-		username:   login,
-		password:   password,
-		httpClient: cfg.httpClient,
-		converter:  converter,
+		baseURL:        u,
+		username:       login,
+		password:       password,
+		httpClient:     cfg.httpClient,
+		converter:      converter,
+		maxRetries:     cfg.maxRetries,
+		retryBaseDelay: cfg.retryBaseDelay,
 	}, nil
 }
 
@@ -171,37 +196,93 @@ func (c *Client) NewJSONRequest(ctx context.Context, method, path string, body a
 // DoRequest executes an HTTP request and handles common response processing.
 // It returns the response body on success, or an error if the request fails
 // or the status code doesn't match the expected value.
+// Transient failures (5xx, 429, connection errors) are retried with exponential backoff.
 func (c *Client) DoRequest(req *http.Request, expectedStatus int) ([]byte, error) {
+	var lastErr error
+
+	for attempt := 0; attempt <= c.maxRetries; attempt++ {
+		if attempt > 0 {
+			delay := c.retryBaseDelay * (1 << (attempt - 1)) // exponential backoff
+			select {
+			case <-time.After(delay):
+			case <-req.Context().Done():
+				return nil, &jira4claude.Error{
+					Code:    jira4claude.EInternal,
+					Message: "request cancelled during retry backoff",
+					Inner:   req.Context().Err(),
+				}
+			}
+		}
+
+		body, statusCode, err := c.doRequestOnce(req)
+		if err != nil {
+			// Connection error - retry
+			lastErr = &jira4claude.Error{
+				Code:    jira4claude.EInternal,
+				Message: "request failed",
+				Inner:   err,
+			}
+			continue
+		}
+
+		if statusCode == expectedStatus {
+			return body, nil
+		}
+
+		// Check if retryable status code
+		if isRetryableStatus(statusCode) {
+			if apiErr := ParseErrorResponse(statusCode, body); apiErr != nil {
+				lastErr = apiErr
+			} else {
+				lastErr = &jira4claude.Error{
+					Code:    statusCodeToErrorCode(statusCode),
+					Message: fmt.Sprintf("unexpected status: %d", statusCode),
+				}
+			}
+			continue
+		}
+
+		// Non-retryable error - return immediately
+		if apiErr := ParseErrorResponse(statusCode, body); apiErr != nil {
+			return nil, apiErr
+		}
+		return nil, &jira4claude.Error{
+			Code:    statusCodeToErrorCode(statusCode),
+			Message: fmt.Sprintf("unexpected status: %d", statusCode),
+		}
+	}
+
+	return nil, lastErr
+}
+
+// doRequestOnce executes a single HTTP request attempt.
+func (c *Client) doRequestOnce(req *http.Request) ([]byte, int, error) {
 	resp, err := c.Do(req)
 	if err != nil {
-		return nil, &jira4claude.Error{
-			Code:    jira4claude.EInternal,
-			Message: "request failed",
-			Inner:   err,
-		}
+		return nil, 0, err
 	}
 	defer resp.Body.Close()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, &jira4claude.Error{
-			Code:    jira4claude.EInternal,
-			Message: "failed to read response",
-			Inner:   err,
-		}
+		return nil, 0, err
 	}
 
-	if resp.StatusCode != expectedStatus {
-		if apiErr := ParseErrorResponse(resp.StatusCode, body); apiErr != nil {
-			return nil, apiErr
-		}
-		return nil, &jira4claude.Error{
-			Code:    statusCodeToErrorCode(resp.StatusCode),
-			Message: fmt.Sprintf("unexpected status: %d", resp.StatusCode),
-		}
-	}
+	return body, resp.StatusCode, nil
+}
 
-	return body, nil
+// isRetryableStatus returns true if the status code indicates a transient error
+// that should be retried.
+func isRetryableStatus(statusCode int) bool {
+	// 5xx server errors
+	if statusCode >= 500 {
+		return true
+	}
+	// 429 Too Many Requests (rate limit)
+	if statusCode == http.StatusTooManyRequests {
+		return true
+	}
+	return false
 }
 
 // ErrorResponse represents a Jira API error response.
