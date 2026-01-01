@@ -26,6 +26,7 @@ type Client struct {
 	username   string
 	password   string
 	httpClient *http.Client
+	converter  jira4claude.Converter
 }
 
 // Option configures a Client.
@@ -52,7 +53,8 @@ func WithHTTPClient(client *http.Client) Option {
 
 // NewClient creates a new Client configured for the given Jira server.
 // It reads credentials from the netrc file for authentication.
-func NewClient(baseURL string, opts ...Option) (*Client, error) {
+// The converter is used for ADF/markdown conversions.
+func NewClient(baseURL string, converter jira4claude.Converter, opts ...Option) (*Client, error) {
 	cfg := &clientConfig{
 		httpClient: http.DefaultClient,
 	}
@@ -116,7 +118,13 @@ func NewClient(baseURL string, opts ...Option) (*Client, error) {
 		username:   login,
 		password:   password,
 		httpClient: cfg.httpClient,
+		converter:  converter,
 	}, nil
+}
+
+// Converter returns the converter used by this client.
+func (c *Client) Converter() jira4claude.Converter {
+	return c.converter
 }
 
 // Do executes an HTTP request with Jira authentication.

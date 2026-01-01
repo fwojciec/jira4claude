@@ -6,6 +6,7 @@ import (
 
 	"github.com/alecthomas/kong"
 	"github.com/fwojciec/jira4claude"
+	"github.com/fwojciec/jira4claude/adf"
 	"github.com/fwojciec/jira4claude/gogh"
 	"github.com/fwojciec/jira4claude/http"
 	"github.com/fwojciec/jira4claude/yaml"
@@ -92,7 +93,8 @@ func main() {
 	}
 
 	// Build service
-	client, err := http.NewClient(cfg.Server)
+	converter := adf.New()
+	client, err := http.NewClient(cfg.Server, converter)
 	if err != nil {
 		printer.Error(err)
 		os.Exit(jira4claude.ExitCode(err))

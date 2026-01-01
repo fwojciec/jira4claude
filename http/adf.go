@@ -2,18 +2,21 @@ package http
 
 import (
 	"encoding/json"
+
+	"github.com/fwojciec/jira4claude"
 )
 
-// textOrADF converts text to ADF, but if the text is already a valid ADF JSON
-// document (starts with `{` and has a "type":"doc" field), it parses and returns
-// that directly. This allows the CLI to pre-convert markdown to ADF and pass it
-// through without double-conversion.
-func textOrADF(text string) map[string]any {
+// textOrADF converts text to ADF using the provided converter, but if the text
+// is already a valid ADF JSON document (starts with `{` and has a "type":"doc" field),
+// it parses and returns that directly. This allows the CLI to pre-convert markdown
+// to ADF and pass it through without double-conversion.
+func textOrADF(text string, converter jira4claude.Converter) map[string]any {
 	if adf := tryParseADF(text); adf != nil {
 		return adf
 	}
-	// Parse as GFM (plain text is valid GFM)
-	return GFMToADF(text)
+	// Convert to ADF using the injected converter (plain text is valid input)
+	adf, _ := converter.ToADF(text)
+	return adf
 }
 
 // tryParseADF attempts to parse text as an ADF JSON document.
