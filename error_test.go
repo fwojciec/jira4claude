@@ -44,6 +44,19 @@ func TestError_Error(t *testing.T) {
 
 		assert.Equal(t, "an error occurred", err.Error())
 	})
+
+	t.Run("returns message and inner when both are set", func(t *testing.T) {
+		t.Parallel()
+
+		inner := errors.New("connection refused")
+		err := &jira4claude.Error{
+			Code:    jira4claude.EInternal,
+			Message: "request failed",
+			Inner:   inner,
+		}
+
+		assert.Equal(t, "request failed: connection refused", err.Error())
+	})
 }
 
 func TestError_Unwrap(t *testing.T) {

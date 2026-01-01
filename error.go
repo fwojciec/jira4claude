@@ -29,6 +29,9 @@ type Error struct {
 // Error returns a human-readable error message.
 func (e *Error) Error() string {
 	if e.Message != "" {
+		if e.Inner != nil {
+			return e.Message + ": " + e.Inner.Error()
+		}
 		return e.Message
 	}
 	if e.Inner != nil {
