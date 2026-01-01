@@ -122,6 +122,18 @@ func (p *TextPrinter) Transitions(key string, ts []*jira4claude.Transition) {
 	}
 }
 
+// Comment prints a single comment.
+func (p *TextPrinter) Comment(comment *jira4claude.Comment) {
+	author := "Unknown"
+	if comment.Author != nil {
+		author = comment.Author.DisplayName
+	}
+	fmt.Fprintf(p.io.Out, "**%s** (%s):\n%s\n",
+		author,
+		comment.Created.Format("2006-01-02 15:04"),
+		comment.Body)
+}
+
 // Links prints issue links.
 func (p *TextPrinter) Links(key string, links []*jira4claude.IssueLink) {
 	if len(links) == 0 {
