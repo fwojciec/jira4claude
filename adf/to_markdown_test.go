@@ -3,6 +3,7 @@ package adf_test
 import (
 	"testing"
 
+	"github.com/fwojciec/jira4claude"
 	"github.com/fwojciec/jira4claude/adf"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -486,5 +487,52 @@ func TestConverter_ToMarkdown(t *testing.T) {
 
 		require.NoError(t, err)
 		assert.Empty(t, result)
+	})
+
+	t.Run("returns error when content is skipped", func(t *testing.T) {
+		t.Parallel()
+
+		converter := adf.New()
+		// ADF with an unsupported node type (e.g., "table")
+		adfDoc := map[string]any{
+			"type":    "doc",
+			"version": 1,
+			"content": []any{
+				map[string]any{
+					"type": "paragraph",
+					"content": []any{
+						map[string]any{
+							"type": "text",
+							"text": "Before",
+						},
+					},
+				},
+				map[string]any{
+					"type": "table",
+					"content": []any{
+						map[string]any{"type": "tableRow"},
+					},
+				},
+				map[string]any{
+					"type": "paragraph",
+					"content": []any{
+						map[string]any{
+							"type": "text",
+							"text": "After",
+						},
+					},
+				},
+			},
+		}
+
+		result, err := converter.ToMarkdown(adfDoc)
+
+		// Should still return converted content (best effort)
+		assert.Equal(t, "Before\n\nAfter", result)
+
+		// Should return validation error listing skipped content
+		require.Error(t, err)
+		assert.Equal(t, jira4claude.EValidation, jira4claude.ErrorCode(err))
+		assert.Contains(t, err.Error(), "table")
 	})
 }

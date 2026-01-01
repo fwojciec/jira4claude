@@ -7,6 +7,7 @@ import (
 
 // toMarkdown converts an Atlassian Document Format (ADF) document to GitHub-flavored markdown.
 // This is useful for displaying Jira issue content in a readable format.
+// Returns an error if any elements were skipped during conversion.
 func toMarkdown(adfDoc map[string]any) (string, error) {
 	if adfDoc == nil {
 		return "", nil
@@ -17,24 +18,25 @@ func toMarkdown(adfDoc map[string]any) (string, error) {
 		return "", nil
 	}
 
+	skipped := newSkippedCollector()
 	var parts []string
 	for _, item := range content {
 		node, ok := item.(map[string]any)
 		if !ok {
 			continue
 		}
-		part := adfNodeToGFM(node, "")
+		part := adfNodeToGFM(node, "", skipped)
 		if part != "" {
 			parts = append(parts, part)
 		}
 	}
 
-	return strings.Join(parts, "\n\n"), nil
+	return strings.Join(parts, "\n\n"), skipped.error()
 }
 
 // adfNodeToGFM converts a single ADF node to markdown.
 // The prefix is used for nested contexts like blockquotes.
-func adfNodeToGFM(node map[string]any, prefix string) string {
+func adfNodeToGFM(node map[string]any, prefix string, skipped *skippedCollector) string {
 	nodeType, _ := node["type"].(string)
 
 	switch nodeType {
@@ -45,16 +47,17 @@ func adfNodeToGFM(node map[string]any, prefix string) string {
 	case "codeBlock":
 		return adfCodeBlockToGFM(node)
 	case "bulletList":
-		return adfBulletListToGFM(node)
+		return adfBulletListToGFM(node, skipped)
 	case "orderedList":
-		return adfOrderedListToGFM(node)
+		return adfOrderedListToGFM(node, skipped)
 	case "blockquote":
-		return adfBlockquoteToGFM(node)
+		return adfBlockquoteToGFM(node, skipped)
 	case "hardBreak":
 		return "\n"
 	default:
-		// For unknown types, try to extract text content
-		return adfInlineToGFM(node)
+		// Record the skipped node type
+		skipped.add(nodeType)
+		return ""
 	}
 }
 
@@ -99,7 +102,7 @@ func adfCodeBlockToGFM(node map[string]any) string {
 }
 
 // adfBulletListToGFM converts an ADF bulletList to markdown.
-func adfBulletListToGFM(node map[string]any) string {
+func adfBulletListToGFM(node map[string]any, skipped *skippedCollector) string {
 	content, ok := node["content"].([]any)
 	if !ok {
 		return ""
@@ -111,7 +114,7 @@ func adfBulletListToGFM(node map[string]any) string {
 		if !ok || listItem["type"] != "listItem" {
 			continue
 		}
-		itemText := adfListItemToGFM(listItem)
+		itemText := adfListItemToGFM(listItem, skipped)
 		items = append(items, "- "+itemText)
 	}
 
@@ -119,7 +122,7 @@ func adfBulletListToGFM(node map[string]any) string {
 }
 
 // adfOrderedListToGFM converts an ADF orderedList to markdown.
-func adfOrderedListToGFM(node map[string]any) string {
+func adfOrderedListToGFM(node map[string]any, skipped *skippedCollector) string {
 	content, ok := node["content"].([]any)
 	if !ok {
 		return ""
@@ -131,7 +134,7 @@ func adfOrderedListToGFM(node map[string]any) string {
 		if !ok || listItem["type"] != "listItem" {
 			continue
 		}
-		itemText := adfListItemToGFM(listItem)
+		itemText := adfListItemToGFM(listItem, skipped)
 		items = append(items, fmt.Sprintf("%d. %s", i+1, itemText))
 	}
 
@@ -139,27 +142,30 @@ func adfOrderedListToGFM(node map[string]any) string {
 }
 
 // adfListItemToGFM extracts the text content from a list item.
-func adfListItemToGFM(node map[string]any) string {
+func adfListItemToGFM(node map[string]any, skipped *skippedCollector) string {
 	content, ok := node["content"].([]any)
 	if !ok || len(content) == 0 {
 		return ""
 	}
 
-	// List items typically contain paragraphs
+	// List items typically contain paragraphs or nested lists
 	parts := make([]string, 0, len(content))
 	for _, item := range content {
 		child, ok := item.(map[string]any)
 		if !ok {
 			continue
 		}
-		parts = append(parts, adfInlineToGFM(child))
+		part := adfNodeToGFM(child, "", skipped)
+		if part != "" {
+			parts = append(parts, part)
+		}
 	}
 
 	return strings.Join(parts, " ")
 }
 
 // adfBlockquoteToGFM converts an ADF blockquote to markdown.
-func adfBlockquoteToGFM(node map[string]any) string {
+func adfBlockquoteToGFM(node map[string]any, skipped *skippedCollector) string {
 	content, ok := node["content"].([]any)
 	if !ok {
 		return ""
@@ -171,7 +177,7 @@ func adfBlockquoteToGFM(node map[string]any) string {
 		if !ok {
 			continue
 		}
-		text := adfNodeToGFM(child, "")
+		text := adfNodeToGFM(child, "", skipped)
 		// Prefix each line with >
 		for _, line := range strings.Split(text, "\n") {
 			lines = append(lines, "> "+line)
