@@ -294,6 +294,211 @@ func TestIssueCommentCmd(t *testing.T) {
 	})
 }
 
+// IssueReadyCmd tests
+
+func TestIssueReadyCmd(t *testing.T) {
+	t.Parallel()
+
+	t.Run("uses project from config when not specified", func(t *testing.T) {
+		t.Parallel()
+
+		var capturedFilter jira4claude.IssueFilter
+		svc := &mock.IssueService{
+			ListFn: func(ctx context.Context, filter jira4claude.IssueFilter) ([]*jira4claude.Issue, error) {
+				capturedFilter = filter
+				return []*jira4claude.Issue{}, nil
+			},
+		}
+
+		var buf bytes.Buffer
+		ctx := makeIssueContext(t, svc, &buf)
+		cmd := main.IssueReadyCmd{} // No project specified
+		err := cmd.Run(ctx)
+
+		require.NoError(t, err)
+		// JQL should contain the config project "TEST"
+		assert.Contains(t, capturedFilter.JQL, `project = "TEST"`)
+	})
+
+	t.Run("uses explicit project when specified", func(t *testing.T) {
+		t.Parallel()
+
+		var capturedFilter jira4claude.IssueFilter
+		svc := &mock.IssueService{
+			ListFn: func(ctx context.Context, filter jira4claude.IssueFilter) ([]*jira4claude.Issue, error) {
+				capturedFilter = filter
+				return []*jira4claude.Issue{}, nil
+			},
+		}
+
+		var buf bytes.Buffer
+		ctx := makeIssueContext(t, svc, &buf)
+		cmd := main.IssueReadyCmd{Project: "CUSTOM"}
+		err := cmd.Run(ctx)
+
+		require.NoError(t, err)
+		// JQL should contain the explicit project "CUSTOM"
+		assert.Contains(t, capturedFilter.JQL, `project = "CUSTOM"`)
+		assert.NotContains(t, capturedFilter.JQL, `project = "TEST"`)
+	})
+
+	t.Run("passes limit parameter to filter", func(t *testing.T) {
+		t.Parallel()
+
+		var capturedFilter jira4claude.IssueFilter
+		svc := &mock.IssueService{
+			ListFn: func(ctx context.Context, filter jira4claude.IssueFilter) ([]*jira4claude.Issue, error) {
+				capturedFilter = filter
+				return []*jira4claude.Issue{}, nil
+			},
+		}
+
+		var buf bytes.Buffer
+		ctx := makeIssueContext(t, svc, &buf)
+		cmd := main.IssueReadyCmd{Limit: 25}
+		err := cmd.Run(ctx)
+
+		require.NoError(t, err)
+		assert.Equal(t, 25, capturedFilter.Limit)
+	})
+
+	t.Run("filters out issues that are not ready", func(t *testing.T) {
+		t.Parallel()
+
+		svc := &mock.IssueService{
+			ListFn: func(ctx context.Context, filter jira4claude.IssueFilter) ([]*jira4claude.Issue, error) {
+				return []*jira4claude.Issue{
+					{
+						Key:    "TEST-1",
+						Status: "To Do",
+						Links:  nil, // No blockers, ready
+					},
+					{
+						Key:    "TEST-2",
+						Status: "To Do",
+						Links: []*jira4claude.IssueLink{
+							{
+								Type: jira4claude.IssueLinkType{
+									Name:   "Blocks",
+									Inward: "is blocked by",
+								},
+								InwardIssue: &jira4claude.LinkedIssue{
+									Key:    "TEST-3",
+									Status: "In Progress", // Open blocker, not ready
+								},
+							},
+						},
+					},
+					{
+						Key:    "TEST-4",
+						Status: "To Do",
+						Links: []*jira4claude.IssueLink{
+							{
+								Type: jira4claude.IssueLinkType{
+									Name:   "Blocks",
+									Inward: "is blocked by",
+								},
+								InwardIssue: &jira4claude.LinkedIssue{
+									Key:    "TEST-5",
+									Status: "Done", // Blocker done, ready
+								},
+							},
+						},
+					},
+				}, nil
+			},
+		}
+
+		var buf bytes.Buffer
+		ctx := makeIssueContext(t, svc, &buf)
+		cmd := main.IssueReadyCmd{}
+		err := cmd.Run(ctx)
+
+		require.NoError(t, err)
+		output := buf.String()
+		// Ready issues should be in output
+		assert.Contains(t, output, "TEST-1")
+		assert.Contains(t, output, "TEST-4")
+		// Blocked issue should NOT be in output
+		assert.NotContains(t, output, "TEST-2")
+	})
+
+	t.Run("handles empty result", func(t *testing.T) {
+		t.Parallel()
+
+		svc := &mock.IssueService{
+			ListFn: func(ctx context.Context, filter jira4claude.IssueFilter) ([]*jira4claude.Issue, error) {
+				return []*jira4claude.Issue{}, nil
+			},
+		}
+
+		var buf bytes.Buffer
+		ctx := makeIssueContext(t, svc, &buf)
+		cmd := main.IssueReadyCmd{}
+		err := cmd.Run(ctx)
+
+		require.NoError(t, err)
+		// Should not panic or error on empty result
+		// Output may be empty or contain a header, but no issue keys
+		assert.NotContains(t, buf.String(), "TEST-")
+	})
+
+	t.Run("handles all issues filtered out", func(t *testing.T) {
+		t.Parallel()
+
+		svc := &mock.IssueService{
+			ListFn: func(ctx context.Context, filter jira4claude.IssueFilter) ([]*jira4claude.Issue, error) {
+				return []*jira4claude.Issue{
+					{
+						Key:    "TEST-1",
+						Status: "To Do",
+						Links: []*jira4claude.IssueLink{
+							{
+								Type: jira4claude.IssueLinkType{
+									Name:   "Blocks",
+									Inward: "is blocked by",
+								},
+								InwardIssue: &jira4claude.LinkedIssue{
+									Key:    "TEST-2",
+									Status: "In Progress", // Open blocker
+								},
+							},
+						},
+					},
+				}, nil
+			},
+		}
+
+		var buf bytes.Buffer
+		ctx := makeIssueContext(t, svc, &buf)
+		cmd := main.IssueReadyCmd{}
+		err := cmd.Run(ctx)
+
+		require.NoError(t, err)
+		// No ready issues should be in output
+		assert.NotContains(t, buf.String(), "TEST-1")
+	})
+
+	t.Run("propagates service errors", func(t *testing.T) {
+		t.Parallel()
+
+		expectedErr := &jira4claude.Error{Code: jira4claude.EInternal, Message: "connection failed"}
+		svc := &mock.IssueService{
+			ListFn: func(ctx context.Context, filter jira4claude.IssueFilter) ([]*jira4claude.Issue, error) {
+				return nil, expectedErr
+			},
+		}
+
+		var buf bytes.Buffer
+		ctx := makeIssueContext(t, svc, &buf)
+		cmd := main.IssueReadyCmd{}
+		err := cmd.Run(ctx)
+
+		require.Error(t, err)
+		assert.Equal(t, expectedErr, err)
+	})
+}
+
 // IssueViewCmd tests
 
 func TestIssueViewCmd(t *testing.T) {
