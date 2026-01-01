@@ -12,6 +12,7 @@ var _ jira4claude.Printer = (*Printer)(nil)
 type Printer struct {
 	IssueFn       func(issue *jira4claude.Issue)
 	IssuesFn      func(issues []*jira4claude.Issue)
+	CommentFn     func(comment *jira4claude.Comment)
 	TransitionsFn func(key string, ts []*jira4claude.Transition)
 	LinksFn       func(key string, links []*jira4claude.IssueLink)
 	SuccessFn     func(msg string, keys ...string)
@@ -20,6 +21,7 @@ type Printer struct {
 	// Captured calls for assertions
 	IssueCalls       []*jira4claude.Issue
 	IssuesCalls      [][]*jira4claude.Issue
+	CommentCalls     []*jira4claude.Comment
 	TransitionsCalls []struct {
 		Key         string
 		Transitions []*jira4claude.Transition
@@ -46,6 +48,13 @@ func (p *Printer) Issues(issues []*jira4claude.Issue) {
 	p.IssuesCalls = append(p.IssuesCalls, issues)
 	if p.IssuesFn != nil {
 		p.IssuesFn(issues)
+	}
+}
+
+func (p *Printer) Comment(comment *jira4claude.Comment) {
+	p.CommentCalls = append(p.CommentCalls, comment)
+	if p.CommentFn != nil {
+		p.CommentFn(comment)
 	}
 }
 

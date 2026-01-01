@@ -483,6 +483,60 @@ func TestJSONPrinter_Success_ShowsMultipleURLsForMultipleKeys(t *testing.T) {
 	assert.Equal(t, "https://example.atlassian.net/browse/TEST-3", urls[2])
 }
 
+func TestJSONPrinter_Comment(t *testing.T) {
+	t.Parallel()
+
+	var out bytes.Buffer
+	p := gogh.NewJSONPrinter(&out)
+
+	comment := &jira4claude.Comment{
+		ID: "10001",
+		Author: &jira4claude.User{
+			AccountID:   "user123",
+			DisplayName: "John Doe",
+			Email:       "john@example.com",
+		},
+		Body:    "This is a test comment",
+		Created: parseTime("2024-01-15T10:30:00.000+0000"),
+	}
+
+	p.Comment(comment)
+
+	var result map[string]any
+	err := json.Unmarshal(out.Bytes(), &result)
+	require.NoError(t, err)
+	assert.Equal(t, "10001", result["id"])
+	assert.Equal(t, "This is a test comment", result["body"])
+
+	author, ok := result["author"].(map[string]any)
+	require.True(t, ok, "author should be a map")
+	assert.Equal(t, "user123", author["accountId"])
+	assert.Equal(t, "John Doe", author["displayName"])
+}
+
+func TestJSONPrinter_Comment_WithoutAuthor(t *testing.T) {
+	t.Parallel()
+
+	var out bytes.Buffer
+	p := gogh.NewJSONPrinter(&out)
+
+	comment := &jira4claude.Comment{
+		ID:      "10002",
+		Body:    "Comment without author",
+		Created: parseTime("2024-01-15T10:30:00.000+0000"),
+	}
+
+	p.Comment(comment)
+
+	var result map[string]any
+	err := json.Unmarshal(out.Bytes(), &result)
+	require.NoError(t, err)
+	assert.Equal(t, "10002", result["id"])
+	assert.Equal(t, "Comment without author", result["body"])
+	_, hasAuthor := result["author"]
+	assert.False(t, hasAuthor, "author should not be present when nil")
+}
+
 // Verify JSONPrinter implements Printer interface at compile time.
 // This check is in production code (gogh/json.go), but we verify the test
 // file compiles with this assignment as an additional check.

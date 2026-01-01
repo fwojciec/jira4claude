@@ -49,6 +49,11 @@ func (p *JSONPrinter) Issues(issues []*jira4claude.Issue) {
 	p.encode(result)
 }
 
+// Comment prints a single comment as JSON.
+func (p *JSONPrinter) Comment(comment *jira4claude.Comment) {
+	p.encode(commentToMap(comment))
+}
+
 // Transitions prints transitions as JSON array.
 func (p *JSONPrinter) Transitions(_ string, ts []*jira4claude.Transition) {
 	result := make([]map[string]any, len(ts))

@@ -519,5 +519,47 @@ func TestTextPrinter_Success_ShowsMultipleURLsForMultipleKeys(t *testing.T) {
 	assert.Contains(t, output, "https://example.atlassian.net/browse/TEST-3")
 }
 
+func TestTextPrinter_Comment_ShowsAuthorTimestampAndBody(t *testing.T) {
+	t.Parallel()
+
+	var out, errOut bytes.Buffer
+	io := gogh.NewIO(&out, &errOut)
+	p := gogh.NewTextPrinter(io)
+
+	comment := &jira4claude.Comment{
+		ID:      "10001",
+		Author:  &jira4claude.User{DisplayName: "John Doe"},
+		Body:    "This is a test comment",
+		Created: parseTime("2024-01-15T10:30:00.000+0000"),
+	}
+
+	p.Comment(comment)
+
+	output := out.String()
+	assert.Contains(t, output, "John Doe")
+	assert.Contains(t, output, "2024-01-15 10:30")
+	assert.Contains(t, output, "This is a test comment")
+}
+
+func TestTextPrinter_Comment_ShowsUnknownWhenNoAuthor(t *testing.T) {
+	t.Parallel()
+
+	var out, errOut bytes.Buffer
+	io := gogh.NewIO(&out, &errOut)
+	p := gogh.NewTextPrinter(io)
+
+	comment := &jira4claude.Comment{
+		ID:      "10001",
+		Body:    "Comment without author",
+		Created: parseTime("2024-01-15T10:30:00.000+0000"),
+	}
+
+	p.Comment(comment)
+
+	output := out.String()
+	assert.Contains(t, output, "Unknown")
+	assert.Contains(t, output, "Comment without author")
+}
+
 // Verify TextPrinter implements Printer interface at compile time.
 var _ jira4claude.Printer = (*gogh.TextPrinter)(nil)

@@ -4,6 +4,7 @@ package jira4claude
 type IssuePrinter interface {
 	Issue(issue *Issue)
 	Issues(issues []*Issue)
+	Comment(comment *Comment)
 	Transitions(key string, ts []*Transition)
 }
 
