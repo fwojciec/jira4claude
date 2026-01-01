@@ -10,7 +10,7 @@ A minimal Jira CLI designed for AI coding agents.
 
 ## Why?
 
-The official jira-cli hangs in non-interactive contexts because it prompts for optional fields. AI agents need CLI tools that:
+AI agents need CLI tools designed for non-interactive contexts:
 
 - **Never prompt** for input or hang waiting for user interaction
 - **Produce predictable output** that can be parsed programmatically
