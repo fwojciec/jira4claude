@@ -205,3 +205,86 @@ func TestErrorCodes(t *testing.T) {
 		seen[code] = true
 	}
 }
+
+func TestExitCode(t *testing.T) {
+	t.Parallel()
+
+	t.Run("returns 0 for nil error", func(t *testing.T) {
+		t.Parallel()
+
+		assert.Equal(t, 0, jira4claude.ExitCode(nil))
+	})
+
+	t.Run("returns 1 for validation errors", func(t *testing.T) {
+		t.Parallel()
+
+		err := &jira4claude.Error{Code: jira4claude.EValidation, Message: "invalid input"}
+
+		assert.Equal(t, 1, jira4claude.ExitCode(err))
+	})
+
+	t.Run("returns 2 for unauthorized errors", func(t *testing.T) {
+		t.Parallel()
+
+		err := &jira4claude.Error{Code: jira4claude.EUnauthorized, Message: "auth failed"}
+
+		assert.Equal(t, 2, jira4claude.ExitCode(err))
+	})
+
+	t.Run("returns 3 for forbidden errors", func(t *testing.T) {
+		t.Parallel()
+
+		err := &jira4claude.Error{Code: jira4claude.EForbidden, Message: "access denied"}
+
+		assert.Equal(t, 3, jira4claude.ExitCode(err))
+	})
+
+	t.Run("returns 4 for not found errors", func(t *testing.T) {
+		t.Parallel()
+
+		err := &jira4claude.Error{Code: jira4claude.ENotFound, Message: "issue not found"}
+
+		assert.Equal(t, 4, jira4claude.ExitCode(err))
+	})
+
+	t.Run("returns 5 for conflict errors", func(t *testing.T) {
+		t.Parallel()
+
+		err := &jira4claude.Error{Code: jira4claude.EConflict, Message: "conflict"}
+
+		assert.Equal(t, 5, jira4claude.ExitCode(err))
+	})
+
+	t.Run("returns 6 for rate limit errors", func(t *testing.T) {
+		t.Parallel()
+
+		err := &jira4claude.Error{Code: jira4claude.ERateLimit, Message: "rate limited"}
+
+		assert.Equal(t, 6, jira4claude.ExitCode(err))
+	})
+
+	t.Run("returns 7 for internal errors", func(t *testing.T) {
+		t.Parallel()
+
+		err := &jira4claude.Error{Code: jira4claude.EInternal, Message: "internal error"}
+
+		assert.Equal(t, 7, jira4claude.ExitCode(err))
+	})
+
+	t.Run("returns 7 for non-jira4claude errors", func(t *testing.T) {
+		t.Parallel()
+
+		err := errors.New("some random error")
+
+		assert.Equal(t, 7, jira4claude.ExitCode(err))
+	})
+
+	t.Run("returns correct exit code for wrapped errors", func(t *testing.T) {
+		t.Parallel()
+
+		inner := &jira4claude.Error{Code: jira4claude.ENotFound, Message: "not found"}
+		wrapped := fmt.Errorf("context: %w", inner)
+
+		assert.Equal(t, 4, jira4claude.ExitCode(wrapped))
+	})
+}

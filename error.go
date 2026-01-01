@@ -68,3 +68,39 @@ func ErrorMessage(err error) string {
 	}
 	return err.Error()
 }
+
+// ExitCode returns a semantic exit code for the given error.
+// This allows AI agents to programmatically distinguish error types.
+//
+// Exit codes:
+//   - 0: Success (nil error)
+//   - 1: Validation error
+//   - 2: Unauthorized (authentication failed)
+//   - 3: Forbidden (permission denied)
+//   - 4: Not found
+//   - 5: Conflict
+//   - 6: Rate limit exceeded
+//   - 7: Internal error (default for unknown errors)
+func ExitCode(err error) int {
+	if err == nil {
+		return 0
+	}
+
+	code := ErrorCode(err)
+	switch code {
+	case EValidation:
+		return 1
+	case EUnauthorized:
+		return 2
+	case EForbidden:
+		return 3
+	case ENotFound:
+		return 4
+	case EConflict:
+		return 5
+	case ERateLimit:
+		return 6
+	default:
+		return 7
+	}
+}
