@@ -12,6 +12,7 @@ type Styles struct {
 	key     lipgloss.Style
 	status  lipgloss.Style
 	err     lipgloss.Style
+	warn    lipgloss.Style
 	label   lipgloss.Style
 	header  lipgloss.Style
 }
@@ -25,6 +26,7 @@ func NewStyles() *Styles {
 		key:     lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("12")),
 		status:  lipgloss.NewStyle().Foreground(lipgloss.Color("10")),
 		err:     lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("9")),
+		warn:    lipgloss.NewStyle().Foreground(lipgloss.Color("11")),
 		label:   lipgloss.NewStyle().Foreground(lipgloss.Color("14")),
 		header:  lipgloss.NewStyle().Bold(true).Underline(true),
 	}
@@ -52,6 +54,14 @@ func (s *Styles) Error(text string) string {
 		return text
 	}
 	return s.err.Render(text)
+}
+
+// Warning styles a warning message.
+func (s *Styles) Warning(text string) string {
+	if s.noColor {
+		return "warning: " + text
+	}
+	return s.warn.Render("warning: " + text)
 }
 
 // Label styles a label.

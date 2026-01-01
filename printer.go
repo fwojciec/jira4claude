@@ -13,9 +13,10 @@ type LinkPrinter interface {
 	Links(key string, links []*IssueLink)
 }
 
-// MessagePrinter handles success/error output.
+// MessagePrinter handles success/error/warning output.
 type MessagePrinter interface {
 	Success(msg string, keys ...string)
+	Warning(msg string)
 	Error(err error)
 }
 

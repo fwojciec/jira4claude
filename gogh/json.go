@@ -2,6 +2,7 @@ package gogh
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 
 	"github.com/fwojciec/jira4claude"
@@ -10,6 +11,7 @@ import (
 // JSONPrinter outputs JSON format to stdout for machine parsing.
 type JSONPrinter struct {
 	out       io.Writer
+	err       io.Writer
 	serverURL string
 }
 
@@ -19,8 +21,14 @@ func (p *JSONPrinter) SetServerURL(url string) {
 }
 
 // NewJSONPrinter creates a JSON printer that writes to out.
+// Warnings are discarded since no stderr writer is provided.
 func NewJSONPrinter(out io.Writer) *JSONPrinter {
-	return &JSONPrinter{out: out}
+	return &JSONPrinter{out: out, err: io.Discard}
+}
+
+// NewJSONPrinterWithIO creates a JSON printer with explicit stdout and stderr writers.
+func NewJSONPrinterWithIO(out, err io.Writer) *JSONPrinter {
+	return &JSONPrinter{out: out, err: err}
 }
 
 func (p *JSONPrinter) encode(v any) {
@@ -89,6 +97,11 @@ func (p *JSONPrinter) Success(msg string, keys ...string) {
 		}
 	}
 	p.encode(result)
+}
+
+// Warning prints a warning message to stderr as plain text.
+func (p *JSONPrinter) Warning(msg string) {
+	fmt.Fprintln(p.err, "warning: "+msg)
 }
 
 // Error prints an error as JSON to stdout (for machine parsing).
