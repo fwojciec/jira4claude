@@ -11,6 +11,7 @@ import (
 	"github.com/fwojciec/jira4claude"
 	main "github.com/fwojciec/jira4claude/cmd/j4c"
 	"github.com/fwojciec/jira4claude/mock"
+	"github.com/fwojciec/jira4claude/yaml"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -71,9 +72,12 @@ func TestInitCmd_CreatesConfigAndUpdatesGitignore(t *testing.T) {
 		require.NoError(t, os.Chdir(tmpDir))
 		t.Cleanup(func() { _ = os.Chdir(originalWd) })
 
-		// Set up the message context with a mock printer
+		// Set up the config context with real service and mock printer
 		printer := &mock.Printer{}
-		ctx := &main.MessageContext{Printer: printer}
+		ctx := &main.ConfigContext{
+			Service: yaml.NewService(),
+			Printer: printer,
+		}
 
 		cmd := main.InitCmd{
 			Server:  "https://test.atlassian.net",

@@ -40,6 +40,12 @@ type MessageContext struct {
 	Printer jira4claude.MessagePrinter
 }
 
+// ConfigContext provides dependencies for config commands.
+type ConfigContext struct {
+	Service jira4claude.ConfigService
+	Printer jira4claude.MessagePrinter
+}
+
 func main() {
 	var cli CLI
 	ctx := kong.Parse(&cli,
@@ -61,8 +67,11 @@ func main() {
 
 	// Init command doesn't need config
 	if ctx.Command() == "init" {
-		msgCtx := &MessageContext{Printer: printer}
-		if err := ctx.Run(msgCtx); err != nil {
+		configCtx := &ConfigContext{
+			Service: yaml.NewService(),
+			Printer: printer,
+		}
+		if err := ctx.Run(configCtx); err != nil {
 			printer.Error(err)
 			os.Exit(1)
 		}
