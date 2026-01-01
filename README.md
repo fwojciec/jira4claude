@@ -2,6 +2,8 @@
 
 Minimal Jira CLI for AI agents - zero interactivity, readable flags, clean output.
 
+![Demo of Claude Code using j4c to list and view Jira tasks](assets/demo.gif)
+
 ## Why?
 
 The official jira-cli hangs in non-interactive contexts (like Claude Code) because it prompts for optional fields. AI agents need predictable, non-interactive commands with structured output.
