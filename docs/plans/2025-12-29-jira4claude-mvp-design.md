@@ -194,7 +194,7 @@ type IssueCmd struct {
     Create     CreateCmd     `cmd:"" help:"Create an issue"`
     View       ViewCmd       `cmd:"" help:"View an issue"`
     List       ListCmd       `cmd:"" help:"List issues"`
-    Edit       EditCmd       `cmd:"" help:"Edit an issue"`
+    Update     UpdateCmd     `cmd:"" help:"Update an issue"`
     Comment    CommentCmd    `cmd:"" help:"Add a comment"`
     Transition TransitionCmd `cmd:"" help:"Transition an issue"`
     Assign     AssignCmd     `cmd:"" help:"Assign an issue"`
@@ -206,7 +206,7 @@ type IssueCmd struct {
 jira4claude issue create --project=J4C --type=Task --summary="Fix bug"
 jira4claude issue view J4C-123
 jira4claude issue list --project=J4C --status=Open
-jira4claude issue edit J4C-123 --priority=High
+jira4claude issue update J4C-123 --priority=High
 jira4claude issue comment J4C-123 --body="Fixed in PR #456"
 jira4claude issue transition J4C-123 --list
 jira4claude issue transition J4C-123 --to=21
