@@ -267,7 +267,7 @@ func (s *IssueService) Transitions(ctx context.Context, key string) ([]*jira4cla
 		return nil, err
 	}
 
-	var transitionsResp transitionsListResponse
+	var transitionsResp transitionsResponse
 	if err := json.Unmarshal(respBody, &transitionsResp); err != nil {
 		return nil, &jira4claude.Error{
 			Code:    jira4claude.EInternal,
@@ -394,8 +394,8 @@ type searchResponse struct {
 	Issues []json.RawMessage `json:"issues"`
 }
 
-// transitionsListResponse represents the JSON structure returned by Jira API for transitions.
-type transitionsListResponse struct {
+// transitionsResponse represents the JSON structure returned by Jira API for transitions.
+type transitionsResponse struct {
 	Transitions []transitionResponse `json:"transitions"`
 }
 
