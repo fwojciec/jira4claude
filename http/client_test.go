@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/fwojciec/jira4claude"
 	"github.com/fwojciec/jira4claude/adf"
@@ -381,7 +382,8 @@ func TestClient_DoRequest(t *testing.T) {
 		t.Parallel()
 
 		// Use an invalid URL to force connection error
-		client := newTestClient(t, "http://localhost:1", "user", "pass")
+		// Disable retries to keep test fast
+		client := newTestClient(t, "http://localhost:1", "user", "pass", jirahttp.WithMaxRetries(0))
 		req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, "/test", nil)
 		require.NoError(t, err)
 
@@ -418,7 +420,8 @@ func TestClient_DoRequest(t *testing.T) {
 		}))
 		defer server.Close()
 
-		client := newTestClient(t, server.URL, "user", "pass")
+		// Disable retries to keep test fast (5xx triggers retries)
+		client := newTestClient(t, server.URL, "user", "pass", jirahttp.WithMaxRetries(0))
 		req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, "/test", nil)
 		require.NoError(t, err)
 
@@ -429,7 +432,7 @@ func TestClient_DoRequest(t *testing.T) {
 }
 
 // newTestClient creates a Client with credentials and mock converter for testing.
-func newTestClient(t *testing.T, baseURL, username, password string) *jirahttp.Client {
+func newTestClient(t *testing.T, baseURL, username, password string, opts ...jirahttp.Option) *jirahttp.Client {
 	t.Helper()
 
 	// Create temp netrc with test server credentials
@@ -446,7 +449,10 @@ func newTestClient(t *testing.T, baseURL, username, password string) *jirahttp.C
 	// Create mock converter for tests
 	conv := newTestConverter()
 
-	client, err := jirahttp.NewClient(baseURL, conv, jirahttp.WithNetrcPath(netrcPath))
+	// Prepend netrc path option, then user options
+	allOpts := append([]jirahttp.Option{jirahttp.WithNetrcPath(netrcPath)}, opts...)
+
+	client, err := jirahttp.NewClient(baseURL, conv, allOpts...)
 	require.NoError(t, err)
 
 	return client
@@ -455,4 +461,269 @@ func newTestClient(t *testing.T, baseURL, username, password string) *jirahttp.C
 // newTestConverter creates a Converter for testing.
 func newTestConverter() *adf.Converter {
 	return adf.New()
+}
+
+func TestClient_DoRequest_Retry(t *testing.T) {
+	t.Parallel()
+
+	t.Run("retries on 500 and succeeds", func(t *testing.T) {
+		t.Parallel()
+
+		attempts := 0
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			attempts++
+			if attempts < 3 {
+				w.WriteHeader(http.StatusInternalServerError)
+				_, _ = w.Write([]byte(`{"errorMessages": ["Server error"]}`))
+				return
+			}
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"key": "TEST-1"}`))
+		}))
+		defer server.Close()
+
+		// Use zero base delay for fast tests
+		client := newTestClient(t, server.URL, "user", "pass", jirahttp.WithRetryBaseDelay(0))
+		req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, "/test", nil)
+		require.NoError(t, err)
+
+		body, err := client.DoRequest(req, http.StatusOK)
+		require.NoError(t, err)
+		assert.JSONEq(t, `{"key": "TEST-1"}`, string(body))
+		assert.Equal(t, 3, attempts)
+	})
+
+	t.Run("retries on 503 Service Unavailable", func(t *testing.T) {
+		t.Parallel()
+
+		attempts := 0
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			attempts++
+			if attempts < 2 {
+				w.WriteHeader(http.StatusServiceUnavailable)
+				return
+			}
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{}`))
+		}))
+		defer server.Close()
+
+		client := newTestClient(t, server.URL, "user", "pass", jirahttp.WithRetryBaseDelay(0))
+		req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, "/test", nil)
+		require.NoError(t, err)
+
+		_, err = client.DoRequest(req, http.StatusOK)
+		require.NoError(t, err)
+		assert.Equal(t, 2, attempts)
+	})
+
+	t.Run("retries on 429 rate limit", func(t *testing.T) {
+		t.Parallel()
+
+		attempts := 0
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			attempts++
+			if attempts < 2 {
+				w.WriteHeader(http.StatusTooManyRequests)
+				return
+			}
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{}`))
+		}))
+		defer server.Close()
+
+		client := newTestClient(t, server.URL, "user", "pass", jirahttp.WithRetryBaseDelay(0))
+		req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, "/test", nil)
+		require.NoError(t, err)
+
+		_, err = client.DoRequest(req, http.StatusOK)
+		require.NoError(t, err)
+		assert.Equal(t, 2, attempts)
+	})
+
+	t.Run("does not retry on 400 Bad Request", func(t *testing.T) {
+		t.Parallel()
+
+		attempts := 0
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			attempts++
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"errorMessages": ["Bad request"]}`))
+		}))
+		defer server.Close()
+
+		client := newTestClient(t, server.URL, "user", "pass", jirahttp.WithRetryBaseDelay(0))
+		req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, "/test", nil)
+		require.NoError(t, err)
+
+		_, err = client.DoRequest(req, http.StatusOK)
+		require.Error(t, err)
+		assert.Equal(t, jira4claude.EValidation, jira4claude.ErrorCode(err))
+		assert.Equal(t, 1, attempts)
+	})
+
+	t.Run("does not retry on 401 Unauthorized", func(t *testing.T) {
+		t.Parallel()
+
+		attempts := 0
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			attempts++
+			w.WriteHeader(http.StatusUnauthorized)
+			_, _ = w.Write([]byte(`{"errorMessages": ["Not authenticated"]}`))
+		}))
+		defer server.Close()
+
+		client := newTestClient(t, server.URL, "user", "pass", jirahttp.WithRetryBaseDelay(0))
+		req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, "/test", nil)
+		require.NoError(t, err)
+
+		_, err = client.DoRequest(req, http.StatusOK)
+		require.Error(t, err)
+		assert.Equal(t, jira4claude.EUnauthorized, jira4claude.ErrorCode(err))
+		assert.Equal(t, 1, attempts)
+	})
+
+	t.Run("does not retry on 404 Not Found", func(t *testing.T) {
+		t.Parallel()
+
+		attempts := 0
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			attempts++
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = w.Write([]byte(`{"errorMessages": ["Not found"]}`))
+		}))
+		defer server.Close()
+
+		client := newTestClient(t, server.URL, "user", "pass", jirahttp.WithRetryBaseDelay(0))
+		req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, "/test", nil)
+		require.NoError(t, err)
+
+		_, err = client.DoRequest(req, http.StatusOK)
+		require.Error(t, err)
+		assert.Equal(t, jira4claude.ENotFound, jira4claude.ErrorCode(err))
+		assert.Equal(t, 1, attempts)
+	})
+
+	t.Run("fails after max retries exhausted", func(t *testing.T) {
+		t.Parallel()
+
+		attempts := 0
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			attempts++
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = w.Write([]byte(`{"errorMessages": ["Server error"]}`))
+		}))
+		defer server.Close()
+
+		// Default max retries is 3, so total attempts = 4 (1 initial + 3 retries)
+		client := newTestClient(t, server.URL, "user", "pass", jirahttp.WithRetryBaseDelay(0))
+		req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, "/test", nil)
+		require.NoError(t, err)
+
+		_, err = client.DoRequest(req, http.StatusOK)
+		require.Error(t, err)
+		assert.Equal(t, jira4claude.EInternal, jira4claude.ErrorCode(err))
+		assert.Equal(t, 4, attempts) // 1 initial + 3 retries
+	})
+
+	t.Run("respects custom max retries", func(t *testing.T) {
+		t.Parallel()
+
+		attempts := 0
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			attempts++
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = w.Write([]byte(`{"errorMessages": ["Server error"]}`))
+		}))
+		defer server.Close()
+
+		client := newTestClient(t, server.URL, "user", "pass",
+			jirahttp.WithRetryBaseDelay(0),
+			jirahttp.WithMaxRetries(1))
+		req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, "/test", nil)
+		require.NoError(t, err)
+
+		_, err = client.DoRequest(req, http.StatusOK)
+		require.Error(t, err)
+		assert.Equal(t, 2, attempts) // 1 initial + 1 retry
+	})
+
+	t.Run("retries on connection error", func(t *testing.T) {
+		t.Parallel()
+
+		attempts := 0
+		var server *httptest.Server
+		server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			attempts++
+			if attempts < 2 {
+				// Close connection to simulate network error
+				server.CloseClientConnections()
+				return
+			}
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{}`))
+		}))
+		defer server.Close()
+
+		client := newTestClient(t, server.URL, "user", "pass", jirahttp.WithRetryBaseDelay(0))
+		req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, "/test", nil)
+		require.NoError(t, err)
+
+		_, err = client.DoRequest(req, http.StatusOK)
+		require.NoError(t, err)
+		assert.Equal(t, 2, attempts)
+	})
+
+	t.Run("zero max retries means no retries", func(t *testing.T) {
+		t.Parallel()
+
+		attempts := 0
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			attempts++
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = w.Write([]byte(`{"errorMessages": ["Server error"]}`))
+		}))
+		defer server.Close()
+
+		client := newTestClient(t, server.URL, "user", "pass",
+			jirahttp.WithRetryBaseDelay(0),
+			jirahttp.WithMaxRetries(0))
+		req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, "/test", nil)
+		require.NoError(t, err)
+
+		_, err = client.DoRequest(req, http.StatusOK)
+		require.Error(t, err)
+		assert.Equal(t, 1, attempts) // Just the initial attempt
+	})
+
+	t.Run("respects context cancellation during retry backoff", func(t *testing.T) {
+		t.Parallel()
+
+		attempts := 0
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			attempts++
+			w.WriteHeader(http.StatusInternalServerError)
+		}))
+		defer server.Close()
+
+		// Use a longer delay so we have time to cancel
+		client := newTestClient(t, server.URL, "user", "pass", jirahttp.WithRetryBaseDelay(time.Second))
+
+		ctx, cancel := context.WithCancel(context.Background())
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, "/test", nil)
+		require.NoError(t, err)
+
+		// Cancel after a short delay (during backoff)
+		go func() {
+			time.Sleep(50 * time.Millisecond)
+			cancel()
+		}()
+
+		_, err = client.DoRequest(req, http.StatusOK)
+		require.Error(t, err)
+		assert.Equal(t, jira4claude.EInternal, jira4claude.ErrorCode(err))
+		assert.Contains(t, err.Error(), "cancelled")
+		// Should have only made 1 attempt before being cancelled during backoff
+		assert.Equal(t, 1, attempts)
+	})
 }
