@@ -295,4 +295,25 @@ func TestInit(t *testing.T) {
 		assert.Equal(t, jira4claude.EInternal, jira4claude.ErrorCode(err))
 		assert.Contains(t, err.Error(), "failed to update .gitignore")
 	})
+
+	t.Run("escapes special YAML characters in server and project", func(t *testing.T) {
+		t.Parallel()
+
+		dir := t.TempDir()
+		// Use values with special YAML characters: colons, quotes, newlines
+		server := "https://example.atlassian.net: \"test\"\nnewline"
+		project := "TEST: with \"quotes\" and\nnewline"
+
+		result, err := yaml.Init(dir, server, project)
+
+		require.NoError(t, err)
+		assert.True(t, result.ConfigCreated)
+
+		// The created file should be valid YAML that can be parsed back
+		configPath := filepath.Join(dir, ".jira4claude.yaml")
+		cfg, err := yaml.LoadConfig(configPath)
+		require.NoError(t, err, "created config should be valid YAML")
+		assert.Equal(t, server, cfg.Server, "server should round-trip correctly")
+		assert.Equal(t, project, cfg.Project, "project should round-trip correctly")
+	})
 }

@@ -123,8 +123,15 @@ func validateConfigDoesNotExist(configPath string) error {
 
 // createConfigFile writes a new config file with the given server and project.
 func createConfigFile(configPath, server, project string) error {
-	content := "server: " + server + "\nproject: " + project + "\n"
-	if err := os.WriteFile(configPath, []byte(content), 0o600); err != nil {
+	cf := configFile{
+		Server:  server,
+		Project: project,
+	}
+	content, err := yaml.Marshal(&cf)
+	if err != nil {
+		return internalErr("failed to marshal config", err)
+	}
+	if err := os.WriteFile(configPath, content, 0o600); err != nil {
 		return internalErr("failed to create config file", err)
 	}
 	return nil
