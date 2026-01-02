@@ -39,8 +39,8 @@ type Converter interface {
 
 ```
 goldmark/
-├── adf.go              # Converter implementation + goldmark wiring
-├── adf_test.go         # Shared test helpers
+├── goldmark.go         # Converter implementation + goldmark wiring
+├── goldmark_test.go    # Shared test helpers
 ├── to_adf.go           # GFMToADF logic (from http/gfm.go)
 ├── to_adf_test.go
 ├── to_markdown.go      # ADFToGFM logic (from http/gfm.go)
@@ -48,7 +48,7 @@ goldmark/
 ```
 
 ```go
-// goldmark/adf.go
+// goldmark/goldmark.go
 package goldmark
 
 var _ jira4claude.Converter = (*Converter)(nil)
