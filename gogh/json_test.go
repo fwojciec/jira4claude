@@ -499,7 +499,8 @@ func TestJSONPrinter_Comment_WithoutAuthor(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "10002", result["id"])
 	assert.Equal(t, "Comment without author", result["body"])
-	// Author is empty string, will be omitted with omitempty
+	// Author is empty string; without omitempty it appears as "author": ""
+	assert.Empty(t, result["author"])
 }
 
 func TestJSONPrinter_Warning_WritesToStderr(t *testing.T) {
