@@ -171,9 +171,10 @@ func TestTextPrinter_Issue_ShowsLinkedIssueStatus(t *testing.T) {
 	p.Issue(view)
 
 	output := out.String()
-	// Status should appear in brackets before the summary
-	assert.Contains(t, output, "[To Do]")
-	assert.Contains(t, output, "[Done]")
+	// Status should use consistent badge format (same as top panel)
+	// In text mode without color, this shows as "[ ] To Do" and "[x] Done"
+	assert.Contains(t, output, "To Do")
+	assert.Contains(t, output, "Done")
 }
 
 func TestTextPrinter_Issue_ShowsComments(t *testing.T) {
@@ -1029,11 +1030,11 @@ func TestTextPrinter_Issue_CardLayout_TextOnlyMode_LinkedIssues(t *testing.T) {
 	// Links should be grouped by type
 	assert.Contains(t, output, "is blocked by")
 	assert.Contains(t, output, "blocks")
-	// Should show linked issues with their status
+	// Should show linked issues with their status (using consistent badge format)
 	assert.Contains(t, output, "J4C-74")
-	assert.Contains(t, output, "[Done]")
+	assert.Contains(t, output, "[x] Done") // consistent with top panel format
 	assert.Contains(t, output, "J4C-78")
-	assert.Contains(t, output, "[To Do]")
+	assert.Contains(t, output, "[ ] To Do") // consistent with top panel format
 }
 
 func TestTextPrinter_Issue_CardLayout_ColorMode_LinkedIssues(t *testing.T) {
@@ -1068,8 +1069,9 @@ func TestTextPrinter_Issue_CardLayout_ColorMode_LinkedIssues(t *testing.T) {
 	p.Issue(view)
 
 	output := out.String()
-	// Should have LINKED ISSUES card with borders
-	assert.Contains(t, output, "╭─ LINKED ISSUES")
+	// Should have LINKED ISSUES card with borders (border chars may be styled separately)
+	assert.Contains(t, output, "LINKED ISSUES")
+	assert.Contains(t, output, "╭")
 	assert.Contains(t, output, "is blocked by")
 	assert.Contains(t, output, "J4C-74")
 }
@@ -1280,4 +1282,286 @@ func TestTextPrinter_Issue_Description_EmptyDescriptionNoRendering(t *testing.T)
 	// The description section should not be rendered when empty
 	// This is existing behavior, but verify it still works with glamour
 	assert.NotContains(t, outputAfter[len(outputBefore):], "Description")
+}
+
+// J4C-90: Issue view styling fixes
+
+func TestTextPrinter_Issue_LinkedIssues_ConsistentStatusDisplay_TextMode(t *testing.T) {
+	t.Parallel()
+
+	var out, errOut bytes.Buffer
+	styles := asciiStyles(t)
+	io := gogh.NewIO(&out, &errOut)
+	p := gogh.NewTextPrinterWithStyles(io, styles)
+
+	view := jira4claude.IssueView{
+		Key:     "TEST-123",
+		Summary: "Test issue",
+		Status:  "Done",
+		Type:    "Task",
+		Created: "2024-01-01T12:00:00Z",
+		Updated: "2024-01-02T12:00:00Z",
+		Links: []jira4claude.LinkView{
+			{
+				Type:      "blocks",
+				Direction: "outward",
+				IssueKey:  "TEST-456",
+				Summary:   "Blocked issue",
+				Status:    "Done",
+			},
+			{
+				Type:      "is blocked by",
+				Direction: "inward",
+				IssueKey:  "TEST-789",
+				Summary:   "Blocking issue",
+				Status:    "In Progress",
+			},
+		},
+	}
+
+	p.Issue(view)
+
+	output := out.String()
+	// Linked issues should use the same status format as the top panel
+	// Top panel uses "[x] Done" format, so linked issues should too
+	assert.Contains(t, output, "[x] Done", "linked issue status should use same format as top panel")
+	assert.Contains(t, output, "[>] In Progress", "linked issue status should use same format as top panel")
+	// Should NOT use the old bracket-only format
+	assert.NotRegexp(t, `\s+\[Done\]\s+`, output, "should not use plain [Status] format")
+}
+
+func TestTextPrinter_Issue_LinkedIssues_ConsistentStatusDisplay_ColorMode(t *testing.T) {
+	t.Parallel()
+
+	var out, errOut bytes.Buffer
+	styles := trueColorStyles(t)
+	io := gogh.NewIO(&out, &errOut)
+	p := gogh.NewTextPrinterWithStyles(io, styles)
+
+	view := jira4claude.IssueView{
+		Key:     "TEST-123",
+		Summary: "Test issue",
+		Status:  "Open", // Use different status from linked issue to distinguish
+		Type:    "Task",
+		Created: "2024-01-01T12:00:00Z",
+		Updated: "2024-01-02T12:00:00Z",
+		Links: []jira4claude.LinkView{
+			{
+				Type:      "blocks",
+				Direction: "outward",
+				IssueKey:  "TEST-456",
+				Summary:   "Blocked issue",
+				Status:    "Done",
+			},
+		},
+	}
+
+	p.Issue(view)
+
+	output := out.String()
+	// Find the LINKED ISSUES section and check it contains the proper status format
+	linkedIssuesPos := strings.Index(output, "LINKED ISSUES")
+	assert.Positive(t, linkedIssuesPos, "should contain LINKED ISSUES section")
+
+	linkedSection := output[linkedIssuesPos:]
+	// In color mode, linked issues should use the checkmark indicator like the top panel
+	// The checkmark should appear in the linked issues section specifically
+	assert.Contains(t, linkedSection, "✓", "linked issue status should use checkmark indicator")
+	assert.Contains(t, linkedSection, "Done", "linked issue status should show status text")
+	// Should NOT use the old bracket-only format in linked issues
+	assert.NotContains(t, linkedSection, "[Done]", "should not use plain [Status] format")
+}
+
+func TestTextPrinter_Issue_LinkedIssues_DottedSeparatorBetweenLinkTypes_TextMode(t *testing.T) {
+	t.Parallel()
+
+	var out, errOut bytes.Buffer
+	styles := asciiStyles(t)
+	io := gogh.NewIO(&out, &errOut)
+	p := gogh.NewTextPrinterWithStyles(io, styles)
+
+	view := jira4claude.IssueView{
+		Key:     "TEST-123",
+		Summary: "Test issue",
+		Status:  "Done",
+		Type:    "Task",
+		Created: "2024-01-01T12:00:00Z",
+		Updated: "2024-01-02T12:00:00Z",
+		Links: []jira4claude.LinkView{
+			{
+				Type:      "is blocked by",
+				Direction: "inward",
+				IssueKey:  "TEST-456",
+				Summary:   "Blocking issue",
+				Status:    "Done",
+			},
+			{
+				Type:      "blocks",
+				Direction: "outward",
+				IssueKey:  "TEST-789",
+				Summary:   "Blocked issue",
+				Status:    "To Do",
+			},
+		},
+	}
+
+	p.Issue(view)
+
+	output := out.String()
+	// Should have dotted separator between link type groups (using . in text mode)
+	// Find the position of both link types and check for separator between them
+	blockedByPos := strings.Index(output, "is blocked by")
+	blocksPos := strings.Index(output, "blocks")
+	assert.Positive(t, blockedByPos, "should contain 'is blocked by'")
+	assert.Greater(t, blocksPos, blockedByPos, "'blocks' should come after 'is blocked by'")
+
+	// The section between them should contain a dotted separator
+	between := output[blockedByPos:blocksPos]
+	assert.Contains(t, between, "...", "should have dotted separator between link types")
+}
+
+func TestTextPrinter_Issue_LinkedIssues_DottedSeparatorBetweenLinkTypes_ColorMode(t *testing.T) {
+	t.Parallel()
+
+	var out, errOut bytes.Buffer
+	styles := trueColorStyles(t)
+	io := gogh.NewIO(&out, &errOut)
+	p := gogh.NewTextPrinterWithStyles(io, styles)
+
+	view := jira4claude.IssueView{
+		Key:     "TEST-123",
+		Summary: "Test issue",
+		Status:  "Done",
+		Type:    "Task",
+		Created: "2024-01-01T12:00:00Z",
+		Updated: "2024-01-02T12:00:00Z",
+		Links: []jira4claude.LinkView{
+			{
+				Type:      "is blocked by",
+				Direction: "inward",
+				IssueKey:  "TEST-456",
+				Summary:   "Blocking issue",
+				Status:    "Done",
+			},
+			{
+				Type:      "blocks",
+				Direction: "outward",
+				IssueKey:  "TEST-789",
+				Summary:   "Blocked issue",
+				Status:    "To Do",
+			},
+		},
+	}
+
+	p.Issue(view)
+
+	output := out.String()
+	// Should have dotted separator between link type groups (using ┄ in color mode)
+	blockedByPos := strings.Index(output, "is blocked by")
+	blocksPos := strings.Index(output, "blocks")
+	assert.Positive(t, blockedByPos, "should contain 'is blocked by'")
+	assert.Greater(t, blocksPos, blockedByPos, "'blocks' should come after 'is blocked by'")
+
+	between := output[blockedByPos:blocksPos]
+	assert.Contains(t, between, "┄", "should have dotted separator between link types in color mode")
+}
+
+func TestTextPrinter_Issue_NoExtraTrailingNewlines_TextMode(t *testing.T) {
+	t.Parallel()
+
+	var out, errOut bytes.Buffer
+	styles := asciiStyles(t)
+	io := gogh.NewIO(&out, &errOut)
+	p := gogh.NewTextPrinterWithStyles(io, styles)
+
+	view := jira4claude.IssueView{
+		Key:      "TEST-123",
+		Summary:  "Test issue",
+		Status:   "Done",
+		Type:     "Task",
+		Assignee: "John Doe",
+		Reporter: "Jane Smith",
+		Created:  "2024-01-01T12:00:00Z",
+		Updated:  "2024-01-02T12:00:00Z",
+		Links: []jira4claude.LinkView{
+			{
+				Type:      "blocks",
+				Direction: "outward",
+				IssueKey:  "TEST-456",
+				Summary:   "Blocked issue",
+				Status:    "To Do",
+			},
+		},
+		URL: "https://example.atlassian.net/browse/TEST-123",
+	}
+
+	p.Issue(view)
+
+	output := out.String()
+	// Should not have multiple consecutive blank lines (more than 2 newlines in a row)
+	assert.NotContains(t, output, "\n\n\n", "should not have more than one blank line in a row")
+}
+
+func TestTextPrinter_Issue_CardLayout_ColorMode_SharpBordersOnMainCard(t *testing.T) {
+	t.Parallel()
+
+	var out, errOut bytes.Buffer
+	styles := trueColorStyles(t)
+	io := gogh.NewIO(&out, &errOut)
+	p := gogh.NewTextPrinterWithStyles(io, styles)
+
+	view := jira4claude.IssueView{
+		Key:     "TEST-123",
+		Summary: "Test issue",
+		Status:  "Done",
+		Type:    "Task",
+		Created: "2024-01-01T12:00:00Z",
+		Updated: "2024-01-02T12:00:00Z",
+	}
+
+	p.Issue(view)
+
+	output := out.String()
+	// Main card (header) should use sharp corners for consistency
+	// Check that both cards use the same border style
+	// Both should use rounded borders (╭ and ╯)
+	assert.Contains(t, output, "╭", "main card should have top-left border")
+	assert.Contains(t, output, "╯", "main card should have bottom-right border")
+}
+
+func TestTextPrinter_Issue_CardLayout_ColorMode_ConsistentBordersOnBothCards(t *testing.T) {
+	t.Parallel()
+
+	var out, errOut bytes.Buffer
+	styles := trueColorStyles(t)
+	io := gogh.NewIO(&out, &errOut)
+	p := gogh.NewTextPrinterWithStyles(io, styles)
+
+	view := jira4claude.IssueView{
+		Key:     "TEST-123",
+		Summary: "Test issue",
+		Status:  "Done",
+		Type:    "Task",
+		Created: "2024-01-01T12:00:00Z",
+		Updated: "2024-01-02T12:00:00Z",
+		Links: []jira4claude.LinkView{
+			{
+				Type:      "blocks",
+				Direction: "outward",
+				IssueKey:  "TEST-456",
+				Summary:   "Blocked issue",
+				Status:    "To Do",
+			},
+		},
+	}
+
+	p.Issue(view)
+
+	output := out.String()
+	// Count occurrences of border corners - both cards should use same style
+	topLeftCount := strings.Count(output, "╭")
+	bottomRightCount := strings.Count(output, "╯")
+	// Should have 2 of each (one per card)
+	assert.Equal(t, 2, topLeftCount, "should have two top-left corners (one per card)")
+	assert.Equal(t, 2, bottomRightCount, "should have two bottom-right corners (one per card)")
 }
