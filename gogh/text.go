@@ -23,6 +23,14 @@ func NewTextPrinter(io *IO) *TextPrinter {
 	}
 }
 
+// NewTextPrinterWithStyles creates a text printer with explicit styles for testing.
+func NewTextPrinterWithStyles(io *IO, styles *Styles) *TextPrinter {
+	return &TextPrinter{
+		io:     io,
+		styles: styles,
+	}
+}
+
 // Issue prints a single issue in detail format.
 func (p *TextPrinter) Issue(view jira4claude.IssueView) {
 	fmt.Fprintf(p.io.Out, "%s  %s\n", p.styles.Key(view.Key), view.Summary)
@@ -98,21 +106,22 @@ func (p *TextPrinter) Issues(views []jira4claude.IssueView) {
 	}
 
 	t := table.New().
-		Border(lipgloss.Border{}).
-		BorderHeader(false).
+		Border(p.issueTableBorder()).
+		BorderHeader(true).
+		BorderStyle(p.styles.Renderer.NewStyle().Foreground(p.styles.Theme.Border)).
 		StyleFunc(func(row, col int) lipgloss.Style {
-			style := lipgloss.NewStyle().PaddingRight(2)
+			style := p.styles.Renderer.NewStyle().PaddingRight(2)
 			if p.styles.NoColor {
 				return style
 			}
 			if row == table.HeaderRow {
-				return style.Bold(true).Underline(true)
+				return style.Bold(true)
 			}
 			switch col {
 			case 0: // KEY
-				return style.Bold(true).Foreground(lipgloss.Color("12"))
+				return style.Bold(true).Foreground(p.styles.Theme.Primary)
 			case 1: // STATUS
-				return style.Foreground(lipgloss.Color("10"))
+				return style.Foreground(p.styles.Theme.Success)
 			default:
 				return style
 			}
@@ -121,6 +130,22 @@ func (p *TextPrinter) Issues(views []jira4claude.IssueView) {
 		Rows(rows...)
 
 	fmt.Fprintln(p.io.Out, t)
+}
+
+// issueTableBorder returns the appropriate border style for the issue table.
+func (p *TextPrinter) issueTableBorder() lipgloss.Border {
+	if p.styles.NoColor {
+		// Text-only mode: no outer border, just dashed header separator
+		return lipgloss.Border{
+			Middle: p.styles.Separators.Solid,
+		}
+	}
+	// Color mode: rounded border with dotted header separator
+	b := lipgloss.RoundedBorder()
+	b.Middle = p.styles.Separators.Dotted
+	b.MiddleLeft = "│"
+	b.MiddleRight = "│"
+	return b
 }
 
 // Transitions prints available transitions for an issue.
