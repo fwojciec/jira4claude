@@ -39,6 +39,26 @@ func makeIssueContext(t *testing.T, svc jira4claude.IssueService, out *bytes.Buf
 				},
 			}, nil
 		},
+		ToMarkdownFn: func(adf jira4claude.ADF) (string, []string) {
+			// Simple mock that extracts and concatenates text from ADF
+			var result string
+			if content, ok := adf["content"].([]any); ok {
+				for _, block := range content {
+					if para, ok := block.(map[string]any); ok {
+						if paraContent, ok := para["content"].([]any); ok {
+							for _, node := range paraContent {
+								if textNode, ok := node.(map[string]any); ok {
+									if text, ok := textNode["text"].(string); ok {
+										result += text
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+			return result, nil
+		},
 	}
 	return &main.IssueContext{
 		Service:   svc,

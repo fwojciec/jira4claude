@@ -4,17 +4,11 @@ import (
 	"bytes"
 	"errors"
 	"testing"
-	"time"
 
 	"github.com/fwojciec/jira4claude"
 	"github.com/fwojciec/jira4claude/gogh"
 	"github.com/stretchr/testify/assert"
 )
-
-func parseTime(s string) time.Time {
-	t, _ := time.Parse("2006-01-02T15:04:05.000-0700", s)
-	return t
-}
 
 func TestTextPrinter_Issue_ShowsKeyAndSummaryAndStatus(t *testing.T) {
 	t.Parallel()
@@ -23,14 +17,16 @@ func TestTextPrinter_Issue_ShowsKeyAndSummaryAndStatus(t *testing.T) {
 	io := gogh.NewIO(&out, &errOut)
 	p := gogh.NewTextPrinter(io)
 
-	issue := &jira4claude.Issue{
+	view := jira4claude.IssueView{
 		Key:     "TEST-123",
 		Summary: "Test issue summary",
 		Status:  "In Progress",
 		Type:    "Task",
+		Created: "2024-01-01T12:00:00Z",
+		Updated: "2024-01-02T12:00:00Z",
 	}
 
-	p.Issue(issue)
+	p.Issue(view)
 
 	output := out.String()
 	assert.Contains(t, output, "TEST-123")
@@ -45,19 +41,21 @@ func TestTextPrinter_Issue_ShowsOptionalFields(t *testing.T) {
 	io := gogh.NewIO(&out, &errOut)
 	p := gogh.NewTextPrinter(io)
 
-	issue := &jira4claude.Issue{
+	view := jira4claude.IssueView{
 		Key:      "TEST-123",
 		Summary:  "Test issue",
 		Status:   "Open",
 		Type:     "Task",
 		Priority: "High",
-		Assignee: &jira4claude.User{DisplayName: "John Doe"},
-		Reporter: &jira4claude.User{DisplayName: "Jane Smith"},
+		Assignee: "John Doe",
+		Reporter: "Jane Smith",
 		Parent:   "TEST-100",
 		Labels:   []string{"bug", "urgent"},
+		Created:  "2024-01-01T12:00:00Z",
+		Updated:  "2024-01-02T12:00:00Z",
 	}
 
-	p.Issue(issue)
+	p.Issue(view)
 
 	output := out.String()
 	assert.Contains(t, output, "Priority: High")
@@ -75,22 +73,18 @@ func TestTextPrinter_Issue_ShowsDescription(t *testing.T) {
 	io := gogh.NewIO(&out, &errOut)
 	p := gogh.NewTextPrinter(io)
 
-	issue := &jira4claude.Issue{
-		Key:     "TEST-123",
-		Summary: "Test issue",
-		Status:  "Open",
-		Description: jira4claude.ADF{"type": "doc", "content": []any{
-			map[string]any{"type": "paragraph", "content": []any{
-				map[string]any{"type": "text", "text": "This is the issue description."},
-			}},
-		}},
+	view := jira4claude.IssueView{
+		Key:         "TEST-123",
+		Summary:     "Test issue",
+		Status:      "Open",
+		Description: "This is the issue description.",
+		Created:     "2024-01-01T12:00:00Z",
+		Updated:     "2024-01-02T12:00:00Z",
 	}
 
-	p.Issue(issue)
+	p.Issue(view)
 
 	output := out.String()
-	// TODO(J4C-80): After view model migration, this should check for markdown output
-	// For now, the printer outputs ADF as JSON
 	assert.Contains(t, output, "This is the issue description.")
 }
 
@@ -101,33 +95,31 @@ func TestTextPrinter_Issue_ShowsLinks(t *testing.T) {
 	io := gogh.NewIO(&out, &errOut)
 	p := gogh.NewTextPrinter(io)
 
-	issue := &jira4claude.Issue{
+	view := jira4claude.IssueView{
 		Key:     "TEST-123",
 		Summary: "Test issue",
 		Status:  "Open",
-		Links: []*jira4claude.IssueLink{
+		Created: "2024-01-01T12:00:00Z",
+		Updated: "2024-01-02T12:00:00Z",
+		Links: []jira4claude.LinkView{
 			{
-				Type: jira4claude.IssueLinkType{
-					Outward: "blocks",
-				},
-				OutwardIssue: &jira4claude.LinkedIssue{
-					Key:     "TEST-456",
-					Summary: "Blocked issue",
-				},
+				Type:      "blocks",
+				Direction: "outward",
+				IssueKey:  "TEST-456",
+				Summary:   "Blocked issue",
+				Status:    "To Do",
 			},
 			{
-				Type: jira4claude.IssueLinkType{
-					Inward: "is blocked by",
-				},
-				InwardIssue: &jira4claude.LinkedIssue{
-					Key:     "TEST-789",
-					Summary: "Blocking issue",
-				},
+				Type:      "is blocked by",
+				Direction: "inward",
+				IssueKey:  "TEST-789",
+				Summary:   "Blocking issue",
+				Status:    "Done",
 			},
 		},
 	}
 
-	p.Issue(issue)
+	p.Issue(view)
 
 	output := out.String()
 	assert.Contains(t, output, "Links:")
@@ -144,35 +136,31 @@ func TestTextPrinter_Issue_ShowsLinkedIssueStatus(t *testing.T) {
 	io := gogh.NewIO(&out, &errOut)
 	p := gogh.NewTextPrinter(io)
 
-	issue := &jira4claude.Issue{
+	view := jira4claude.IssueView{
 		Key:     "TEST-123",
 		Summary: "Test issue",
 		Status:  "Open",
-		Links: []*jira4claude.IssueLink{
+		Created: "2024-01-01T12:00:00Z",
+		Updated: "2024-01-02T12:00:00Z",
+		Links: []jira4claude.LinkView{
 			{
-				Type: jira4claude.IssueLinkType{
-					Outward: "blocks",
-				},
-				OutwardIssue: &jira4claude.LinkedIssue{
-					Key:     "TEST-456",
-					Summary: "Blocked issue",
-					Status:  "To Do",
-				},
+				Type:      "blocks",
+				Direction: "outward",
+				IssueKey:  "TEST-456",
+				Summary:   "Blocked issue",
+				Status:    "To Do",
 			},
 			{
-				Type: jira4claude.IssueLinkType{
-					Inward: "is blocked by",
-				},
-				InwardIssue: &jira4claude.LinkedIssue{
-					Key:     "TEST-789",
-					Summary: "Blocking issue",
-					Status:  "Done",
-				},
+				Type:      "is blocked by",
+				Direction: "inward",
+				IssueKey:  "TEST-789",
+				Summary:   "Blocking issue",
+				Status:    "Done",
 			},
 		},
 	}
 
-	p.Issue(issue)
+	p.Issue(view)
 
 	output := out.String()
 	// Status should appear in brackets before the summary
@@ -187,41 +175,33 @@ func TestTextPrinter_Issue_ShowsComments(t *testing.T) {
 	io := gogh.NewIO(&out, &errOut)
 	p := gogh.NewTextPrinter(io)
 
-	issue := &jira4claude.Issue{
+	view := jira4claude.IssueView{
 		Key:     "TEST-123",
 		Summary: "Test issue",
 		Status:  "Open",
-		Comments: []*jira4claude.Comment{
+		Created: "2024-01-01T12:00:00Z",
+		Updated: "2024-01-02T12:00:00Z",
+		Comments: []jira4claude.CommentView{
 			{
-				ID:     "10001",
-				Author: &jira4claude.User{DisplayName: "John Doe"},
-				Body: jira4claude.ADF{"type": "doc", "content": []any{
-					map[string]any{"type": "paragraph", "content": []any{
-						map[string]any{"type": "text", "text": "First comment"},
-					}},
-				}},
-				Created: parseTime("2024-01-15T10:30:00.000+0000"),
+				ID:      "10001",
+				Author:  "John Doe",
+				Body:    "First comment",
+				Created: "2024-01-15T10:30:00Z",
 			},
 			{
-				ID:     "10002",
-				Author: &jira4claude.User{DisplayName: "Jane Smith"},
-				Body: jira4claude.ADF{"type": "doc", "content": []any{
-					map[string]any{"type": "paragraph", "content": []any{
-						map[string]any{"type": "text", "text": "Second comment"},
-					}},
-				}},
-				Created: parseTime("2024-01-16T14:20:00.000+0000"),
+				ID:      "10002",
+				Author:  "Jane Smith",
+				Body:    "Second comment",
+				Created: "2024-01-16T14:20:00Z",
 			},
 		},
 	}
 
-	p.Issue(issue)
+	p.Issue(view)
 
 	output := out.String()
 	assert.Contains(t, output, "## Comments")
 	assert.Contains(t, output, "John Doe")
-	// TODO(J4C-80): After view model migration, output will be markdown
-	// For now, ADF is serialized as JSON
 	assert.Contains(t, output, "First comment")
 	assert.Contains(t, output, "Jane Smith")
 	assert.Contains(t, output, "Second comment")
@@ -234,13 +214,15 @@ func TestTextPrinter_Issue_NoCommentsSection_WhenNoComments(t *testing.T) {
 	io := gogh.NewIO(&out, &errOut)
 	p := gogh.NewTextPrinter(io)
 
-	issue := &jira4claude.Issue{
+	view := jira4claude.IssueView{
 		Key:     "TEST-123",
 		Summary: "Test issue",
 		Status:  "Open",
+		Created: "2024-01-01T12:00:00Z",
+		Updated: "2024-01-02T12:00:00Z",
 	}
 
-	p.Issue(issue)
+	p.Issue(view)
 
 	output := out.String()
 	assert.NotContains(t, output, "Comments")
@@ -253,12 +235,12 @@ func TestTextPrinter_Issues_ShowsTableWithHeaders(t *testing.T) {
 	io := gogh.NewIO(&out, &errOut)
 	p := gogh.NewTextPrinter(io)
 
-	issues := []*jira4claude.Issue{
-		{Key: "TEST-1", Summary: "First issue", Status: "Open"},
-		{Key: "TEST-2", Summary: "Second issue", Status: "Done"},
+	views := []jira4claude.IssueView{
+		{Key: "TEST-1", Summary: "First issue", Status: "Open", Created: "2024-01-01T12:00:00Z", Updated: "2024-01-02T12:00:00Z"},
+		{Key: "TEST-2", Summary: "Second issue", Status: "Done", Created: "2024-01-01T12:00:00Z", Updated: "2024-01-02T12:00:00Z"},
 	}
 
-	p.Issues(issues)
+	p.Issues(views)
 
 	output := out.String()
 	// Should have headers
@@ -280,7 +262,7 @@ func TestTextPrinter_Issues_ShowsNoIssuesFoundWhenEmpty(t *testing.T) {
 	io := gogh.NewIO(&out, &errOut)
 	p := gogh.NewTextPrinter(io)
 
-	p.Issues([]*jira4claude.Issue{})
+	p.Issues([]jira4claude.IssueView{})
 
 	output := out.String()
 	assert.Contains(t, output, "No issues found")
@@ -294,11 +276,11 @@ func TestTextPrinter_Issues_TruncatesLongSummaries(t *testing.T) {
 	p := gogh.NewTextPrinter(io)
 
 	longSummary := "This is a very long summary that should be truncated because it exceeds the maximum allowed length for display in the table format"
-	issues := []*jira4claude.Issue{
-		{Key: "TEST-1", Summary: longSummary, Status: "Open"},
+	views := []jira4claude.IssueView{
+		{Key: "TEST-1", Summary: longSummary, Status: "Open", Created: "2024-01-01T12:00:00Z", Updated: "2024-01-02T12:00:00Z"},
 	}
 
-	p.Issues(issues)
+	p.Issues(views)
 
 	output := out.String()
 	// Should not contain full summary
@@ -314,21 +296,25 @@ func TestTextPrinter_Issues_ShowsAssignee(t *testing.T) {
 	io := gogh.NewIO(&out, &errOut)
 	p := gogh.NewTextPrinter(io)
 
-	issues := []*jira4claude.Issue{
+	views := []jira4claude.IssueView{
 		{
 			Key:      "TEST-1",
 			Summary:  "Assigned issue",
 			Status:   "Open",
-			Assignee: &jira4claude.User{DisplayName: "John Doe"},
+			Assignee: "John Doe",
+			Created:  "2024-01-01T12:00:00Z",
+			Updated:  "2024-01-02T12:00:00Z",
 		},
 		{
 			Key:     "TEST-2",
 			Summary: "Unassigned issue",
 			Status:  "Open",
+			Created: "2024-01-01T12:00:00Z",
+			Updated: "2024-01-02T12:00:00Z",
 		},
 	}
 
-	p.Issues(issues)
+	p.Issues(views)
 
 	output := out.String()
 	assert.Contains(t, output, "ASSIGNEE")
@@ -380,15 +366,13 @@ func TestTextPrinter_Links_ShowsLinksForIssue(t *testing.T) {
 	io := gogh.NewIO(&out, &errOut)
 	p := gogh.NewTextPrinter(io)
 
-	links := []*jira4claude.IssueLink{
+	links := []jira4claude.LinkView{
 		{
-			Type: jira4claude.IssueLinkType{
-				Outward: "blocks",
-			},
-			OutwardIssue: &jira4claude.LinkedIssue{
-				Key:     "TEST-456",
-				Summary: "Blocked issue",
-			},
+			Type:      "blocks",
+			Direction: "outward",
+			IssueKey:  "TEST-456",
+			Summary:   "Blocked issue",
+			Status:    "To Do",
 		},
 	}
 
@@ -407,26 +391,20 @@ func TestTextPrinter_Links_ShowsLinkedIssueStatus(t *testing.T) {
 	io := gogh.NewIO(&out, &errOut)
 	p := gogh.NewTextPrinter(io)
 
-	links := []*jira4claude.IssueLink{
+	links := []jira4claude.LinkView{
 		{
-			Type: jira4claude.IssueLinkType{
-				Outward: "blocks",
-			},
-			OutwardIssue: &jira4claude.LinkedIssue{
-				Key:     "TEST-456",
-				Summary: "Blocked issue",
-				Status:  "To Do",
-			},
+			Type:      "blocks",
+			Direction: "outward",
+			IssueKey:  "TEST-456",
+			Summary:   "Blocked issue",
+			Status:    "To Do",
 		},
 		{
-			Type: jira4claude.IssueLinkType{
-				Inward: "is blocked by",
-			},
-			InwardIssue: &jira4claude.LinkedIssue{
-				Key:     "TEST-789",
-				Summary: "Blocking issue",
-				Status:  "Done",
-			},
+			Type:      "is blocked by",
+			Direction: "inward",
+			IssueKey:  "TEST-789",
+			Summary:   "Blocking issue",
+			Status:    "Done",
 		},
 	}
 
@@ -445,7 +423,7 @@ func TestTextPrinter_Links_ShowsNoLinksMessageWithClarity(t *testing.T) {
 	io := gogh.NewIO(&out, &errOut)
 	p := gogh.NewTextPrinter(io)
 
-	p.Links("TEST-123", []*jira4claude.IssueLink{})
+	p.Links("TEST-123", []jira4claude.LinkView{})
 
 	output := out.String()
 	assert.Contains(t, output, "No issue links found")
@@ -557,43 +535,47 @@ func TestTextPrinter_Warning_MultipleWarnings(t *testing.T) {
 	assert.Contains(t, errOutput, "second warning")
 }
 
-func TestTextPrinter_Issue_ShowsURLWhenServerURLSet(t *testing.T) {
+func TestTextPrinter_Issue_ShowsURLWhenSet(t *testing.T) {
 	t.Parallel()
 
 	var out, errOut bytes.Buffer
 	io := gogh.NewIO(&out, &errOut)
-	io.ServerURL = "https://example.atlassian.net"
 	p := gogh.NewTextPrinter(io)
 
-	issue := &jira4claude.Issue{
+	view := jira4claude.IssueView{
 		Key:     "TEST-123",
 		Summary: "Test issue",
 		Status:  "Open",
 		Type:    "Task",
+		Created: "2024-01-01T12:00:00Z",
+		Updated: "2024-01-02T12:00:00Z",
+		URL:     "https://example.atlassian.net/browse/TEST-123",
 	}
 
-	p.Issue(issue)
+	p.Issue(view)
 
 	output := out.String()
 	assert.Contains(t, output, "https://example.atlassian.net/browse/TEST-123")
 }
 
-func TestTextPrinter_Issue_NoURLWhenServerURLEmpty(t *testing.T) {
+func TestTextPrinter_Issue_NoURLWhenEmpty(t *testing.T) {
 	t.Parallel()
 
 	var out, errOut bytes.Buffer
 	io := gogh.NewIO(&out, &errOut)
-	// ServerURL not set
 	p := gogh.NewTextPrinter(io)
 
-	issue := &jira4claude.Issue{
+	view := jira4claude.IssueView{
 		Key:     "TEST-123",
 		Summary: "Test issue",
 		Status:  "Open",
 		Type:    "Task",
+		Created: "2024-01-01T12:00:00Z",
+		Updated: "2024-01-02T12:00:00Z",
+		// URL not set
 	}
 
-	p.Issue(issue)
+	p.Issue(view)
 
 	output := out.String()
 	assert.NotContains(t, output, "/browse/")
@@ -653,23 +635,18 @@ func TestTextPrinter_Comment_ShowsAuthorTimestampAndBody(t *testing.T) {
 	io := gogh.NewIO(&out, &errOut)
 	p := gogh.NewTextPrinter(io)
 
-	comment := &jira4claude.Comment{
-		ID:     "10001",
-		Author: &jira4claude.User{DisplayName: "John Doe"},
-		Body: jira4claude.ADF{"type": "doc", "content": []any{
-			map[string]any{"type": "paragraph", "content": []any{
-				map[string]any{"type": "text", "text": "This is a test comment"},
-			}},
-		}},
-		Created: parseTime("2024-01-15T10:30:00.000+0000"),
+	view := jira4claude.CommentView{
+		ID:      "10001",
+		Author:  "John Doe",
+		Body:    "This is a test comment",
+		Created: "2024-01-15T10:30:00Z",
 	}
 
-	p.Comment(comment)
+	p.Comment(view)
 
 	output := out.String()
 	assert.Contains(t, output, "John Doe")
 	assert.Contains(t, output, "2024-01-15 10:30")
-	// TODO(J4C-80): After view model migration, output will be markdown
 	assert.Contains(t, output, "This is a test comment")
 }
 
@@ -680,17 +657,14 @@ func TestTextPrinter_Comment_ShowsUnknownWhenNoAuthor(t *testing.T) {
 	io := gogh.NewIO(&out, &errOut)
 	p := gogh.NewTextPrinter(io)
 
-	comment := &jira4claude.Comment{
-		ID: "10001",
-		Body: jira4claude.ADF{"type": "doc", "content": []any{
-			map[string]any{"type": "paragraph", "content": []any{
-				map[string]any{"type": "text", "text": "Comment without author"},
-			}},
-		}},
-		Created: parseTime("2024-01-15T10:30:00.000+0000"),
+	view := jira4claude.CommentView{
+		ID:      "10001",
+		Author:  "",
+		Body:    "Comment without author",
+		Created: "2024-01-15T10:30:00Z",
 	}
 
-	p.Comment(comment)
+	p.Comment(view)
 
 	output := out.String()
 	assert.Contains(t, output, "Unknown")

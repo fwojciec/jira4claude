@@ -1,7 +1,6 @@
 package gogh
 
 import (
-	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -9,19 +8,6 @@ import (
 	"github.com/charmbracelet/lipgloss/table"
 	"github.com/fwojciec/jira4claude"
 )
-
-// adfToString converts an ADF document to a string for display.
-// TODO(J4C-80): Replace with proper ADF-to-markdown conversion at CLI boundary.
-func adfToString(adf jira4claude.ADF) string {
-	if adf == nil {
-		return ""
-	}
-	b, err := json.Marshal(adf)
-	if err != nil {
-		return "[ADF conversion error]"
-	}
-	return string(b)
-}
 
 // TextPrinter outputs human-readable text format with styled terminal output.
 type TextPrinter struct {
@@ -38,84 +24,77 @@ func NewTextPrinter(io *IO) *TextPrinter {
 }
 
 // Issue prints a single issue in detail format.
-func (p *TextPrinter) Issue(issue *jira4claude.Issue) {
-	fmt.Fprintf(p.io.Out, "%s  %s\n", p.styles.Key(issue.Key), issue.Summary)
-	fmt.Fprintf(p.io.Out, "Status: %s  Type: %s", p.styles.Status(issue.Status), issue.Type)
-	if issue.Priority != "" {
-		fmt.Fprintf(p.io.Out, "  Priority: %s", issue.Priority)
+func (p *TextPrinter) Issue(view jira4claude.IssueView) {
+	fmt.Fprintf(p.io.Out, "%s  %s\n", p.styles.Key(view.Key), view.Summary)
+	fmt.Fprintf(p.io.Out, "Status: %s  Type: %s", p.styles.Status(view.Status), view.Type)
+	if view.Priority != "" {
+		fmt.Fprintf(p.io.Out, "  Priority: %s", view.Priority)
 	}
 	fmt.Fprintln(p.io.Out)
 
-	if issue.Assignee != nil {
-		fmt.Fprintf(p.io.Out, "Assignee: %s\n", issue.Assignee.DisplayName)
+	if view.Assignee != "" {
+		fmt.Fprintf(p.io.Out, "Assignee: %s\n", view.Assignee)
 	}
-	if issue.Reporter != nil {
-		fmt.Fprintf(p.io.Out, "Reporter: %s\n", issue.Reporter.DisplayName)
+	if view.Reporter != "" {
+		fmt.Fprintf(p.io.Out, "Reporter: %s\n", view.Reporter)
 	}
-	if issue.Parent != "" {
-		fmt.Fprintf(p.io.Out, "Parent: %s\n", p.styles.Key(issue.Parent))
+	if view.Parent != "" {
+		fmt.Fprintf(p.io.Out, "Parent: %s\n", p.styles.Key(view.Parent))
 	}
-	if len(issue.Labels) > 0 {
-		fmt.Fprintf(p.io.Out, "Labels: %s\n", p.styles.Label(strings.Join(issue.Labels, ", ")))
+	if len(view.Labels) > 0 {
+		fmt.Fprintf(p.io.Out, "Labels: %s\n", p.styles.Label(strings.Join(view.Labels, ", ")))
 	}
-	if len(issue.Links) > 0 {
+	if len(view.Links) > 0 {
 		fmt.Fprintln(p.io.Out, "Links:")
-		for _, link := range issue.Links {
-			if link.OutwardIssue != nil {
-				fmt.Fprintf(p.io.Out, "  %s %s [%s] (%s)\n",
-					link.Type.Outward,
-					p.styles.Key(link.OutwardIssue.Key),
-					p.styles.Status(link.OutwardIssue.Status),
-					link.OutwardIssue.Summary)
-			}
-			if link.InwardIssue != nil {
-				fmt.Fprintf(p.io.Out, "  %s %s [%s] (%s)\n",
-					link.Type.Inward,
-					p.styles.Key(link.InwardIssue.Key),
-					p.styles.Status(link.InwardIssue.Status),
-					link.InwardIssue.Summary)
-			}
+		for _, link := range view.Links {
+			fmt.Fprintf(p.io.Out, "  %s %s [%s] (%s)\n",
+				link.Type,
+				p.styles.Key(link.IssueKey),
+				p.styles.Status(link.Status),
+				link.Summary)
 		}
 	}
 
-	if desc := adfToString(issue.Description); desc != "" {
-		fmt.Fprintf(p.io.Out, "\n%s\n", desc)
+	if view.Description != "" {
+		fmt.Fprintf(p.io.Out, "\n%s\n", view.Description)
 	}
 
-	if len(issue.Comments) > 0 {
+	if len(view.Comments) > 0 {
 		fmt.Fprintln(p.io.Out, "\n## Comments")
-		for _, comment := range issue.Comments {
-			author := "Unknown"
-			if comment.Author != nil {
-				author = comment.Author.DisplayName
+		for _, comment := range view.Comments {
+			author := comment.Author
+			if author == "" {
+				author = "Unknown"
 			}
-			fmt.Fprintf(p.io.Out, "\n**%s** (%s):\n%s\n",
-				author,
-				comment.Created.Format("2006-01-02 15:04"),
-				adfToString(comment.Body))
+			// Parse the RFC3339 timestamp for display
+			created := comment.Created
+			if len(created) >= 16 {
+				created = created[:10] + " " + created[11:16]
+			}
+			fmt.Fprintf(p.io.Out, "\n**%s** (%s):\n%s\n", author, created, comment.Body)
 		}
 	}
 
-	if p.io.ServerURL != "" {
-		fmt.Fprintf(p.io.Out, "\n%s/browse/%s\n", p.io.ServerURL, issue.Key)
+	if view.URL != "" {
+		fmt.Fprintf(p.io.Out, "\n%s\n", view.URL)
 	}
 }
 
 // Issues prints multiple issues in table format.
-func (p *TextPrinter) Issues(issues []*jira4claude.Issue) {
-	if len(issues) == 0 {
+func (p *TextPrinter) Issues(views []jira4claude.IssueView) {
+	if len(views) == 0 {
 		fmt.Fprintln(p.io.Out, "No issues found")
 		return
 	}
 
-	rows := make([][]string, 0, len(issues))
-	for _, issue := range issues {
+	rows := make([][]string, 0, len(views))
+	for _, view := range views {
 		assignee := "-"
-		if issue.Assignee != nil {
-			assignee = issue.Assignee.DisplayName
+		if view.Assignee != "" {
+			assignee = view.Assignee
 		}
-		summary := truncateString(issue.Summary, 50)
-		rows = append(rows, []string{issue.Key, issue.Status, assignee, summary})
+		summary := truncateString(view.Summary, 50)
+		rows = append(rows, []string{view.Key, view.Status, assignee, summary})
 	}
 
 	t := table.New().
@@ -158,19 +137,21 @@ func (p *TextPrinter) Transitions(key string, ts []*jira4claude.Transition) {
 }
 
 // Comment prints a single comment.
-func (p *TextPrinter) Comment(comment *jira4claude.Comment) {
-	author := "Unknown"
-	if comment.Author != nil {
-		author = comment.Author.DisplayName
+func (p *TextPrinter) Comment(view jira4claude.CommentView) {
+	author := view.Author
+	if author == "" {
+		author = "Unknown"
 	}
-	fmt.Fprintf(p.io.Out, "**%s** (%s):\n%s\n",
-		author,
-		comment.Created.Format("2006-01-02 15:04"),
-		adfToString(comment.Body))
+	// Parse the RFC3339 timestamp for display
+	created := view.Created
+	if len(created) >= 16 {
+		created = created[:10] + " " + created[11:16]
+	}
+	fmt.Fprintf(p.io.Out, "**%s** (%s):\n%s\n", author, created, view.Body)
 }
 
 // Links prints issue links.
-func (p *TextPrinter) Links(key string, links []*jira4claude.IssueLink) {
+func (p *TextPrinter) Links(key string, links []jira4claude.LinkView) {
 	if len(links) == 0 {
 		fmt.Fprintf(p.io.Out, "No issue links found for %s\n", p.styles.Key(key))
 		return
@@ -178,20 +159,11 @@ func (p *TextPrinter) Links(key string, links []*jira4claude.IssueLink) {
 
 	fmt.Fprintf(p.io.Out, "Links for %s:\n", p.styles.Key(key))
 	for _, link := range links {
-		if link.OutwardIssue != nil {
-			fmt.Fprintf(p.io.Out, "  %s %s [%s] (%s)\n",
-				link.Type.Outward,
-				p.styles.Key(link.OutwardIssue.Key),
-				p.styles.Status(link.OutwardIssue.Status),
-				link.OutwardIssue.Summary)
-		}
-		if link.InwardIssue != nil {
-			fmt.Fprintf(p.io.Out, "  %s %s [%s] (%s)\n",
-				link.Type.Inward,
-				p.styles.Key(link.InwardIssue.Key),
-				p.styles.Status(link.InwardIssue.Status),
-				link.InwardIssue.Summary)
-		}
+		fmt.Fprintf(p.io.Out, "  %s %s [%s] (%s)\n",
+			link.Type,
+			p.styles.Key(link.IssueKey),
+			p.styles.Status(link.Status),
+			link.Summary)
 	}
 }
 

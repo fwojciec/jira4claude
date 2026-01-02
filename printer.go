@@ -2,15 +2,15 @@ package jira4claude
 
 // IssuePrinter handles issue command output.
 type IssuePrinter interface {
-	Issue(issue *Issue)
-	Issues(issues []*Issue)
-	Comment(comment *Comment)
+	Issue(view IssueView)
+	Issues(views []IssueView)
+	Comment(view CommentView)
 	Transitions(key string, ts []*Transition)
 }
 
 // LinkPrinter handles link command output.
 type LinkPrinter interface {
-	Links(key string, links []*IssueLink)
+	Links(key string, links []LinkView)
 }
 
 // MessagePrinter handles success/error/warning output.

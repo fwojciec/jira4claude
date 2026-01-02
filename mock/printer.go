@@ -10,26 +10,26 @@ var _ jira4claude.Printer = (*Printer)(nil)
 // Unlike IssueService, methods with nil function fields do not panic;
 // they only record the call for assertion.
 type Printer struct {
-	IssueFn       func(issue *jira4claude.Issue)
-	IssuesFn      func(issues []*jira4claude.Issue)
-	CommentFn     func(comment *jira4claude.Comment)
+	IssueFn       func(view jira4claude.IssueView)
+	IssuesFn      func(views []jira4claude.IssueView)
+	CommentFn     func(view jira4claude.CommentView)
 	TransitionsFn func(key string, ts []*jira4claude.Transition)
-	LinksFn       func(key string, links []*jira4claude.IssueLink)
+	LinksFn       func(key string, links []jira4claude.LinkView)
 	SuccessFn     func(msg string, keys ...string)
 	WarningFn     func(msg string)
 	ErrorFn       func(err error)
 
 	// Captured calls for assertions
-	IssueCalls       []*jira4claude.Issue
-	IssuesCalls      [][]*jira4claude.Issue
-	CommentCalls     []*jira4claude.Comment
+	IssueCalls       []jira4claude.IssueView
+	IssuesCalls      [][]jira4claude.IssueView
+	CommentCalls     []jira4claude.CommentView
 	TransitionsCalls []struct {
 		Key         string
 		Transitions []*jira4claude.Transition
 	}
 	LinksCalls []struct {
 		Key   string
-		Links []*jira4claude.IssueLink
+		Links []jira4claude.LinkView
 	}
 	SuccessCalls []struct {
 		Msg  string
@@ -39,24 +39,24 @@ type Printer struct {
 	ErrorCalls   []error
 }
 
-func (p *Printer) Issue(issue *jira4claude.Issue) {
-	p.IssueCalls = append(p.IssueCalls, issue)
+func (p *Printer) Issue(view jira4claude.IssueView) {
+	p.IssueCalls = append(p.IssueCalls, view)
 	if p.IssueFn != nil {
-		p.IssueFn(issue)
+		p.IssueFn(view)
 	}
 }
 
-func (p *Printer) Issues(issues []*jira4claude.Issue) {
-	p.IssuesCalls = append(p.IssuesCalls, issues)
+func (p *Printer) Issues(views []jira4claude.IssueView) {
+	p.IssuesCalls = append(p.IssuesCalls, views)
 	if p.IssuesFn != nil {
-		p.IssuesFn(issues)
+		p.IssuesFn(views)
 	}
 }
 
-func (p *Printer) Comment(comment *jira4claude.Comment) {
-	p.CommentCalls = append(p.CommentCalls, comment)
+func (p *Printer) Comment(view jira4claude.CommentView) {
+	p.CommentCalls = append(p.CommentCalls, view)
 	if p.CommentFn != nil {
-		p.CommentFn(comment)
+		p.CommentFn(view)
 	}
 }
 
@@ -70,10 +70,10 @@ func (p *Printer) Transitions(key string, ts []*jira4claude.Transition) {
 	}
 }
 
-func (p *Printer) Links(key string, links []*jira4claude.IssueLink) {
+func (p *Printer) Links(key string, links []jira4claude.LinkView) {
 	p.LinksCalls = append(p.LinksCalls, struct {
 		Key   string
-		Links []*jira4claude.IssueLink
+		Links []jira4claude.LinkView
 	}{key, links})
 	if p.LinksFn != nil {
 		p.LinksFn(key, links)
