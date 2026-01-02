@@ -34,17 +34,17 @@ func NewTextPrinterWithStyles(io *IO, styles *Styles) *TextPrinter {
 
 // Issue prints a single issue in detail format with card layout.
 func (p *TextPrinter) Issue(view jira4claude.IssueView) {
-	// Build header card content
+	// Build header card content with key as title (embedded in border)
 	headerContent := p.renderIssueHeader(view)
-	header := RenderCard(p.styles, "", headerContent)
-	fmt.Fprintln(p.io.Out, header)
+	header := RenderCardWithStyledTitle(p.styles, p.styles.Key(view.Key), headerContent)
+	fmt.Fprint(p.io.Out, header)
 
 	// Linked issues card
 	if len(view.Links) > 0 {
 		fmt.Fprintln(p.io.Out)
 		linksContent := p.renderLinksContent(view.Links)
 		links := RenderCard(p.styles, "LINKED ISSUES", linksContent)
-		fmt.Fprintln(p.io.Out, links)
+		fmt.Fprint(p.io.Out, links)
 	}
 
 	// Description (rendered as markdown)
@@ -54,7 +54,9 @@ func (p *TextPrinter) Issue(view jira4claude.IssueView) {
 			// Fall back to plain text if rendering fails
 			fmt.Fprintf(p.io.Out, "\n%s\n", view.Description)
 		} else {
-			fmt.Fprint(p.io.Out, rendered)
+			// Trim trailing whitespace - glamour adds extra newlines
+			// Then add single newline to ensure proper spacing with URL
+			fmt.Fprintln(p.io.Out, strings.TrimRight(rendered, "\n\t "))
 		}
 	}
 
@@ -82,25 +84,27 @@ func (p *TextPrinter) Issue(view jira4claude.IssueView) {
 }
 
 // renderIssueHeader builds the content for the issue header card.
+// Note: The issue key is rendered in the card border, not in the content.
 func (p *TextPrinter) renderIssueHeader(view jira4claude.IssueView) string {
 	var b strings.Builder
-	width := p.styles.Width
+	// Content width accounts for card borders in color mode (2 chars for │ on each side)
+	contentWidth := p.styles.Width - 2
+	if p.styles.NoColor {
+		contentWidth = p.styles.Width // No borders in text mode
+	}
 
-	// Line 1: Key (left) and Type badge (right)
+	// Line 1: Summary (left) and Type badge (right)
 	typeBadge := strings.ToUpper(view.Type)
-	keyWidth := len(view.Key)
+	summaryWidth := len(view.Summary)
 	typeWidth := len(typeBadge)
-	padding := width - keyWidth - typeWidth - 4 // account for margins
+	padding := contentWidth - summaryWidth - typeWidth - 4 // account for margins
 	if padding < 1 {
 		padding = 1
 	}
-	fmt.Fprintf(&b, "  %s%s%s  \n", p.styles.Key(view.Key), strings.Repeat(" ", padding), typeBadge)
-
-	// Line 2: Summary
-	fmt.Fprintf(&b, "  %s\n", view.Summary)
+	fmt.Fprintf(&b, "  %s%s%s  \n", view.Summary, strings.Repeat(" ", padding), typeBadge)
 
 	// Separator
-	separatorWidth := width - 4 // account for margins
+	separatorWidth := contentWidth - 4 // account for margins
 	fmt.Fprintf(&b, "  %s\n", RenderSeparator(p.styles, "dotted", separatorWidth))
 
 	// Status and Priority section
@@ -129,14 +133,14 @@ func (p *TextPrinter) renderIssueHeader(view jira4claude.IssueView) string {
 
 	// Assignee and Reporter (right-aligned values)
 	if view.Assignee != "" {
-		padding := width - len("Assignee:") - len(view.Assignee) - 4
+		padding := contentWidth - len("Assignee:") - len(view.Assignee) - 4
 		if padding < 1 {
 			padding = 1
 		}
 		fmt.Fprintf(&b, "  Assignee:%s%s  \n", strings.Repeat(" ", padding), view.Assignee)
 	}
 	if view.Reporter != "" {
-		padding := width - len("Reporter:") - len(view.Reporter) - 4
+		padding := contentWidth - len("Reporter:") - len(view.Reporter) - 4
 		if padding < 1 {
 			padding = 1
 		}
@@ -166,27 +170,31 @@ func (p *TextPrinter) renderLinksContent(links []jira4claude.LinkView) string {
 		grouped[link.Type] = append(grouped[link.Type], link)
 	}
 
+	// Content width accounts for card borders in color mode
+	contentWidth := p.styles.Width - 2
+	if p.styles.NoColor {
+		contentWidth = p.styles.Width
+	}
+	separatorWidth := contentWidth - 4 // account for margins
+
 	var b strings.Builder
 	for i, linkType := range order {
 		if i > 0 {
-			b.WriteString("\n")
+			// Add dotted separator between link type groups
+			fmt.Fprintf(&b, "  %s\n", RenderSeparator(p.styles, "dotted", separatorWidth))
 		}
 		fmt.Fprintf(&b, "  %s\n", linkType)
 		for _, link := range grouped[linkType] {
-			statusIndicator := formatStatusIndicator(link.Status)
-			fmt.Fprintf(&b, "  %s  %s   %s\n",
+			// Use consistent status badge format as the top panel
+			statusBadge := RenderStatusBadge(p.styles, link.Status)
+			fmt.Fprintf(&b, "  %s  %s  %s\n",
 				p.styles.Key(link.IssueKey),
-				statusIndicator,
+				statusBadge,
 				link.Summary)
 		}
 	}
 
 	return b.String()
-}
-
-// formatStatusIndicator returns a bracketed status indicator.
-func formatStatusIndicator(status string) string {
-	return fmt.Sprintf("[%s]", status)
 }
 
 // Issues prints multiple issues in table format.

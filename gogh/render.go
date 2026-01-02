@@ -14,28 +14,57 @@ func RenderCard(s *Styles, title, content string) string {
 	return renderColorCard(s, title, content)
 }
 
-func renderColorCard(s *Styles, title, content string) string {
-	var titleLine string
-	if title != "" {
-		titleLine = "─ " + title + " "
+// RenderCardWithStyledTitle creates a bordered card with an already-styled title.
+// This allows the title to have ANSI styling (e.g., colored issue keys).
+func RenderCardWithStyledTitle(s *Styles, styledTitle, content string) string {
+	if s.NoColor {
+		// In text mode, strip styling - use plain title if available
+		return renderTextCard(styledTitle, content, s.Width)
 	}
+	return renderColorCardWithStyledTitle(s, styledTitle, content)
+}
 
+func renderColorCard(s *Styles, title, content string) string {
+	if title == "" {
+		cardStyle := s.Card.Border.Width(s.Width - 2)
+		return cardStyle.Render(content)
+	}
+	// For plain titles, render without special styling
+	return renderColorCardWithTitle(s, title, "", content)
+}
+
+func renderColorCardWithStyledTitle(s *Styles, styledTitle, content string) string {
+	// For styled titles, pass both the styled and plain versions
+	return renderColorCardWithTitle(s, styledTitle, styledTitle, content)
+}
+
+func renderColorCardWithTitle(s *Styles, title, styledTitle, content string) string {
 	cardStyle := s.Card.Border.
 		Width(s.Width - 2) // account for border
 
-	if title != "" {
-		// Custom border top with title
-		cardStyle = cardStyle.BorderTop(false)
-		titleWidth := lipgloss.Width(titleLine)
-		repeatCount := s.Width - titleWidth - 2 // -2 for ╭ and ╮
-		if repeatCount < 0 {
-			repeatCount = 0
-		}
-		topBorder := "╭" + titleLine + strings.Repeat("─", repeatCount) + "╮"
-		return topBorder + "\n" + cardStyle.Render(content)
+	// Custom border top with title
+	cardStyle = cardStyle.BorderTop(false)
+
+	// Calculate width using the styled title (accounts for ANSI codes)
+	displayTitle := title
+	if styledTitle != "" {
+		displayTitle = styledTitle
 	}
 
-	return cardStyle.Render(content)
+	// Title section: "─ TITLE " with proper width calculation
+	titleSection := " " + displayTitle + " "
+	titleWidth := lipgloss.Width(titleSection) + 2 // +2 for "╭─" prefix
+	repeatCount := s.Width - titleWidth - 1        // -1 for "╮" suffix
+	if repeatCount < 0 {
+		repeatCount = 0
+	}
+
+	// Style border characters to match the card border color
+	borderStyle := s.Renderer.NewStyle().Foreground(s.Theme.Border)
+	topBorder := borderStyle.Render("╭─") + titleSection + borderStyle.Render(strings.Repeat("─", repeatCount)+"╮")
+
+	// Add blank line before content for visual spacing (matches text mode)
+	return topBorder + "\n" + cardStyle.Render("\n"+content)
 }
 
 func renderTextCard(title, content string, width int) string {
