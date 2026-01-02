@@ -2,6 +2,7 @@ package gogh_test
 
 import (
 	"bytes"
+	"strings"
 	"testing"
 
 	"github.com/charmbracelet/lipgloss"
@@ -103,4 +104,89 @@ func TestDefaultStyles(t *testing.T) {
 
 	require.NotNil(t, styles)
 	assert.Equal(t, 80, styles.Width)
+}
+
+func TestStyles_RenderMarkdown_ColorMode_ReturnsStyledOutput(t *testing.T) {
+	t.Parallel()
+
+	var buf bytes.Buffer
+	r := lipgloss.NewRenderer(&buf)
+	r.SetColorProfile(termenv.TrueColor)
+	styles := gogh.NewStyles(r)
+
+	input := "## Header\n\nSome text."
+	output, err := styles.RenderMarkdown(input)
+
+	require.NoError(t, err)
+	assert.Contains(t, output, "Header")
+	assert.Contains(t, output, "Some text")
+}
+
+func TestStyles_RenderMarkdown_ColorMode_RendersBullets(t *testing.T) {
+	t.Parallel()
+
+	var buf bytes.Buffer
+	r := lipgloss.NewRenderer(&buf)
+	r.SetColorProfile(termenv.TrueColor)
+	styles := gogh.NewStyles(r)
+
+	input := "- Item one\n- Item two"
+	output, err := styles.RenderMarkdown(input)
+
+	require.NoError(t, err)
+	assert.Contains(t, output, "Item one")
+	assert.Contains(t, output, "Item two")
+	// Glamour uses • for bullet points
+	assert.Contains(t, output, "•")
+}
+
+func TestStyles_RenderMarkdown_TextOnlyMode_NoANSICodes(t *testing.T) {
+	t.Parallel()
+
+	var buf bytes.Buffer
+	r := lipgloss.NewRenderer(&buf)
+	r.SetColorProfile(termenv.Ascii)
+	styles := gogh.NewStyles(r)
+
+	input := "## Header\n\n**Bold text** and normal."
+	output, err := styles.RenderMarkdown(input)
+
+	require.NoError(t, err)
+	assert.Contains(t, output, "Header")
+	assert.Contains(t, output, "Bold text")
+	// Should have no ANSI escape codes in text-only mode
+	assert.NotContains(t, output, "\x1b[")
+}
+
+func TestStyles_RenderMarkdown_WordWrap(t *testing.T) {
+	t.Parallel()
+
+	var buf bytes.Buffer
+	r := lipgloss.NewRenderer(&buf)
+	r.SetColorProfile(termenv.TrueColor)
+	styles := gogh.NewStyles(r)
+
+	// Long line that should be wrapped at 80 columns
+	input := "This is a very long line of text that should definitely be wrapped because it exceeds the 80 column width limit."
+	output, err := styles.RenderMarkdown(input)
+
+	require.NoError(t, err)
+	assert.Contains(t, output, "This is a very long line")
+	// Verify wrapping occurred - output should contain multiple lines
+	lines := strings.Split(strings.TrimSpace(output), "\n")
+	assert.Greater(t, len(lines), 1, "long text should be wrapped into multiple lines")
+}
+
+func TestStyles_RenderMarkdown_EmptyInput_ReturnsEmpty(t *testing.T) {
+	t.Parallel()
+
+	var buf bytes.Buffer
+	r := lipgloss.NewRenderer(&buf)
+	r.SetColorProfile(termenv.TrueColor)
+	styles := gogh.NewStyles(r)
+
+	output, err := styles.RenderMarkdown("")
+
+	require.NoError(t, err)
+	assert.Empty(t, output)
 }

@@ -1103,3 +1103,181 @@ func TestTextPrinter_Issue_CardLayout_StatusAndPriorityAreSeparated(t *testing.T
 	assert.NotContains(t, output, "In Progress▲")
 	assert.NotContains(t, output, "Progress▲")
 }
+
+// Markdown rendering tests for descriptions
+
+func TestTextPrinter_Issue_Description_ColorMode_RendersMarkdownHeaders(t *testing.T) {
+	t.Parallel()
+
+	var out, errOut bytes.Buffer
+	styles := trueColorStyles(t)
+	io := gogh.NewIO(&out, &errOut)
+	p := gogh.NewTextPrinterWithStyles(io, styles)
+
+	view := jira4claude.IssueView{
+		Key:         "TEST-123",
+		Summary:     "Test issue",
+		Status:      "Open",
+		Type:        "Task",
+		Description: "## Section Header\n\nSome content here.",
+		Created:     "2024-01-01T12:00:00Z",
+		Updated:     "2024-01-02T12:00:00Z",
+	}
+
+	p.Issue(view)
+
+	output := out.String()
+	// In color mode, headers should be styled (bold/colored)
+	// The header should be present but may have ANSI codes around it
+	assert.Contains(t, output, "Section Header")
+}
+
+func TestTextPrinter_Issue_Description_ColorMode_RendersBulletLists(t *testing.T) {
+	t.Parallel()
+
+	var out, errOut bytes.Buffer
+	styles := trueColorStyles(t)
+	io := gogh.NewIO(&out, &errOut)
+	p := gogh.NewTextPrinterWithStyles(io, styles)
+
+	view := jira4claude.IssueView{
+		Key:     "TEST-123",
+		Summary: "Test issue",
+		Status:  "Open",
+		Type:    "Task",
+		Description: `## Features
+
+- First item
+- Second item
+- Third item`,
+		Created: "2024-01-01T12:00:00Z",
+		Updated: "2024-01-02T12:00:00Z",
+	}
+
+	p.Issue(view)
+
+	output := out.String()
+	// List items should render with proper formatting
+	// Glamour renders bullet points with bullets (•)
+	assert.Contains(t, output, "First item")
+	assert.Contains(t, output, "Second item")
+	assert.Contains(t, output, "Third item")
+	// Should have bullet characters (glamour uses • for bullets)
+	assert.Contains(t, output, "•")
+}
+
+func TestTextPrinter_Issue_Description_ColorMode_RendersCodeBlocks(t *testing.T) {
+	t.Parallel()
+
+	var out, errOut bytes.Buffer
+	styles := trueColorStyles(t)
+	io := gogh.NewIO(&out, &errOut)
+	p := gogh.NewTextPrinterWithStyles(io, styles)
+
+	view := jira4claude.IssueView{
+		Key:         "TEST-123",
+		Summary:     "Test issue",
+		Status:      "Open",
+		Type:        "Task",
+		Description: "Example code:\n\n```go\nfunc main() {\n    fmt.Println(\"Hello\")\n}\n```",
+		Created:     "2024-01-01T12:00:00Z",
+		Updated:     "2024-01-02T12:00:00Z",
+	}
+
+	p.Issue(view)
+
+	output := out.String()
+	// Code blocks should contain the code content
+	assert.Contains(t, output, "func main()")
+	assert.Contains(t, output, "fmt.Println")
+}
+
+func TestTextPrinter_Issue_Description_TextOnlyMode_NoANSICodes(t *testing.T) {
+	t.Parallel()
+
+	var out, errOut bytes.Buffer
+	styles := asciiStyles(t)
+	io := gogh.NewIO(&out, &errOut)
+	p := gogh.NewTextPrinterWithStyles(io, styles)
+
+	view := jira4claude.IssueView{
+		Key:     "TEST-123",
+		Summary: "Test issue",
+		Status:  "Open",
+		Type:    "Task",
+		Description: `## Context
+
+This is a description with **bold** text.
+
+- List item one
+- List item two`,
+		Created: "2024-01-01T12:00:00Z",
+		Updated: "2024-01-02T12:00:00Z",
+	}
+
+	p.Issue(view)
+
+	output := out.String()
+	// In text-only mode (NO_COLOR), should have no ANSI escape codes
+	assert.NotContains(t, output, "\x1b[", "should not contain ANSI escape codes")
+	// Content should still be present
+	assert.Contains(t, output, "Context")
+	assert.Contains(t, output, "List item one")
+	assert.Contains(t, output, "List item two")
+}
+
+func TestTextPrinter_Issue_Description_RespectsWordWrap(t *testing.T) {
+	t.Parallel()
+
+	var out, errOut bytes.Buffer
+	styles := trueColorStyles(t)
+	io := gogh.NewIO(&out, &errOut)
+	p := gogh.NewTextPrinterWithStyles(io, styles)
+
+	// Create a very long line that should be wrapped
+	longText := "This is a very long line of text that should definitely be wrapped because it exceeds the 80 column width limit that we have set for the terminal output display."
+	view := jira4claude.IssueView{
+		Key:         "TEST-123",
+		Summary:     "Test issue",
+		Status:      "Open",
+		Type:        "Task",
+		Description: longText,
+		Created:     "2024-01-01T12:00:00Z",
+		Updated:     "2024-01-02T12:00:00Z",
+	}
+
+	p.Issue(view)
+
+	output := out.String()
+	// The content should be present
+	assert.Contains(t, output, "This is a very long line")
+	// With word wrap at 80 columns, no single line should exceed ~80 visible chars
+	// (Note: we can't easily test exact line lengths due to ANSI codes)
+}
+
+func TestTextPrinter_Issue_Description_EmptyDescriptionNoRendering(t *testing.T) {
+	t.Parallel()
+
+	var out, errOut bytes.Buffer
+	styles := trueColorStyles(t)
+	io := gogh.NewIO(&out, &errOut)
+	p := gogh.NewTextPrinterWithStyles(io, styles)
+
+	view := jira4claude.IssueView{
+		Key:         "TEST-123",
+		Summary:     "Test issue",
+		Status:      "Open",
+		Type:        "Task",
+		Description: "",
+		Created:     "2024-01-01T12:00:00Z",
+		Updated:     "2024-01-02T12:00:00Z",
+	}
+
+	outputBefore := out.String()
+	p.Issue(view)
+	outputAfter := out.String()
+
+	// The description section should not be rendered when empty
+	// This is existing behavior, but verify it still works with glamour
+	assert.NotContains(t, outputAfter[len(outputBefore):], "Description")
+}

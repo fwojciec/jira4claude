@@ -47,9 +47,15 @@ func (p *TextPrinter) Issue(view jira4claude.IssueView) {
 		fmt.Fprintln(p.io.Out, links)
 	}
 
-	// Description (no card, just content)
+	// Description (rendered as markdown)
 	if view.Description != "" {
-		fmt.Fprintf(p.io.Out, "\n%s\n", view.Description)
+		rendered, err := p.styles.RenderMarkdown(view.Description)
+		if err != nil {
+			// Fall back to plain text if rendering fails
+			fmt.Fprintf(p.io.Out, "\n%s\n", view.Description)
+		} else {
+			fmt.Fprint(p.io.Out, rendered)
+		}
 	}
 
 	// Comments section

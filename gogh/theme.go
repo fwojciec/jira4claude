@@ -1,6 +1,7 @@
 package gogh
 
 import (
+	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/muesli/termenv"
 )
@@ -202,4 +203,34 @@ func (s *Styles) Header(text string) string {
 // Deprecated: Use NoColor field directly.
 func (s *Styles) IsNoColor() bool {
 	return s.NoColor
+}
+
+// RenderMarkdown renders markdown text with appropriate styling.
+// In color mode, uses glamour's auto style (adapts to terminal background).
+// In text-only mode (NO_COLOR), uses ascii style with no ANSI codes.
+// Word wrapping is applied at Width columns (default 80).
+//
+// Note: Creates a new renderer per call for simplicity. This is acceptable
+// for single-issue views but could be optimized if used in batch operations.
+func (s *Styles) RenderMarkdown(input string) (string, error) {
+	if input == "" {
+		return "", nil
+	}
+
+	var opts []glamour.TermRendererOption
+
+	if s.NoColor {
+		opts = append(opts, glamour.WithStandardStyle("ascii"))
+	} else {
+		opts = append(opts, glamour.WithAutoStyle())
+	}
+
+	opts = append(opts, glamour.WithWordWrap(s.Width))
+
+	r, err := glamour.NewTermRenderer(opts...)
+	if err != nil {
+		return "", err
+	}
+
+	return r.Render(input)
 }
