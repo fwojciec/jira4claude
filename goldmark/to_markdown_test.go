@@ -1,23 +1,21 @@
-package adf_test
+package goldmark_test
 
 import (
 	"testing"
 
-	"github.com/fwojciec/jira4claude/adf"
+	"github.com/fwojciec/jira4claude/goldmark"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func TestConverter_ToADF(t *testing.T) {
+func TestConverter_ToMarkdown(t *testing.T) {
 	t.Parallel()
 
-	t.Run("converts plain text to paragraph", func(t *testing.T) {
+	t.Run("converts simple paragraph to plain text", func(t *testing.T) {
 		t.Parallel()
 
-		converter := adf.New()
-		result, warnings := converter.ToADF("Hello, world!")
-
-		expected := map[string]any{
+		converter := goldmark.New()
+		adfDoc := map[string]any{
 			"type":    "doc",
 			"version": 1,
 			"content": []any{
@@ -33,17 +31,17 @@ func TestConverter_ToADF(t *testing.T) {
 			},
 		}
 
+		result, warnings := converter.ToMarkdown(adfDoc)
+
 		assert.Empty(t, warnings)
-		assert.Equal(t, expected, result)
+		assert.Equal(t, "Hello, world!", result)
 	})
 
-	t.Run("converts bold text to strong mark", func(t *testing.T) {
+	t.Run("converts strong mark to bold", func(t *testing.T) {
 		t.Parallel()
 
-		converter := adf.New()
-		result, warnings := converter.ToADF("This is **bold** text.")
-
-		expected := map[string]any{
+		converter := goldmark.New()
+		adfDoc := map[string]any{
 			"type":    "doc",
 			"version": 1,
 			"content": []any{
@@ -72,17 +70,17 @@ func TestConverter_ToADF(t *testing.T) {
 			},
 		}
 
+		result, warnings := converter.ToMarkdown(adfDoc)
+
 		assert.Empty(t, warnings)
-		assert.Equal(t, expected, result)
+		assert.Equal(t, "This is **bold** text.", result)
 	})
 
-	t.Run("converts italic text to em mark", func(t *testing.T) {
+	t.Run("converts em mark to italic", func(t *testing.T) {
 		t.Parallel()
 
-		converter := adf.New()
-		result, warnings := converter.ToADF("This is *italic* text.")
-
-		expected := map[string]any{
+		converter := goldmark.New()
+		adfDoc := map[string]any{
 			"type":    "doc",
 			"version": 1,
 			"content": []any{
@@ -111,17 +109,17 @@ func TestConverter_ToADF(t *testing.T) {
 			},
 		}
 
+		result, warnings := converter.ToMarkdown(adfDoc)
+
 		assert.Empty(t, warnings)
-		assert.Equal(t, expected, result)
+		assert.Equal(t, "This is *italic* text.", result)
 	})
 
-	t.Run("converts inline code to code mark", func(t *testing.T) {
+	t.Run("converts code mark to inline code", func(t *testing.T) {
 		t.Parallel()
 
-		converter := adf.New()
-		result, warnings := converter.ToADF("Use the `fmt.Println` function.")
-
-		expected := map[string]any{
+		converter := goldmark.New()
+		adfDoc := map[string]any{
 			"type":    "doc",
 			"version": 1,
 			"content": []any{
@@ -150,17 +148,17 @@ func TestConverter_ToADF(t *testing.T) {
 			},
 		}
 
+		result, warnings := converter.ToMarkdown(adfDoc)
+
 		assert.Empty(t, warnings)
-		assert.Equal(t, expected, result)
+		assert.Equal(t, "Use the `fmt.Println` function.", result)
 	})
 
-	t.Run("converts fenced code block to codeBlock node", func(t *testing.T) {
+	t.Run("converts codeBlock to fenced code block", func(t *testing.T) {
 		t.Parallel()
 
-		converter := adf.New()
-		result, warnings := converter.ToADF("```go\nfmt.Println(\"hello\")\n```")
-
-		expected := map[string]any{
+		converter := goldmark.New()
+		adfDoc := map[string]any{
 			"type":    "doc",
 			"version": 1,
 			"content": []any{
@@ -179,32 +177,20 @@ func TestConverter_ToADF(t *testing.T) {
 			},
 		}
 
+		result, warnings := converter.ToMarkdown(adfDoc)
+
 		assert.Empty(t, warnings)
-		assert.Equal(t, expected, result)
+		assert.Equal(t, "```go\nfmt.Println(\"hello\")\n```", result)
 	})
 
-	t.Run("converts heading to heading node with level", func(t *testing.T) {
+	t.Run("converts heading to markdown heading", func(t *testing.T) {
 		t.Parallel()
 
-		converter := adf.New()
-		result, warnings := converter.ToADF("# Heading 1\n\n## Heading 2")
-
-		expected := map[string]any{
+		converter := goldmark.New()
+		adfDoc := map[string]any{
 			"type":    "doc",
 			"version": 1,
 			"content": []any{
-				map[string]any{
-					"type": "heading",
-					"attrs": map[string]any{
-						"level": 1,
-					},
-					"content": []any{
-						map[string]any{
-							"type": "text",
-							"text": "Heading 1",
-						},
-					},
-				},
 				map[string]any{
 					"type": "heading",
 					"attrs": map[string]any{
@@ -213,24 +199,24 @@ func TestConverter_ToADF(t *testing.T) {
 					"content": []any{
 						map[string]any{
 							"type": "text",
-							"text": "Heading 2",
+							"text": "My Heading",
 						},
 					},
 				},
 			},
 		}
 
+		result, warnings := converter.ToMarkdown(adfDoc)
+
 		assert.Empty(t, warnings)
-		assert.Equal(t, expected, result)
+		assert.Equal(t, "## My Heading", result)
 	})
 
-	t.Run("converts bullet list to bulletList node", func(t *testing.T) {
+	t.Run("converts bulletList to markdown list", func(t *testing.T) {
 		t.Parallel()
 
-		converter := adf.New()
-		result, warnings := converter.ToADF("- Item 1\n- Item 2")
-
-		expected := map[string]any{
+		converter := goldmark.New()
+		adfDoc := map[string]any{
 			"type":    "doc",
 			"version": 1,
 			"content": []any{
@@ -270,17 +256,17 @@ func TestConverter_ToADF(t *testing.T) {
 			},
 		}
 
+		result, warnings := converter.ToMarkdown(adfDoc)
+
 		assert.Empty(t, warnings)
-		assert.Equal(t, expected, result)
+		assert.Equal(t, "- Item 1\n- Item 2", result)
 	})
 
-	t.Run("converts ordered list to orderedList node", func(t *testing.T) {
+	t.Run("converts orderedList to markdown list", func(t *testing.T) {
 		t.Parallel()
 
-		converter := adf.New()
-		result, warnings := converter.ToADF("1. First\n2. Second")
-
-		expected := map[string]any{
+		converter := goldmark.New()
+		adfDoc := map[string]any{
 			"type":    "doc",
 			"version": 1,
 			"content": []any{
@@ -320,17 +306,17 @@ func TestConverter_ToADF(t *testing.T) {
 			},
 		}
 
+		result, warnings := converter.ToMarkdown(adfDoc)
+
 		assert.Empty(t, warnings)
-		assert.Equal(t, expected, result)
+		assert.Equal(t, "1. First\n2. Second", result)
 	})
 
-	t.Run("converts link to link mark", func(t *testing.T) {
+	t.Run("converts link mark to markdown link", func(t *testing.T) {
 		t.Parallel()
 
-		converter := adf.New()
-		result, warnings := converter.ToADF("Visit [Google](https://google.com) for more.")
-
-		expected := map[string]any{
+		converter := goldmark.New()
+		adfDoc := map[string]any{
 			"type":    "doc",
 			"version": 1,
 			"content": []any{
@@ -362,17 +348,17 @@ func TestConverter_ToADF(t *testing.T) {
 			},
 		}
 
+		result, warnings := converter.ToMarkdown(adfDoc)
+
 		assert.Empty(t, warnings)
-		assert.Equal(t, expected, result)
+		assert.Equal(t, "Visit [Google](https://google.com) for more.", result)
 	})
 
-	t.Run("converts blockquote to blockquote node", func(t *testing.T) {
+	t.Run("converts blockquote to markdown blockquote", func(t *testing.T) {
 		t.Parallel()
 
-		converter := adf.New()
-		result, warnings := converter.ToADF("> This is a quote.")
-
-		expected := map[string]any{
+		converter := goldmark.New()
+		adfDoc := map[string]any{
 			"type":    "doc",
 			"version": 1,
 			"content": []any{
@@ -393,17 +379,52 @@ func TestConverter_ToADF(t *testing.T) {
 			},
 		}
 
+		result, warnings := converter.ToMarkdown(adfDoc)
+
 		assert.Empty(t, warnings)
-		assert.Equal(t, expected, result)
+		assert.Equal(t, "> This is a quote.", result)
 	})
 
-	t.Run("handles combined formatting", func(t *testing.T) {
+	t.Run("handles multiple paragraphs", func(t *testing.T) {
 		t.Parallel()
 
-		converter := adf.New()
-		result, warnings := converter.ToADF("This is ***bold and italic*** text.")
+		converter := goldmark.New()
+		adfDoc := map[string]any{
+			"type":    "doc",
+			"version": 1,
+			"content": []any{
+				map[string]any{
+					"type": "paragraph",
+					"content": []any{
+						map[string]any{
+							"type": "text",
+							"text": "First paragraph.",
+						},
+					},
+				},
+				map[string]any{
+					"type": "paragraph",
+					"content": []any{
+						map[string]any{
+							"type": "text",
+							"text": "Second paragraph.",
+						},
+					},
+				},
+			},
+		}
 
-		expected := map[string]any{
+		result, warnings := converter.ToMarkdown(adfDoc)
+
+		assert.Empty(t, warnings)
+		assert.Equal(t, "First paragraph.\n\nSecond paragraph.", result)
+	})
+
+	t.Run("handles combined formatting (bold and italic)", func(t *testing.T) {
+		t.Parallel()
+
+		converter := goldmark.New()
+		adfDoc := map[string]any{
 			"type":    "doc",
 			"version": 1,
 			"content": []any{
@@ -435,71 +456,162 @@ func TestConverter_ToADF(t *testing.T) {
 			},
 		}
 
+		result, warnings := converter.ToMarkdown(adfDoc)
+
 		assert.Empty(t, warnings)
-		assert.Equal(t, expected, result)
+		assert.Equal(t, "This is ***bold and italic*** text.", result)
 	})
 
-	t.Run("handles empty input", func(t *testing.T) {
+	t.Run("handles nil input", func(t *testing.T) {
 		t.Parallel()
 
-		converter := adf.New()
-		result, warnings := converter.ToADF("")
+		converter := goldmark.New()
+		result, warnings := converter.ToMarkdown(nil)
 
-		expected := map[string]any{
+		assert.Empty(t, warnings)
+		assert.Empty(t, result)
+	})
+
+	t.Run("handles empty document", func(t *testing.T) {
+		t.Parallel()
+
+		converter := goldmark.New()
+		adfDoc := map[string]any{
 			"type":    "doc",
 			"version": 1,
 			"content": []any{},
 		}
 
+		result, warnings := converter.ToMarkdown(adfDoc)
+
 		assert.Empty(t, warnings)
-		assert.Equal(t, expected, result)
+		assert.Empty(t, result)
 	})
 
 	t.Run("returns warning when content is skipped", func(t *testing.T) {
 		t.Parallel()
 
-		converter := adf.New()
-		// Horizontal rules (thematic breaks) are not supported
-		result, warnings := converter.ToADF("Before\n\n---\n\nAfter")
+		converter := goldmark.New()
+		// ADF with an unsupported node type (e.g., "table")
+		adfDoc := map[string]any{
+			"type":    "doc",
+			"version": 1,
+			"content": []any{
+				map[string]any{
+					"type": "paragraph",
+					"content": []any{
+						map[string]any{
+							"type": "text",
+							"text": "Before",
+						},
+					},
+				},
+				map[string]any{
+					"type": "table",
+					"content": []any{
+						map[string]any{"type": "tableRow"},
+					},
+				},
+				map[string]any{
+					"type": "paragraph",
+					"content": []any{
+						map[string]any{
+							"type": "text",
+							"text": "After",
+						},
+					},
+				},
+			},
+		}
+
+		result, warnings := converter.ToMarkdown(adfDoc)
 
 		// Should still return converted content (best effort)
-		require.NotNil(t, result)
-		assert.Equal(t, "doc", result["type"])
-
-		// Content should have the paragraphs that were converted
-		content, ok := result["content"].([]any)
-		require.True(t, ok)
-		assert.Len(t, content, 2) // "Before" and "After" paragraphs
+		assert.Equal(t, "Before\n\nAfter", result)
 
 		// Should return warning listing skipped content
 		require.Len(t, warnings, 1)
-		assert.Contains(t, warnings[0], "ThematicBreak")
+		assert.Contains(t, warnings[0], "table")
 	})
 
 	t.Run("accumulates multiple warnings for different skipped node types", func(t *testing.T) {
 		t.Parallel()
 
-		converter := adf.New()
-		// Multiple unsupported block elements: horizontal rule and raw HTML block
-		result, warnings := converter.ToADF("Start\n\n---\n\n<div>html block</div>\n\nEnd")
+		converter := goldmark.New()
+		// ADF with multiple unsupported node types
+		adfDoc := map[string]any{
+			"type":    "doc",
+			"version": 1,
+			"content": []any{
+				map[string]any{
+					"type": "paragraph",
+					"content": []any{
+						map[string]any{
+							"type": "text",
+							"text": "Start",
+						},
+					},
+				},
+				map[string]any{
+					"type": "table",
+					"content": []any{
+						map[string]any{"type": "tableRow"},
+					},
+				},
+				map[string]any{
+					"type":    "panel",
+					"content": []any{},
+				},
+				map[string]any{
+					"type": "rule",
+				},
+				map[string]any{
+					"type": "paragraph",
+					"content": []any{
+						map[string]any{
+							"type": "text",
+							"text": "End",
+						},
+					},
+				},
+			},
+		}
+
+		result, warnings := converter.ToMarkdown(adfDoc)
 
 		// Should still return converted content (best effort)
-		require.NotNil(t, result)
-		assert.Equal(t, "doc", result["type"])
+		assert.Equal(t, "Start\n\nEnd", result)
 
-		// Should return warnings for each skipped type, sorted alphabetically
-		require.Len(t, warnings, 2)
-		assert.Contains(t, warnings[0], "HTMLBlock")
-		assert.Contains(t, warnings[1], "ThematicBreak")
+		// Should return individual warnings for each skipped node type, sorted alphabetically
+		require.Len(t, warnings, 3)
+		assert.Contains(t, warnings[0], "panel")
+		assert.Contains(t, warnings[1], "rule")
+		assert.Contains(t, warnings[2], "table")
 	})
 
 	t.Run("returns empty warnings slice when no content is skipped", func(t *testing.T) {
 		t.Parallel()
 
-		converter := adf.New()
-		result, warnings := converter.ToADF("Hello")
+		converter := goldmark.New()
+		adfDoc := map[string]any{
+			"type":    "doc",
+			"version": 1,
+			"content": []any{
+				map[string]any{
+					"type": "paragraph",
+					"content": []any{
+						map[string]any{
+							"type": "text",
+							"text": "Hello",
+						},
+					},
+				},
+			},
+		}
 
-		require.NotNil(t, result)
+		result, warnings := converter.ToMarkdown(adfDoc)
+
+		assert.Equal(t, "Hello", result)
 		assert.Empty(t, warnings)
 	})
 }

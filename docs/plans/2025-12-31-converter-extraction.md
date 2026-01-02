@@ -1,6 +1,8 @@
 # Converter Extraction Design
 
-Extract GFM↔ADF conversion from HTTP package into a separate `adf` package with an injectable interface.
+Extract GFM↔ADF conversion from HTTP package into a separate `goldmark` package with an injectable interface.
+
+> **Note**: This package was originally named `adf` but was renamed to `goldmark` per Ben Johnson's Standard Package Layout (packages named after dependencies, not concepts).
 
 ## Problem
 
@@ -36,7 +38,7 @@ type Converter interface {
 ### Implementation Package
 
 ```
-adf/
+goldmark/
 ├── adf.go              # Converter implementation + goldmark wiring
 ├── adf_test.go         # Shared test helpers
 ├── to_adf.go           # GFMToADF logic (from http/gfm.go)
@@ -46,8 +48,8 @@ adf/
 ```
 
 ```go
-// adf/adf.go
-package adf
+// goldmark/adf.go
+package goldmark
 
 var _ jira4claude.Converter = (*Converter)(nil)
 
@@ -117,7 +119,7 @@ Callers (e.g., `CreateIssue`, `UpdateIssue`) propagate the error. The CLI can th
 
 ```go
 // cmd/j4c/main.go
-converter := adf.New()
+converter := goldmark.New()
 client := http.NewClient(cfg.Server, cfg.Project, converter)
 ```
 
@@ -125,14 +127,14 @@ client := http.NewClient(cfg.Server, cfg.Project, converter)
 
 | Current File | Action |
 |--------------|--------|
-| `http/gfm.go` | Move to `adf/to_adf.go` and `adf/to_markdown.go` |
-| `http/gfm_test.go` | Move to `adf/*_test.go` |
+| `http/gfm.go` | Move to `goldmark/to_adf.go` and `goldmark/to_markdown.go` |
+| `http/gfm_test.go` | Move to `goldmark/*_test.go` |
 | `http/adf.go` | Delete - inline `textOrADF` into `http/issue.go` |
 
 ## Tasks
 
 1. Add `Converter` interface to root package
-2. Create `adf` package with implementation
+2. Create `goldmark` package with implementation
 3. Add `mock.Converter`
 4. Update HTTP client to accept converter
 5. Update main to wire converter

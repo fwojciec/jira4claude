@@ -6,8 +6,8 @@ import (
 
 	"github.com/alecthomas/kong"
 	"github.com/fwojciec/jira4claude"
-	"github.com/fwojciec/jira4claude/adf"
 	"github.com/fwojciec/jira4claude/gogh"
+	"github.com/fwojciec/jira4claude/goldmark"
 	"github.com/fwojciec/jira4claude/http"
 	"github.com/fwojciec/jira4claude/yaml"
 )
@@ -102,7 +102,7 @@ func main() {
 	svc := http.NewIssueService(client)
 
 	// Build contexts
-	conv := adf.New()
+	conv := goldmark.New()
 	issueCtx := &IssueContext{Service: svc, Printer: printer, Converter: conv, Config: cfg}
 	linkCtx := &LinkContext{Service: svc, Printer: printer, Config: cfg}
 

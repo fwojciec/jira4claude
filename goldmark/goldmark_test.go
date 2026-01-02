@@ -1,10 +1,10 @@
-package adf_test
+package goldmark_test
 
 import (
 	"testing"
 
 	"github.com/fwojciec/jira4claude"
-	"github.com/fwojciec/jira4claude/adf"
+	"github.com/fwojciec/jira4claude/goldmark"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -14,7 +14,7 @@ func TestNew(t *testing.T) {
 	t.Run("returns a Converter that implements jira4claude.Converter", func(t *testing.T) {
 		t.Parallel()
 
-		converter := adf.New()
+		converter := goldmark.New()
 
 		// This verifies that the returned type satisfies the interface
 		var _ jira4claude.Converter = converter
@@ -62,7 +62,7 @@ This is a paragraph with **bold** and *italic* text.
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			converter := adf.New()
+			converter := goldmark.New()
 
 			// Markdown -> ADF -> Markdown
 			adfDoc, warnings := converter.ToADF(tc.markdown)
