@@ -27,7 +27,11 @@ func renderColorCard(s *Styles, title, content string) string {
 		// Custom border top with title
 		cardStyle = cardStyle.BorderTop(false)
 		titleWidth := lipgloss.Width(titleLine)
-		topBorder := "╭" + titleLine + strings.Repeat("─", s.Width-titleWidth-3) + "╮"
+		repeatCount := s.Width - titleWidth - 3
+		if repeatCount < 0 {
+			repeatCount = 0
+		}
+		topBorder := "╭" + titleLine + strings.Repeat("─", repeatCount) + "╮"
 		return topBorder + "\n" + cardStyle.Render(content)
 	}
 

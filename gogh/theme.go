@@ -12,6 +12,7 @@ type Theme struct {
 	Warning lipgloss.AdaptiveColor
 	Error   lipgloss.AdaptiveColor
 	Muted   lipgloss.AdaptiveColor
+	Label   lipgloss.AdaptiveColor
 }
 
 // Indicators contains status and message indicators that vary by mode.
@@ -33,9 +34,7 @@ type Separators struct {
 
 // CardStyles contains styles for card rendering.
 type CardStyles struct {
-	Border  lipgloss.Style
-	Title   lipgloss.Style
-	Content lipgloss.Style
+	Border lipgloss.Style
 }
 
 // BadgeStyles contains styles for status badges.
@@ -72,6 +71,7 @@ func NewStyles(r *lipgloss.Renderer) *Styles {
 			Warning: lipgloss.AdaptiveColor{Light: "11", Dark: "11"},
 			Error:   lipgloss.AdaptiveColor{Light: "9", Dark: "9"},
 			Muted:   lipgloss.AdaptiveColor{Light: "8", Dark: "8"},
+			Label:   lipgloss.AdaptiveColor{Light: "14", Dark: "14"},
 		},
 	}
 
@@ -109,17 +109,13 @@ func NewStyles(r *lipgloss.Renderer) *Styles {
 	// Configure card styles
 	if noColor {
 		s.Card = CardStyles{
-			Border:  r.NewStyle(),
-			Title:   r.NewStyle().Bold(true),
-			Content: r.NewStyle(),
+			Border: r.NewStyle(),
 		}
 	} else {
 		s.Card = CardStyles{
 			Border: r.NewStyle().
 				Border(lipgloss.RoundedBorder()).
 				BorderForeground(lipgloss.Color("240")),
-			Title:   r.NewStyle().Bold(true),
-			Content: r.NewStyle(),
 		}
 	}
 
@@ -178,7 +174,7 @@ func (s *Styles) Label(text string) string {
 	if s.NoColor {
 		return text
 	}
-	return s.Renderer.NewStyle().Foreground(lipgloss.Color("14")).Render(text)
+	return s.Renderer.NewStyle().Foreground(s.Theme.Label).Render(text)
 }
 
 // Header styles a header.
