@@ -61,9 +61,13 @@ func TestTextPrinter_Issue_ShowsOptionalFields(t *testing.T) {
 	p.Issue(view)
 
 	output := out.String()
-	assert.Contains(t, output, "Priority: High")
-	assert.Contains(t, output, "Assignee: John Doe")
-	assert.Contains(t, output, "Reporter: Jane Smith")
+	// Priority is shown with indicator in card layout
+	assert.Contains(t, output, "High")
+	// Assignee and Reporter are shown in card layout
+	assert.Contains(t, output, "Assignee:")
+	assert.Contains(t, output, "John Doe")
+	assert.Contains(t, output, "Reporter:")
+	assert.Contains(t, output, "Jane Smith")
 	assert.Contains(t, output, "TEST-100")
 	assert.Contains(t, output, "bug")
 	assert.Contains(t, output, "urgent")
@@ -125,7 +129,8 @@ func TestTextPrinter_Issue_ShowsLinks(t *testing.T) {
 	p.Issue(view)
 
 	output := out.String()
-	assert.Contains(t, output, "Links:")
+	// Links are now shown in a LINKED ISSUES card
+	assert.Contains(t, output, "LINKED ISSUES")
 	assert.Contains(t, output, "blocks")
 	assert.Contains(t, output, "TEST-456")
 	assert.Contains(t, output, "is blocked by")
@@ -892,3 +897,209 @@ func TestTextPrinter_Success_ShowsOkIndicatorInNoColorMode(t *testing.T) {
 
 // Verify TextPrinter implements Printer interface at compile time.
 var _ jira4claude.Printer = (*gogh.TextPrinter)(nil)
+
+// Card layout tests for Issue()
+
+func TestTextPrinter_Issue_CardLayout_TextOnlyMode_HeaderSection(t *testing.T) {
+	t.Parallel()
+
+	var out, errOut bytes.Buffer
+	r := lipgloss.NewRenderer(&out)
+	r.SetColorProfile(termenv.Ascii)
+	styles := gogh.NewStyles(r)
+
+	io := gogh.NewIO(&out, &errOut)
+	p := gogh.NewTextPrinterWithStyles(io, styles)
+
+	view := jira4claude.IssueView{
+		Key:      "J4C-81",
+		Summary:  "Add CLI view models and update handlers",
+		Status:   "Done",
+		Type:     "Task",
+		Priority: "Medium",
+		Assignee: "Filip Wojciechowski",
+		Reporter: "Filip Wojciechowski",
+		Created:  "2024-01-01T12:00:00Z",
+		Updated:  "2024-01-02T12:00:00Z",
+	}
+
+	p.Issue(view)
+
+	output := out.String()
+	// Header should show key and type badge on first line
+	assert.Contains(t, output, "J4C-81")
+	assert.Contains(t, output, "TASK")
+	// Summary on next line
+	assert.Contains(t, output, "Add CLI view models and update handlers")
+	// Status with text-only indicator
+	assert.Contains(t, output, "[x] Done")
+	// Priority with text-only indicator
+	assert.Contains(t, output, "[!] Medium")
+	// Assignee and Reporter
+	assert.Contains(t, output, "Assignee:")
+	assert.Contains(t, output, "Reporter:")
+	assert.Contains(t, output, "Filip Wojciechowski")
+}
+
+func TestTextPrinter_Issue_CardLayout_ColorMode_HasBorders(t *testing.T) {
+	t.Parallel()
+
+	var out, errOut bytes.Buffer
+	r := lipgloss.NewRenderer(&out)
+	r.SetColorProfile(termenv.TrueColor)
+	styles := gogh.NewStyles(r)
+
+	io := gogh.NewIO(&out, &errOut)
+	p := gogh.NewTextPrinterWithStyles(io, styles)
+
+	view := jira4claude.IssueView{
+		Key:      "J4C-81",
+		Summary:  "Add CLI view models and update handlers",
+		Status:   "Done",
+		Type:     "Task",
+		Priority: "Medium",
+		Assignee: "Filip Wojciechowski",
+		Reporter: "Filip Wojciechowski",
+		Created:  "2024-01-01T12:00:00Z",
+		Updated:  "2024-01-02T12:00:00Z",
+	}
+
+	p.Issue(view)
+
+	output := out.String()
+	// Should have rounded border characters
+	assert.Contains(t, output, "╭")
+	assert.Contains(t, output, "╯")
+	// Status with unicode indicator
+	assert.Contains(t, output, "✓")
+	assert.Contains(t, output, "Done")
+	// Priority with unicode indicator
+	assert.Contains(t, output, "▲")
+	assert.Contains(t, output, "Medium")
+}
+
+func TestTextPrinter_Issue_CardLayout_TextOnlyMode_LinkedIssues(t *testing.T) {
+	t.Parallel()
+
+	var out, errOut bytes.Buffer
+	r := lipgloss.NewRenderer(&out)
+	r.SetColorProfile(termenv.Ascii)
+	styles := gogh.NewStyles(r)
+
+	io := gogh.NewIO(&out, &errOut)
+	p := gogh.NewTextPrinterWithStyles(io, styles)
+
+	view := jira4claude.IssueView{
+		Key:     "J4C-81",
+		Summary: "Test issue",
+		Status:  "Done",
+		Type:    "Task",
+		Created: "2024-01-01T12:00:00Z",
+		Updated: "2024-01-02T12:00:00Z",
+		Links: []jira4claude.LinkView{
+			{
+				Type:      "is blocked by",
+				Direction: "inward",
+				IssueKey:  "J4C-74",
+				Summary:   "Inject Converter into CLI IssueContext",
+				Status:    "Done",
+			},
+			{
+				Type:      "is blocked by",
+				Direction: "inward",
+				IssueKey:  "J4C-76",
+				Summary:   "Add warning propagation",
+				Status:    "Done",
+			},
+			{
+				Type:      "blocks",
+				Direction: "outward",
+				IssueKey:  "J4C-78",
+				Summary:   "Rename adf package",
+				Status:    "To Do",
+			},
+		},
+	}
+
+	p.Issue(view)
+
+	output := out.String()
+	// Should have LINKED ISSUES section with text header
+	assert.Contains(t, output, "=== LINKED ISSUES ===")
+	// Links should be grouped by type
+	assert.Contains(t, output, "is blocked by")
+	assert.Contains(t, output, "blocks")
+	// Should show linked issues with their status
+	assert.Contains(t, output, "J4C-74")
+	assert.Contains(t, output, "[Done]")
+	assert.Contains(t, output, "J4C-78")
+	assert.Contains(t, output, "[To Do]")
+}
+
+func TestTextPrinter_Issue_CardLayout_ColorMode_LinkedIssues(t *testing.T) {
+	t.Parallel()
+
+	var out, errOut bytes.Buffer
+	r := lipgloss.NewRenderer(&out)
+	r.SetColorProfile(termenv.TrueColor)
+	styles := gogh.NewStyles(r)
+
+	io := gogh.NewIO(&out, &errOut)
+	p := gogh.NewTextPrinterWithStyles(io, styles)
+
+	view := jira4claude.IssueView{
+		Key:     "J4C-81",
+		Summary: "Test issue",
+		Status:  "Done",
+		Type:    "Task",
+		Created: "2024-01-01T12:00:00Z",
+		Updated: "2024-01-02T12:00:00Z",
+		Links: []jira4claude.LinkView{
+			{
+				Type:      "is blocked by",
+				Direction: "inward",
+				IssueKey:  "J4C-74",
+				Summary:   "Inject Converter",
+				Status:    "Done",
+			},
+		},
+	}
+
+	p.Issue(view)
+
+	output := out.String()
+	// Should have LINKED ISSUES card with borders
+	assert.Contains(t, output, "╭─ LINKED ISSUES")
+	assert.Contains(t, output, "is blocked by")
+	assert.Contains(t, output, "J4C-74")
+}
+
+func TestTextPrinter_Issue_CardLayout_StatusAndPriorityAreSeparated(t *testing.T) {
+	t.Parallel()
+
+	var out, errOut bytes.Buffer
+	r := lipgloss.NewRenderer(&out)
+	r.SetColorProfile(termenv.TrueColor)
+	styles := gogh.NewStyles(r)
+
+	io := gogh.NewIO(&out, &errOut)
+	p := gogh.NewTextPrinterWithStyles(io, styles)
+
+	view := jira4claude.IssueView{
+		Key:      "J4C-81",
+		Summary:  "Test issue",
+		Status:   "In Progress",
+		Type:     "Task",
+		Priority: "Medium",
+		Created:  "2024-01-01T12:00:00Z",
+		Updated:  "2024-01-02T12:00:00Z",
+	}
+
+	p.Issue(view)
+
+	output := out.String()
+	// Status and priority should be on same line but properly spaced
+	// Check that they are not running together (there should be spaces between them)
+	assert.NotContains(t, output, "In Progress▲")
+	assert.NotContains(t, output, "Progress▲")
+}
