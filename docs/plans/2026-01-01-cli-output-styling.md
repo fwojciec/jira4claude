@@ -245,30 +245,162 @@ blocks
 Already in use:
 - `github.com/charmbracelet/lipgloss` - Styling primitives
 - `github.com/charmbracelet/lipgloss/table` - Table rendering
+- `github.com/muesli/termenv` - Terminal capability detection
 
 May add:
 - `github.com/charmbracelet/glamour` - Markdown rendering (for descriptions)
 
 ### Architecture
 
-1. **Theme struct** in `gogh/` - Centralizes style decisions based on NO_COLOR detection
-2. **Card renderer** - Reusable component for bordered sections
-3. **Update TextPrinter methods** - Apply new layouts to each output type
+Following Charm ecosystem best practices (from mods, soft-serve, glow):
 
-### Files to Modify
+1. **Theme struct** - Color palette definition, separate from styles
+2. **Styles struct** - All lipgloss styles, grouped by component
+3. **Render functions** - Pure functions for each output type (not component structs)
+4. **Factory function** - Creates Styles with renderer injection, decides borders at construction
 
-- `gogh/style.go` - Extend with Theme, card builders, separators
-- `gogh/text.go` - Update Issue(), Issues(), Transitions(), Links(), Success(), Warning(), Error()
+### File Structure
+
+```
+gogh/
+  theme.go      # Theme (colors) + Styles struct + NewStyles() factory
+  render.go     # Render functions: RenderCard(), RenderBadge(), RenderStatus(), etc.
+  text.go       # TextPrinter uses Styles + render functions
+  json.go       # JSONPrinter (unchanged)
+  style.go      # (remove or merge into theme.go)
+```
+
+### Core Types
+
+```go
+// theme.go
+
+// Theme defines the color palette
+type Theme struct {
+    Primary   lipgloss.AdaptiveColor
+    Success   lipgloss.Color
+    Warning   lipgloss.Color
+    Error     lipgloss.Color
+    Muted     lipgloss.AdaptiveColor
+}
+
+// Styles contains all application styles
+type Styles struct {
+    Theme   Theme
+    NoColor bool
+    Width   int
+
+    // Component styles
+    Card struct {
+        Border  lipgloss.Style
+        Title   lipgloss.Style
+        Content lipgloss.Style
+    }
+
+    Badge struct {
+        Done       lipgloss.Style
+        InProgress lipgloss.Style
+        ToDo       lipgloss.Style
+    }
+
+    // Indicators (text varies by mode)
+    Indicators struct {
+        StatusDone       string  // "✓" or "[x]"
+        StatusInProgress string  // "▶" or "[>]"
+        StatusToDo       string  // "○" or "[ ]"
+        Arrow            string  // "→" or "->"
+        Success          string  // "✓" or "[ok]"
+        Warning          string  // "⚠" or "[warn]"
+        Error            string  // "✗" or "[error]"
+    }
+
+    // Separators
+    Separators struct {
+        Dotted string  // "┄┄┄" or "..."
+        Solid  string  // "───" or "---"
+    }
+}
+
+// NewStyles creates styles based on terminal capabilities
+func NewStyles(r *lipgloss.Renderer) *Styles {
+    profile := termenv.EnvColorProfile()
+    noColor := profile == termenv.Ascii
+
+    // Select borders and indicators based on mode
+    // ...
+}
+
+// DefaultStyles creates styles for stdout with auto-detection
+func DefaultStyles() *Styles {
+    return NewStyles(lipgloss.DefaultRenderer())
+}
+```
+
+### Render Functions
+
+```go
+// render.go
+
+// RenderCard creates a bordered card (or plain section in text-only mode)
+func RenderCard(s *Styles, title, content string) string
+
+// RenderIssueHeader creates the issue header card
+func RenderIssueHeader(s *Styles, view IssueView) string
+
+// RenderLinksCard creates the linked issues card
+func RenderLinksCard(s *Styles, links []LinkView) string
+
+// RenderStatusBadge formats status with indicator
+func RenderStatusBadge(s *Styles, status string) string
+
+// RenderPriorityBadge formats priority with indicator
+func RenderPriorityBadge(s *Styles, priority string) string
+```
 
 ### Detection Logic
 
+Mode detection happens once at Styles construction via termenv:
+
 ```go
-func (t *Theme) NoColor() bool {
-    return os.Getenv("NO_COLOR") != "" ||
-           os.Getenv("CLICOLOR") == "0" ||
-           termenv.EnvColorProfile() == termenv.Ascii
+func NewStyles(r *lipgloss.Renderer) *Styles {
+    profile := termenv.EnvColorProfile()
+    noColor := profile == termenv.Ascii
+
+    s := &Styles{
+        NoColor: noColor,
+        Width:   80,
+    }
+
+    // Select border based on mode
+    if noColor {
+        // No borders in text-only mode
+        s.Card.Border = r.NewStyle()
+    } else {
+        s.Card.Border = r.NewStyle().
+            Border(lipgloss.RoundedBorder()).
+            BorderForeground(lipgloss.Color("240"))
+    }
+
+    // Select indicators based on mode
+    if noColor {
+        s.Indicators.StatusDone = "[x]"
+        s.Indicators.Arrow = "->"
+        // ...
+    } else {
+        s.Indicators.StatusDone = "✓"
+        s.Indicators.Arrow = "→"
+        // ...
+    }
+
+    return s
 }
 ```
+
+This approach:
+- Detects capabilities once at startup (not per-render)
+- Injects renderer for testability
+- Uses pure render functions (easy to test, no state)
+- Follows patterns from Charm's production codebases
 
 ## Validation
 
