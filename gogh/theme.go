@@ -13,6 +13,13 @@ type Theme struct {
 	Error   lipgloss.AdaptiveColor
 	Muted   lipgloss.AdaptiveColor
 	Label   lipgloss.AdaptiveColor
+	Border  lipgloss.AdaptiveColor
+
+	// Priority colors (semantic: urgency level)
+	PriorityHighest lipgloss.AdaptiveColor
+	PriorityHigh    lipgloss.AdaptiveColor
+	PriorityMedium  lipgloss.AdaptiveColor
+	PriorityLow     lipgloss.AdaptiveColor
 }
 
 // Indicators contains status and message indicators that vary by mode.
@@ -72,6 +79,12 @@ func NewStyles(r *lipgloss.Renderer) *Styles {
 			Error:   lipgloss.AdaptiveColor{Light: "9", Dark: "9"},
 			Muted:   lipgloss.AdaptiveColor{Light: "8", Dark: "8"},
 			Label:   lipgloss.AdaptiveColor{Light: "14", Dark: "14"},
+			Border:  lipgloss.AdaptiveColor{Light: "240", Dark: "240"},
+
+			PriorityHighest: lipgloss.AdaptiveColor{Light: "9", Dark: "9"},     // red
+			PriorityHigh:    lipgloss.AdaptiveColor{Light: "208", Dark: "208"}, // orange
+			PriorityMedium:  lipgloss.AdaptiveColor{Light: "11", Dark: "11"},   // yellow
+			PriorityLow:     lipgloss.AdaptiveColor{Light: "8", Dark: "8"},     // gray
 		},
 	}
 
@@ -115,7 +128,7 @@ func NewStyles(r *lipgloss.Renderer) *Styles {
 		s.Card = CardStyles{
 			Border: r.NewStyle().
 				Border(lipgloss.RoundedBorder()).
-				BorderForeground(lipgloss.Color("240")),
+				BorderForeground(s.Theme.Border),
 		}
 	}
 

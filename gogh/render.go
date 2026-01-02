@@ -86,7 +86,7 @@ func RenderPriorityBadge(s *Styles, priority string) string {
 	if s.NoColor {
 		return indicator + " " + priority
 	}
-	return s.Renderer.NewStyle().Foreground(getPriorityColor(priority)).Render(indicator + " " + priority)
+	return s.Renderer.NewStyle().Foreground(getPriorityColor(s, priority)).Render(indicator + " " + priority)
 }
 
 func getUnicodePriorityIndicator(priority string) string {
@@ -123,18 +123,18 @@ func getASCIIPriorityIndicator(priority string) string {
 	}
 }
 
-func getPriorityColor(priority string) lipgloss.Color {
+func getPriorityColor(s *Styles, priority string) lipgloss.AdaptiveColor {
 	switch strings.ToLower(priority) {
 	case "highest":
-		return lipgloss.Color("9") // red
+		return s.Theme.PriorityHighest
 	case "high":
-		return lipgloss.Color("208") // orange
+		return s.Theme.PriorityHigh
 	case "medium":
-		return lipgloss.Color("11") // yellow
+		return s.Theme.PriorityMedium
 	case "low", "lowest":
-		return lipgloss.Color("8") // gray
+		return s.Theme.PriorityLow
 	default:
-		return lipgloss.Color("11")
+		return s.Theme.PriorityMedium
 	}
 }
 
