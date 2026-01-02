@@ -325,6 +325,69 @@ func TestTextPrinter_Issues_ShowsAssignee(t *testing.T) {
 	assert.Contains(t, output, "-") // unassigned marker
 }
 
+func TestTextPrinter_Issues_ColorMode_HasRoundedBorder(t *testing.T) {
+	t.Parallel()
+
+	var out, errOut bytes.Buffer
+	io := gogh.NewIO(&out, &errOut)
+	styles := trueColorStyles(t)
+	p := gogh.NewTextPrinterWithStyles(io, styles)
+
+	views := []jira4claude.IssueView{
+		{Key: "TEST-1", Summary: "Issue one", Status: "Open", Created: "2024-01-01T12:00:00Z", Updated: "2024-01-02T12:00:00Z"},
+	}
+
+	p.Issues(views)
+
+	output := out.String()
+	// Should have rounded border characters
+	assert.Contains(t, output, "╭", "expected top-left rounded corner")
+	assert.Contains(t, output, "╮", "expected top-right rounded corner")
+	assert.Contains(t, output, "╰", "expected bottom-left rounded corner")
+	assert.Contains(t, output, "╯", "expected bottom-right rounded corner")
+}
+
+func TestTextPrinter_Issues_ColorMode_HasDottedHeaderSeparator(t *testing.T) {
+	t.Parallel()
+
+	var out, errOut bytes.Buffer
+	io := gogh.NewIO(&out, &errOut)
+	styles := trueColorStyles(t)
+	p := gogh.NewTextPrinterWithStyles(io, styles)
+
+	views := []jira4claude.IssueView{
+		{Key: "TEST-1", Summary: "Issue one", Status: "Open", Created: "2024-01-01T12:00:00Z", Updated: "2024-01-02T12:00:00Z"},
+	}
+
+	p.Issues(views)
+
+	output := out.String()
+	// Should have dotted separator line after header
+	assert.Contains(t, output, "┄", "expected dotted separator after header")
+}
+
+func TestTextPrinter_Issues_TextOnlyMode_HasDashedHeaderSeparator(t *testing.T) {
+	t.Parallel()
+
+	var out, errOut bytes.Buffer
+	io := gogh.NewIO(&out, &errOut)
+	styles := asciiStyles(t)
+	p := gogh.NewTextPrinterWithStyles(io, styles)
+
+	views := []jira4claude.IssueView{
+		{Key: "TEST-1", Summary: "Issue one", Status: "Open", Created: "2024-01-01T12:00:00Z", Updated: "2024-01-02T12:00:00Z"},
+	}
+
+	p.Issues(views)
+
+	output := out.String()
+	// Should have dashed separator under header (at least 3 dashes in a row)
+	assert.Contains(t, output, "---", "expected dashed separator under header")
+	// Should NOT have box-drawing border characters
+	assert.NotContains(t, output, "╭", "should not have rounded corners in text-only mode")
+	assert.NotContains(t, output, "╮", "should not have rounded corners in text-only mode")
+}
+
 func TestTextPrinter_Transitions_ShowsAvailableTransitions(t *testing.T) {
 	t.Parallel()
 
