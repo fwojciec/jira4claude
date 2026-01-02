@@ -5,8 +5,10 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/charmbracelet/lipgloss"
 	"github.com/fwojciec/jira4claude"
 	"github.com/fwojciec/jira4claude/gogh"
+	"github.com/muesli/termenv"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -338,9 +340,7 @@ func TestTextPrinter_Transitions_ShowsAvailableTransitions(t *testing.T) {
 
 	output := out.String()
 	assert.Contains(t, output, "TEST-123")
-	assert.Contains(t, output, "21")
 	assert.Contains(t, output, "In Progress")
-	assert.Contains(t, output, "31")
 	assert.Contains(t, output, "Done")
 }
 
@@ -484,7 +484,6 @@ func TestTextPrinter_Error_WritesToStderr(t *testing.T) {
 
 	// Error should go to stderr, not stdout
 	assert.Empty(t, out.String(), "errors should not go to stdout")
-	assert.Contains(t, errOut.String(), "Error:")
 	assert.Contains(t, errOut.String(), "something went wrong")
 }
 
@@ -516,7 +515,6 @@ func TestTextPrinter_Warning_WritesToStderr(t *testing.T) {
 
 	// Warning should go to stderr, not stdout
 	assert.Empty(t, out.String(), "warnings should not go to stdout")
-	assert.Contains(t, errOut.String(), "warning:")
 	assert.Contains(t, errOut.String(), "unsupported element skipped")
 }
 
@@ -669,6 +667,152 @@ func TestTextPrinter_Comment_ShowsUnknownWhenNoAuthor(t *testing.T) {
 	output := out.String()
 	assert.Contains(t, output, "Unknown")
 	assert.Contains(t, output, "Comment without author")
+}
+
+func TestTextPrinter_Transitions_ShowsArrowInColorMode(t *testing.T) {
+	t.Parallel()
+
+	var out, errOut bytes.Buffer
+	r := lipgloss.NewRenderer(&out)
+	r.SetColorProfile(termenv.TrueColor)
+	styles := gogh.NewStyles(r)
+	io := gogh.NewIO(&out, &errOut)
+	p := gogh.NewTextPrinterWithStyles(io, styles)
+
+	transitions := []*jira4claude.Transition{
+		{ID: "21", Name: "Start Progress"},
+		{ID: "31", Name: "Done"},
+	}
+
+	p.Transitions("TEST-123", transitions)
+
+	output := out.String()
+	assert.Contains(t, output, "→")
+}
+
+func TestTextPrinter_Transitions_ShowsTextArrowInNoColorMode(t *testing.T) {
+	t.Parallel()
+
+	var out, errOut bytes.Buffer
+	r := lipgloss.NewRenderer(&out)
+	r.SetColorProfile(termenv.Ascii)
+	styles := gogh.NewStyles(r)
+	io := gogh.NewIO(&out, &errOut)
+	p := gogh.NewTextPrinterWithStyles(io, styles)
+
+	transitions := []*jira4claude.Transition{
+		{ID: "21", Name: "Start Progress"},
+		{ID: "31", Name: "Done"},
+	}
+
+	p.Transitions("TEST-123", transitions)
+
+	output := out.String()
+	assert.Contains(t, output, "->")
+	assert.NotContains(t, output, "→")
+}
+
+func TestTextPrinter_Error_ShowsXIndicatorInColorMode(t *testing.T) {
+	t.Parallel()
+
+	var out, errOut bytes.Buffer
+	r := lipgloss.NewRenderer(&errOut)
+	r.SetColorProfile(termenv.TrueColor)
+	styles := gogh.NewStyles(r)
+	io := gogh.NewIO(&out, &errOut)
+	p := gogh.NewTextPrinterWithStyles(io, styles)
+
+	p.Error(errors.New("something went wrong"))
+
+	errOutput := errOut.String()
+	assert.Contains(t, errOutput, "✗")
+	assert.Contains(t, errOutput, "Error:")
+}
+
+func TestTextPrinter_Error_ShowsErrorIndicatorInNoColorMode(t *testing.T) {
+	t.Parallel()
+
+	var out, errOut bytes.Buffer
+	r := lipgloss.NewRenderer(&errOut)
+	r.SetColorProfile(termenv.Ascii)
+	styles := gogh.NewStyles(r)
+	io := gogh.NewIO(&out, &errOut)
+	p := gogh.NewTextPrinterWithStyles(io, styles)
+
+	p.Error(errors.New("something went wrong"))
+
+	errOutput := errOut.String()
+	assert.Contains(t, errOutput, "[error]")
+	assert.NotContains(t, errOutput, "✗")
+	assert.NotContains(t, errOutput, "Error:")
+}
+
+func TestTextPrinter_Warning_ShowsWarningSymbolInColorMode(t *testing.T) {
+	t.Parallel()
+
+	var out, errOut bytes.Buffer
+	r := lipgloss.NewRenderer(&errOut)
+	r.SetColorProfile(termenv.TrueColor)
+	styles := gogh.NewStyles(r)
+	io := gogh.NewIO(&out, &errOut)
+	p := gogh.NewTextPrinterWithStyles(io, styles)
+
+	p.Warning("unsupported element skipped")
+
+	errOutput := errOut.String()
+	assert.Contains(t, errOutput, "⚠")
+	assert.Contains(t, errOutput, "Warning:")
+}
+
+func TestTextPrinter_Warning_ShowsWarnIndicatorInNoColorMode(t *testing.T) {
+	t.Parallel()
+
+	var out, errOut bytes.Buffer
+	r := lipgloss.NewRenderer(&errOut)
+	r.SetColorProfile(termenv.Ascii)
+	styles := gogh.NewStyles(r)
+	io := gogh.NewIO(&out, &errOut)
+	p := gogh.NewTextPrinterWithStyles(io, styles)
+
+	p.Warning("unsupported element skipped")
+
+	errOutput := errOut.String()
+	assert.Contains(t, errOutput, "[warn]")
+	assert.NotContains(t, errOutput, "⚠")
+	assert.NotContains(t, errOutput, "Warning:")
+}
+
+func TestTextPrinter_Success_ShowsCheckmarkIndicatorInColorMode(t *testing.T) {
+	t.Parallel()
+
+	var out, errOut bytes.Buffer
+	r := lipgloss.NewRenderer(&out)
+	r.SetColorProfile(termenv.TrueColor)
+	styles := gogh.NewStyles(r)
+	io := gogh.NewIO(&out, &errOut)
+	p := gogh.NewTextPrinterWithStyles(io, styles)
+
+	p.Success("Transitioned:", "TEST-123")
+
+	output := out.String()
+	assert.Contains(t, output, "✓")
+}
+
+func TestTextPrinter_Success_ShowsOkIndicatorInNoColorMode(t *testing.T) {
+	t.Parallel()
+
+	var out, errOut bytes.Buffer
+	r := lipgloss.NewRenderer(&out)
+	r.SetColorProfile(termenv.Ascii)
+	styles := gogh.NewStyles(r)
+	io := gogh.NewIO(&out, &errOut)
+	p := gogh.NewTextPrinterWithStyles(io, styles)
+
+	p.Success("Transitioned:", "TEST-123")
+
+	output := out.String()
+	assert.Contains(t, output, "[ok]")
+	assert.NotContains(t, output, "✓")
 }
 
 // Verify TextPrinter implements Printer interface at compile time.

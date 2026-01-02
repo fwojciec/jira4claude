@@ -23,6 +23,15 @@ func NewTextPrinter(io *IO) *TextPrinter {
 	}
 }
 
+// NewTextPrinterWithStyles creates a text printer with custom styles.
+// This is primarily used for testing with controlled color profiles.
+func NewTextPrinterWithStyles(io *IO, styles *Styles) *TextPrinter {
+	return &TextPrinter{
+		io:     io,
+		styles: styles,
+	}
+}
+
 // Issue prints a single issue in detail format.
 func (p *TextPrinter) Issue(view jira4claude.IssueView) {
 	fmt.Fprintf(p.io.Out, "%s  %s\n", p.styles.Key(view.Key), view.Summary)
@@ -130,9 +139,10 @@ func (p *TextPrinter) Transitions(key string, ts []*jira4claude.Transition) {
 		return
 	}
 
+	arrow := p.styles.Indicators.Arrow
 	fmt.Fprintf(p.io.Out, "Available transitions for %s:\n", p.styles.Key(key))
 	for _, t := range ts {
-		fmt.Fprintf(p.io.Out, "  %s: %s\n", t.ID, p.styles.Status(t.Name))
+		fmt.Fprintf(p.io.Out, "  %s %s\n", arrow, p.styles.Status(t.Name))
 	}
 }
 
@@ -169,30 +179,41 @@ func (p *TextPrinter) Links(key string, links []jira4claude.LinkView) {
 
 // Success prints a success message to stdout.
 func (p *TextPrinter) Success(msg string, keys ...string) {
+	indicator := p.styles.Indicators.Success
 	if len(keys) > 0 {
 		styledKeys := make([]string, len(keys))
 		for i, k := range keys {
 			styledKeys[i] = p.styles.Key(k)
 		}
-		fmt.Fprintf(p.io.Out, "%s %s\n", msg, strings.Join(styledKeys, ", "))
+		fmt.Fprintf(p.io.Out, "%s %s %s\n", indicator, msg, strings.Join(styledKeys, ", "))
 		if p.io.ServerURL != "" {
 			for _, k := range keys {
 				fmt.Fprintf(p.io.Out, "%s/browse/%s\n", p.io.ServerURL, k)
 			}
 		}
 	} else {
-		fmt.Fprintln(p.io.Out, msg)
+		fmt.Fprintf(p.io.Out, "%s %s\n", indicator, msg)
 	}
 }
 
 // Warning prints a warning message to stderr.
 func (p *TextPrinter) Warning(msg string) {
-	fmt.Fprintln(p.io.Err, p.styles.Warning(msg))
+	indicator := p.styles.Indicators.Warning
+	if p.styles.NoColor {
+		fmt.Fprintf(p.io.Err, "%s %s\n", indicator, msg)
+	} else {
+		fmt.Fprintf(p.io.Err, "%s Warning: %s\n", indicator, msg)
+	}
 }
 
 // Error prints an error message to stderr.
 func (p *TextPrinter) Error(err error) {
-	fmt.Fprintf(p.io.Err, "%s %s\n", p.styles.Error("Error:"), jira4claude.ErrorMessage(err))
+	indicator := p.styles.Indicators.Error
+	if p.styles.NoColor {
+		fmt.Fprintf(p.io.Err, "%s %s\n", indicator, jira4claude.ErrorMessage(err))
+	} else {
+		fmt.Fprintf(p.io.Err, "%s Error: %s\n", indicator, jira4claude.ErrorMessage(err))
+	}
 }
 
 func truncateString(s string, maxLen int) string {
