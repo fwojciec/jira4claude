@@ -1502,7 +1502,7 @@ func TestTextPrinter_Issue_NoExtraTrailingNewlines_TextMode(t *testing.T) {
 	assert.NotContains(t, output, "\n\n\n", "should not have more than one blank line in a row")
 }
 
-func TestTextPrinter_Issue_CardLayout_ColorMode_SharpBordersOnMainCard(t *testing.T) {
+func TestTextPrinter_Issue_CardLayout_ColorMode_RoundedBordersOnMainCard(t *testing.T) {
 	t.Parallel()
 
 	var out, errOut bytes.Buffer
@@ -1522,9 +1522,7 @@ func TestTextPrinter_Issue_CardLayout_ColorMode_SharpBordersOnMainCard(t *testin
 	p.Issue(view)
 
 	output := out.String()
-	// Main card (header) should use sharp corners for consistency
-	// Check that both cards use the same border style
-	// Both should use rounded borders (╭ and ╯)
+	// Main card (header) should use rounded borders (╭ and ╯)
 	assert.Contains(t, output, "╭", "main card should have top-left border")
 	assert.Contains(t, output, "╯", "main card should have bottom-right border")
 }
