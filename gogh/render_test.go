@@ -165,6 +165,26 @@ func TestRenderPriorityBadge(t *testing.T) {
 	})
 }
 
+func TestRenderCard_TitleBorderWidth(t *testing.T) {
+	t.Parallel()
+
+	var buf bytes.Buffer
+	r := lipgloss.NewRenderer(&buf)
+	r.SetColorProfile(termenv.TrueColor)
+	styles := gogh.NewStyles(r)
+
+	// Render a card with title
+	result := gogh.RenderCard(styles, "LINKED ISSUES", "content")
+
+	// Get the first line (the title border)
+	lines := strings.Split(result, "\n")
+	titleBorder := lines[0]
+
+	// The title border should be exactly 80 characters wide
+	width := lipgloss.Width(titleBorder)
+	assert.Equal(t, 80, width, "title border should be 80 characters wide, got: %s", titleBorder)
+}
+
 func TestRenderSeparator(t *testing.T) {
 	t.Parallel()
 
