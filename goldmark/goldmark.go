@@ -1,6 +1,6 @@
-// Package adf provides conversion between GitHub Flavored Markdown (GFM)
-// and Atlassian Document Format (ADF).
-package adf
+// Package goldmark provides conversion between GitHub Flavored Markdown (GFM)
+// and Atlassian Document Format (ADF) using the goldmark library.
+package goldmark
 
 import "github.com/fwojciec/jira4claude"
 
