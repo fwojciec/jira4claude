@@ -19,7 +19,7 @@ type TextPrinter struct {
 func NewTextPrinter(io *IO) *TextPrinter {
 	return &TextPrinter{
 		io:     io,
-		styles: NewStyles(),
+		styles: DefaultStyles(),
 	}
 }
 
@@ -102,7 +102,7 @@ func (p *TextPrinter) Issues(views []jira4claude.IssueView) {
 		BorderHeader(false).
 		StyleFunc(func(row, col int) lipgloss.Style {
 			style := lipgloss.NewStyle().PaddingRight(2)
-			if p.styles.NoColor() {
+			if p.styles.NoColor {
 				return style
 			}
 			if row == table.HeaderRow {
