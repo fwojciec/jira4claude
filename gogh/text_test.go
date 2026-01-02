@@ -3,6 +3,7 @@ package gogh_test
 import (
 	"bytes"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/charmbracelet/lipgloss"
@@ -342,6 +343,9 @@ func TestTextPrinter_Transitions_ShowsAvailableTransitions(t *testing.T) {
 	assert.Contains(t, output, "TEST-123")
 	assert.Contains(t, output, "In Progress")
 	assert.Contains(t, output, "Done")
+	// Should have arrow indicator (→ in color mode, -> in no-color)
+	assert.True(t, strings.Contains(output, "->") || strings.Contains(output, "→"),
+		"expected arrow indicator")
 }
 
 func TestTextPrinter_Transitions_ShowsEmptyListWithContext(t *testing.T) {
@@ -485,6 +489,10 @@ func TestTextPrinter_Error_WritesToStderr(t *testing.T) {
 	// Error should go to stderr, not stdout
 	assert.Empty(t, out.String(), "errors should not go to stdout")
 	assert.Contains(t, errOut.String(), "something went wrong")
+	// Should have some indicator (✗/Error: in color mode, [error] in no-color)
+	errOutput := errOut.String()
+	assert.True(t, strings.Contains(errOutput, "[error]") || strings.Contains(errOutput, "✗"),
+		"expected error indicator")
 }
 
 func TestTextPrinter_Error_UsesErrorMessage(t *testing.T) {
@@ -516,6 +524,10 @@ func TestTextPrinter_Warning_WritesToStderr(t *testing.T) {
 	// Warning should go to stderr, not stdout
 	assert.Empty(t, out.String(), "warnings should not go to stdout")
 	assert.Contains(t, errOut.String(), "unsupported element skipped")
+	// Should have some indicator (⚠/Warning: in color mode, [warn] in no-color)
+	errOutput := errOut.String()
+	assert.True(t, strings.Contains(errOutput, "[warn]") || strings.Contains(errOutput, "⚠"),
+		"expected warning indicator")
 }
 
 func TestTextPrinter_Warning_MultipleWarnings(t *testing.T) {
