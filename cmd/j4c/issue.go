@@ -32,9 +32,8 @@ func (c *IssueViewCmd) Run(ctx *IssueContext) error {
 	if err != nil {
 		return err
 	}
-	// TODO(J4C-80): Convert ADF to markdown here at CLI boundary and use view models.
-	// For now, printer handles ADF directly (outputs as JSON).
-	ctx.Printer.Issue(issue)
+	view := jira4claude.ToIssueView(issue, ctx.Converter, ctx.Printer.Warning, ctx.Config.Server)
+	ctx.Printer.Issue(view)
 	return nil
 }
 
@@ -68,7 +67,8 @@ func (c *IssueListCmd) Run(ctx *IssueContext) error {
 	if err != nil {
 		return err
 	}
-	ctx.Printer.Issues(issues)
+	views := jira4claude.ToIssuesView(issues, ctx.Converter, ctx.Printer.Warning, ctx.Config.Server)
+	ctx.Printer.Issues(views)
 	return nil
 }
 
@@ -102,7 +102,8 @@ func (c *IssueReadyCmd) Run(ctx *IssueContext) error {
 		}
 	}
 
-	ctx.Printer.Issues(ready)
+	views := jira4claude.ToIssuesView(ready, ctx.Converter, ctx.Printer.Warning, ctx.Config.Server)
+	ctx.Printer.Issues(views)
 	return nil
 }
 
@@ -130,10 +131,13 @@ func (c *IssueCreateCmd) Run(ctx *IssueContext) error {
 	}
 
 	// Convert description to ADF (plain text is valid GFM)
-	// TODO(J4C-76): Propagate conversion warnings to user via MessagePrinter.Warning
 	var description jira4claude.ADF
 	if c.Description != "" {
-		description, _ = ctx.Converter.ToADF(c.Description) // warnings ignored until J4C-76
+		var warnings []string
+		description, warnings = ctx.Converter.ToADF(c.Description)
+		for _, w := range warnings {
+			ctx.Printer.Warning(w)
+		}
 	}
 
 	issue := &jira4claude.Issue{
@@ -169,10 +173,12 @@ type IssueUpdateCmd struct {
 // Run executes the update command.
 func (c *IssueUpdateCmd) Run(ctx *IssueContext) error {
 	// Convert description to ADF (plain text is valid GFM)
-	// TODO(J4C-76): Propagate conversion warnings to user via MessagePrinter.Warning
 	var description *jira4claude.ADF
 	if c.Description != nil && *c.Description != "" {
-		adfDoc, _ := ctx.Converter.ToADF(*c.Description) // warnings ignored until J4C-76
+		adfDoc, warnings := ctx.Converter.ToADF(*c.Description)
+		for _, w := range warnings {
+			ctx.Printer.Warning(w)
+		}
 		description = &adfDoc
 	}
 
@@ -294,8 +300,10 @@ type IssueCommentCmd struct {
 // Run executes the comment command.
 func (c *IssueCommentCmd) Run(ctx *IssueContext) error {
 	// Convert body to ADF (plain text is valid GFM)
-	// TODO(J4C-76): Propagate conversion warnings to user via MessagePrinter.Warning
-	body, _ := ctx.Converter.ToADF(c.Body) // warnings ignored until J4C-76
+	body, warnings := ctx.Converter.ToADF(c.Body)
+	for _, w := range warnings {
+		ctx.Printer.Warning(w)
+	}
 
 	comment, err := ctx.Service.AddComment(context.Background(), c.Key, body)
 	if err != nil {

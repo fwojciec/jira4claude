@@ -18,14 +18,16 @@ func TestJSONPrinter_Issue(t *testing.T) {
 	var out bytes.Buffer
 	p := gogh.NewJSONPrinter(&out)
 
-	issue := &jira4claude.Issue{
+	view := jira4claude.IssueView{
 		Key:     "TEST-123",
 		Summary: "Test issue",
 		Status:  "Open",
 		Type:    "Task",
+		Created: "2024-01-01T12:00:00Z",
+		Updated: "2024-01-02T12:00:00Z",
 	}
 
-	p.Issue(issue)
+	p.Issue(view)
 
 	var result map[string]any
 	err := json.Unmarshal(out.Bytes(), &result)
@@ -41,26 +43,21 @@ func TestJSONPrinter_Issue_WithAssignee(t *testing.T) {
 	var out bytes.Buffer
 	p := gogh.NewJSONPrinter(&out)
 
-	issue := &jira4claude.Issue{
-		Key:     "TEST-123",
-		Summary: "Test issue",
-		Status:  "Open",
-		Assignee: &jira4claude.User{
-			AccountID:   "abc123",
-			DisplayName: "John Doe",
-			Email:       "john@example.com",
-		},
+	view := jira4claude.IssueView{
+		Key:      "TEST-123",
+		Summary:  "Test issue",
+		Status:   "Open",
+		Assignee: "John Doe",
+		Created:  "2024-01-01T12:00:00Z",
+		Updated:  "2024-01-02T12:00:00Z",
 	}
 
-	p.Issue(issue)
+	p.Issue(view)
 
 	var result map[string]any
 	err := json.Unmarshal(out.Bytes(), &result)
 	require.NoError(t, err)
-	assignee, ok := result["assignee"].(map[string]any)
-	require.True(t, ok, "assignee should be a map")
-	assert.Equal(t, "abc123", assignee["accountId"])
-	assert.Equal(t, "John Doe", assignee["displayName"])
+	assert.Equal(t, "John Doe", result["assignee"])
 }
 
 func TestJSONPrinter_Issue_WithReporter(t *testing.T) {
@@ -69,26 +66,21 @@ func TestJSONPrinter_Issue_WithReporter(t *testing.T) {
 	var out bytes.Buffer
 	p := gogh.NewJSONPrinter(&out)
 
-	issue := &jira4claude.Issue{
-		Key:     "TEST-123",
-		Summary: "Test issue",
-		Status:  "Open",
-		Reporter: &jira4claude.User{
-			AccountID:   "xyz789",
-			DisplayName: "Jane Smith",
-			Email:       "jane@example.com",
-		},
+	view := jira4claude.IssueView{
+		Key:      "TEST-123",
+		Summary:  "Test issue",
+		Status:   "Open",
+		Reporter: "Jane Smith",
+		Created:  "2024-01-01T12:00:00Z",
+		Updated:  "2024-01-02T12:00:00Z",
 	}
 
-	p.Issue(issue)
+	p.Issue(view)
 
 	var result map[string]any
 	err := json.Unmarshal(out.Bytes(), &result)
 	require.NoError(t, err)
-	reporter, ok := result["reporter"].(map[string]any)
-	require.True(t, ok, "reporter should be a map")
-	assert.Equal(t, "xyz789", reporter["accountId"])
-	assert.Equal(t, "Jane Smith", reporter["displayName"])
+	assert.Equal(t, "Jane Smith", result["reporter"])
 }
 
 func TestJSONPrinter_Issue_WithLinks(t *testing.T) {
@@ -97,28 +89,24 @@ func TestJSONPrinter_Issue_WithLinks(t *testing.T) {
 	var out bytes.Buffer
 	p := gogh.NewJSONPrinter(&out)
 
-	issue := &jira4claude.Issue{
+	view := jira4claude.IssueView{
 		Key:     "TEST-123",
 		Summary: "Test issue",
 		Status:  "Open",
-		Links: []*jira4claude.IssueLink{
+		Created: "2024-01-01T12:00:00Z",
+		Updated: "2024-01-02T12:00:00Z",
+		Links: []jira4claude.LinkView{
 			{
-				ID: "link-1",
-				Type: jira4claude.IssueLinkType{
-					Name:    "Blocks",
-					Inward:  "is blocked by",
-					Outward: "blocks",
-				},
-				OutwardIssue: &jira4claude.LinkedIssue{
-					Key:     "TEST-456",
-					Summary: "Blocked issue",
-					Status:  "To Do",
-				},
+				Type:      "blocks",
+				Direction: "outward",
+				IssueKey:  "TEST-456",
+				Summary:   "Blocked issue",
+				Status:    "To Do",
 			},
 		},
 	}
 
-	p.Issue(issue)
+	p.Issue(view)
 
 	var result map[string]any
 	err := json.Unmarshal(out.Bytes(), &result)
@@ -128,13 +116,9 @@ func TestJSONPrinter_Issue_WithLinks(t *testing.T) {
 	require.Len(t, links, 1)
 
 	link := links[0].(map[string]any)
-	assert.Equal(t, "link-1", link["id"])
-
-	linkType := link["type"].(map[string]any)
-	assert.Equal(t, "Blocks", linkType["name"])
-
-	outwardIssue := link["outwardIssue"].(map[string]any)
-	assert.Equal(t, "TEST-456", outwardIssue["key"])
+	assert.Equal(t, "blocks", link["type"])
+	assert.Equal(t, "outward", link["direction"])
+	assert.Equal(t, "TEST-456", link["issueKey"])
 }
 
 func TestJSONPrinter_Issue_WithComments(t *testing.T) {
@@ -143,36 +127,29 @@ func TestJSONPrinter_Issue_WithComments(t *testing.T) {
 	var out bytes.Buffer
 	p := gogh.NewJSONPrinter(&out)
 
-	issue := &jira4claude.Issue{
+	view := jira4claude.IssueView{
 		Key:     "TEST-123",
 		Summary: "Test issue",
 		Status:  "Open",
-		Comments: []*jira4claude.Comment{
+		Created: "2024-01-01T12:00:00Z",
+		Updated: "2024-01-02T12:00:00Z",
+		Comments: []jira4claude.CommentView{
 			{
-				ID: "10001",
-				Author: &jira4claude.User{
-					AccountID:   "user123",
-					DisplayName: "John Doe",
-					Email:       "john@example.com",
-				},
-				Body: jira4claude.ADF{"type": "doc", "content": []any{
-					map[string]any{"type": "paragraph", "content": []any{
-						map[string]any{"type": "text", "text": "First comment"},
-					}},
-				}},
+				ID:      "10001",
+				Author:  "John Doe",
+				Body:    "First comment",
+				Created: "2024-01-15T10:30:00Z",
 			},
 			{
-				ID: "10002",
-				Body: jira4claude.ADF{"type": "doc", "content": []any{
-					map[string]any{"type": "paragraph", "content": []any{
-						map[string]any{"type": "text", "text": "Second comment"},
-					}},
-				}},
+				ID:      "10002",
+				Author:  "",
+				Body:    "Second comment",
+				Created: "2024-01-16T14:00:00Z",
 			},
 		},
 	}
 
-	p.Issue(issue)
+	p.Issue(view)
 
 	var result map[string]any
 	err := json.Unmarshal(out.Bytes(), &result)
@@ -184,18 +161,12 @@ func TestJSONPrinter_Issue_WithComments(t *testing.T) {
 
 	comment1 := comments[0].(map[string]any)
 	assert.Equal(t, "10001", comment1["id"])
-	// Body is now ADF (map[string]any), not a string
-	body1 := comment1["body"].(map[string]any)
-	assert.Equal(t, "doc", body1["type"])
-	author1 := comment1["author"].(map[string]any)
-	assert.Equal(t, "user123", author1["accountId"])
-	assert.Equal(t, "John Doe", author1["displayName"])
+	assert.Equal(t, "First comment", comment1["body"])
+	assert.Equal(t, "John Doe", comment1["author"])
 
 	comment2 := comments[1].(map[string]any)
 	assert.Equal(t, "10002", comment2["id"])
-	// Body is now ADF (map[string]any), not a string
-	body2 := comment2["body"].(map[string]any)
-	assert.Equal(t, "doc", body2["type"])
+	assert.Equal(t, "Second comment", comment2["body"])
 }
 
 func TestJSONPrinter_Issues(t *testing.T) {
@@ -204,12 +175,12 @@ func TestJSONPrinter_Issues(t *testing.T) {
 	var out bytes.Buffer
 	p := gogh.NewJSONPrinter(&out)
 
-	issues := []*jira4claude.Issue{
-		{Key: "TEST-1", Summary: "First", Status: "Open"},
-		{Key: "TEST-2", Summary: "Second", Status: "Done"},
+	views := []jira4claude.IssueView{
+		{Key: "TEST-1", Summary: "First", Status: "Open", Created: "2024-01-01T12:00:00Z", Updated: "2024-01-02T12:00:00Z"},
+		{Key: "TEST-2", Summary: "Second", Status: "Done", Created: "2024-01-01T12:00:00Z", Updated: "2024-01-02T12:00:00Z"},
 	}
 
-	p.Issues(issues)
+	p.Issues(views)
 
 	var result []map[string]any
 	err := json.Unmarshal(out.Bytes(), &result)
@@ -225,7 +196,7 @@ func TestJSONPrinter_Issues_Empty(t *testing.T) {
 	var out bytes.Buffer
 	p := gogh.NewJSONPrinter(&out)
 
-	p.Issues([]*jira4claude.Issue{})
+	p.Issues([]jira4claude.IssueView{})
 
 	var result []map[string]any
 	err := json.Unmarshal(out.Bytes(), &result)
@@ -260,19 +231,13 @@ func TestJSONPrinter_Links(t *testing.T) {
 	var out bytes.Buffer
 	p := gogh.NewJSONPrinter(&out)
 
-	links := []*jira4claude.IssueLink{
+	links := []jira4claude.LinkView{
 		{
-			ID: "link-1",
-			Type: jira4claude.IssueLinkType{
-				Name:    "Blocks",
-				Inward:  "is blocked by",
-				Outward: "blocks",
-			},
-			OutwardIssue: &jira4claude.LinkedIssue{
-				Key:     "TEST-456",
-				Summary: "Blocked issue",
-				Status:  "To Do",
-			},
+			Type:      "blocks",
+			Direction: "outward",
+			IssueKey:  "TEST-456",
+			Summary:   "Blocked issue",
+			Status:    "To Do",
 		},
 	}
 
@@ -282,7 +247,8 @@ func TestJSONPrinter_Links(t *testing.T) {
 	err := json.Unmarshal(out.Bytes(), &result)
 	require.NoError(t, err)
 	assert.Len(t, result, 1)
-	assert.Equal(t, "link-1", result[0]["id"])
+	assert.Equal(t, "blocks", result[0]["type"])
+	assert.Equal(t, "TEST-456", result[0]["issueKey"])
 }
 
 func TestJSONPrinter_Links_WithInwardIssue(t *testing.T) {
@@ -291,19 +257,13 @@ func TestJSONPrinter_Links_WithInwardIssue(t *testing.T) {
 	var out bytes.Buffer
 	p := gogh.NewJSONPrinter(&out)
 
-	links := []*jira4claude.IssueLink{
+	links := []jira4claude.LinkView{
 		{
-			ID: "link-2",
-			Type: jira4claude.IssueLinkType{
-				Name:    "Blocks",
-				Inward:  "is blocked by",
-				Outward: "blocks",
-			},
-			InwardIssue: &jira4claude.LinkedIssue{
-				Key:     "TEST-789",
-				Summary: "Blocking issue",
-				Status:  "In Progress",
-			},
+			Type:      "is blocked by",
+			Direction: "inward",
+			IssueKey:  "TEST-789",
+			Summary:   "Blocking issue",
+			Status:    "In Progress",
 		},
 	}
 
@@ -315,13 +275,10 @@ func TestJSONPrinter_Links_WithInwardIssue(t *testing.T) {
 	require.Len(t, result, 1)
 
 	link := result[0]
-	assert.Equal(t, "link-2", link["id"])
-
-	inwardIssue, ok := link["inwardIssue"].(map[string]any)
-	require.True(t, ok, "inwardIssue should be a map")
-	assert.Equal(t, "TEST-789", inwardIssue["key"])
-	assert.Equal(t, "Blocking issue", inwardIssue["summary"])
-	assert.Equal(t, "In Progress", inwardIssue["status"])
+	assert.Equal(t, "is blocked by", link["type"])
+	assert.Equal(t, "inward", link["direction"])
+	assert.Equal(t, "TEST-789", link["issueKey"])
+	assert.Equal(t, "In Progress", link["status"])
 }
 
 func TestJSONPrinter_Success(t *testing.T) {
@@ -395,21 +352,23 @@ func TestJSONPrinter_Error_WithCode(t *testing.T) {
 	assert.Equal(t, "Issue not found", result["message"])
 }
 
-func TestJSONPrinter_Issue_WithServerURL(t *testing.T) {
+func TestJSONPrinter_Issue_WithURL(t *testing.T) {
 	t.Parallel()
 
 	var out bytes.Buffer
 	p := gogh.NewJSONPrinter(&out)
-	p.SetServerURL("https://example.atlassian.net")
 
-	issue := &jira4claude.Issue{
+	view := jira4claude.IssueView{
 		Key:     "TEST-123",
 		Summary: "Test issue",
 		Status:  "Open",
 		Type:    "Task",
+		Created: "2024-01-01T12:00:00Z",
+		Updated: "2024-01-02T12:00:00Z",
+		URL:     "https://example.atlassian.net/browse/TEST-123",
 	}
 
-	p.Issue(issue)
+	p.Issue(view)
 
 	var result map[string]any
 	err := json.Unmarshal(out.Bytes(), &result)
@@ -417,27 +376,29 @@ func TestJSONPrinter_Issue_WithServerURL(t *testing.T) {
 	assert.Equal(t, "https://example.atlassian.net/browse/TEST-123", result["url"])
 }
 
-func TestJSONPrinter_Issue_NoURLWhenServerURLEmpty(t *testing.T) {
+func TestJSONPrinter_Issue_NoURLWhenEmpty(t *testing.T) {
 	t.Parallel()
 
 	var out bytes.Buffer
 	p := gogh.NewJSONPrinter(&out)
-	// ServerURL not set
 
-	issue := &jira4claude.Issue{
+	view := jira4claude.IssueView{
 		Key:     "TEST-123",
 		Summary: "Test issue",
 		Status:  "Open",
 		Type:    "Task",
+		Created: "2024-01-01T12:00:00Z",
+		Updated: "2024-01-02T12:00:00Z",
+		// URL not set
 	}
 
-	p.Issue(issue)
+	p.Issue(view)
 
 	var result map[string]any
 	err := json.Unmarshal(out.Bytes(), &result)
 	require.NoError(t, err)
 	_, hasURL := result["url"]
-	assert.False(t, hasURL, "url should not be present when serverURL is empty")
+	assert.False(t, hasURL, "url should not be present when empty")
 }
 
 func TestJSONPrinter_Success_WithServerURL(t *testing.T) {
@@ -501,35 +462,21 @@ func TestJSONPrinter_Comment(t *testing.T) {
 	var out bytes.Buffer
 	p := gogh.NewJSONPrinter(&out)
 
-	comment := &jira4claude.Comment{
-		ID: "10001",
-		Author: &jira4claude.User{
-			AccountID:   "user123",
-			DisplayName: "John Doe",
-			Email:       "john@example.com",
-		},
-		Body: jira4claude.ADF{"type": "doc", "content": []any{
-			map[string]any{"type": "paragraph", "content": []any{
-				map[string]any{"type": "text", "text": "This is a test comment"},
-			}},
-		}},
-		Created: parseTime("2024-01-15T10:30:00.000+0000"),
+	view := jira4claude.CommentView{
+		ID:      "10001",
+		Author:  "John Doe",
+		Body:    "This is a test comment",
+		Created: "2024-01-15T10:30:00Z",
 	}
 
-	p.Comment(comment)
+	p.Comment(view)
 
 	var result map[string]any
 	err := json.Unmarshal(out.Bytes(), &result)
 	require.NoError(t, err)
 	assert.Equal(t, "10001", result["id"])
-	// Body is now ADF (map[string]any), not a string
-	body := result["body"].(map[string]any)
-	assert.Equal(t, "doc", body["type"])
-
-	author, ok := result["author"].(map[string]any)
-	require.True(t, ok, "author should be a map")
-	assert.Equal(t, "user123", author["accountId"])
-	assert.Equal(t, "John Doe", author["displayName"])
+	assert.Equal(t, "This is a test comment", result["body"])
+	assert.Equal(t, "John Doe", result["author"])
 }
 
 func TestJSONPrinter_Comment_WithoutAuthor(t *testing.T) {
@@ -538,27 +485,21 @@ func TestJSONPrinter_Comment_WithoutAuthor(t *testing.T) {
 	var out bytes.Buffer
 	p := gogh.NewJSONPrinter(&out)
 
-	comment := &jira4claude.Comment{
-		ID: "10002",
-		Body: jira4claude.ADF{"type": "doc", "content": []any{
-			map[string]any{"type": "paragraph", "content": []any{
-				map[string]any{"type": "text", "text": "Comment without author"},
-			}},
-		}},
-		Created: parseTime("2024-01-15T10:30:00.000+0000"),
+	view := jira4claude.CommentView{
+		ID:      "10002",
+		Author:  "",
+		Body:    "Comment without author",
+		Created: "2024-01-15T10:30:00Z",
 	}
 
-	p.Comment(comment)
+	p.Comment(view)
 
 	var result map[string]any
 	err := json.Unmarshal(out.Bytes(), &result)
 	require.NoError(t, err)
 	assert.Equal(t, "10002", result["id"])
-	// Body is now ADF (map[string]any), not a string
-	body := result["body"].(map[string]any)
-	assert.Equal(t, "doc", body["type"])
-	_, hasAuthor := result["author"]
-	assert.False(t, hasAuthor, "author should not be present when nil")
+	assert.Equal(t, "Comment without author", result["body"])
+	// Author is empty string, will be omitted with omitempty
 }
 
 func TestJSONPrinter_Warning_WritesToStderr(t *testing.T) {

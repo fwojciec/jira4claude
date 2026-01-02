@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+
+	"github.com/fwojciec/jira4claude"
 )
 
 // LinkCmd groups link subcommands.
@@ -56,6 +58,7 @@ func (c *LinkListCmd) Run(ctx *LinkContext) error {
 		return err
 	}
 
-	ctx.Printer.Links(c.Key, issue.Links)
+	links := jira4claude.ToLinksView(issue.Links)
+	ctx.Printer.Links(c.Key, links)
 	return nil
 }
