@@ -1502,6 +1502,38 @@ func TestTextPrinter_Issue_NoExtraTrailingNewlines_TextMode(t *testing.T) {
 	assert.NotContains(t, output, "\n\n\n", "should not have more than one blank line in a row")
 }
 
+func TestTextPrinter_Issue_BlankLineBetweenDescriptionAndURL(t *testing.T) {
+	t.Parallel()
+
+	var out, errOut bytes.Buffer
+	styles := asciiStyles(t)
+	io := gogh.NewIO(&out, &errOut)
+	p := gogh.NewTextPrinterWithStyles(io, styles)
+
+	view := jira4claude.IssueView{
+		Key:         "TEST-123",
+		Summary:     "Test issue",
+		Status:      "Done",
+		Type:        "Task",
+		Created:     "2024-01-01T12:00:00Z",
+		Updated:     "2024-01-02T12:00:00Z",
+		Description: "This is the description.",
+		URL:         "https://example.atlassian.net/browse/TEST-123",
+	}
+
+	p.Issue(view)
+
+	output := out.String()
+	// There should be a blank line between description and URL
+	// i.e., description text followed by two newlines then URL
+	urlPos := strings.Index(output, "https://example.atlassian.net")
+	assert.Positive(t, urlPos, "should contain URL")
+
+	// Check that there's a blank line before the URL (two newlines)
+	beforeURL := output[:urlPos]
+	assert.True(t, strings.HasSuffix(beforeURL, "\n\n"), "should have blank line before URL")
+}
+
 func TestTextPrinter_Issue_CardLayout_ColorMode_RoundedBordersOnMainCard(t *testing.T) {
 	t.Parallel()
 

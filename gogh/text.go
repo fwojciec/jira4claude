@@ -55,7 +55,8 @@ func (p *TextPrinter) Issue(view jira4claude.IssueView) {
 			fmt.Fprintf(p.io.Out, "\n%s\n", view.Description)
 		} else {
 			// Trim trailing whitespace - glamour adds extra newlines
-			fmt.Fprint(p.io.Out, strings.TrimRight(rendered, "\n\t "))
+			// Then add single newline to ensure proper spacing with URL
+			fmt.Fprintln(p.io.Out, strings.TrimRight(rendered, "\n\t "))
 		}
 	}
 
