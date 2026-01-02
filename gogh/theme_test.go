@@ -2,6 +2,7 @@ package gogh_test
 
 import (
 	"bytes"
+	"strings"
 	"testing"
 
 	"github.com/charmbracelet/lipgloss"
@@ -171,6 +172,9 @@ func TestStyles_RenderMarkdown_WordWrap(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Contains(t, output, "This is a very long line")
+	// Verify wrapping occurred - output should contain multiple lines
+	lines := strings.Split(strings.TrimSpace(output), "\n")
+	assert.Greater(t, len(lines), 1, "long text should be wrapped into multiple lines")
 }
 
 func TestStyles_RenderMarkdown_EmptyInput_ReturnsEmpty(t *testing.T) {
