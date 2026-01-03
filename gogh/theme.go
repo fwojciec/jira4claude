@@ -224,7 +224,7 @@ func (s *Styles) RenderMarkdown(input string) (string, error) {
 	var opts []glamour.TermRendererOption
 
 	if s.NoColor {
-		opts = append(opts, glamour.WithStandardStyle("ascii"))
+		opts = append(opts, glamour.WithStyles(noColorMarkdownStyle()))
 	} else {
 		opts = append(opts, glamour.WithStyles(markdownStyle()))
 	}
@@ -270,6 +270,21 @@ func markdownStyle() ansi.StyleConfig {
 	// Enumeration (numbered lists)
 	style.Enumeration.Color = nil
 	style.Enumeration.BackgroundColor = nil
+
+	return style
+}
+
+// noColorMarkdownStyle returns a custom glamour style for NO_COLOR mode
+// based on the ASCII style but with zero margins to avoid indentation.
+// This ensures description text starts at column 0 without awkward indentation.
+func noColorMarkdownStyle() ansi.StyleConfig {
+	style := styles.ASCIIStyleConfig
+
+	// Remove document margin to eliminate the 2-space indentation
+	style.Document.Margin = nil
+
+	// Remove code block margin as well for consistency
+	style.CodeBlock.Margin = nil
 
 	return style
 }
