@@ -15,6 +15,7 @@ type IssueView struct {
 	Reporter    string        `json:"reporter,omitempty"`
 	Labels      []string      `json:"labels,omitempty"`
 	Links       []LinkView    `json:"links,omitempty"`
+	Subtasks    []SubtaskView `json:"subtasks,omitempty"`
 	Comments    []CommentView `json:"comments,omitempty"`
 	Parent      string        `json:"parent,omitempty"`
 	Created     string        `json:"created"`
@@ -37,6 +38,13 @@ type LinkView struct {
 	IssueKey  string `json:"issueKey"`
 	Summary   string `json:"summary"`
 	Status    string `json:"status"`
+}
+
+// SubtaskView is a display-ready representation of a subtask.
+type SubtaskView struct {
+	Key     string `json:"key"`
+	Summary string `json:"summary"`
+	Status  string `json:"status"`
 }
 
 // ToIssueView converts a domain Issue to a display-ready IssueView.
@@ -66,6 +74,7 @@ func ToIssueView(issue *Issue, conv Converter, warn func(string), serverURL stri
 	}
 
 	links := ToLinksView(issue.Links)
+	subtasks := ToSubtasksView(issue.Subtasks)
 
 	var url string
 	if serverURL != "" {
@@ -84,6 +93,7 @@ func ToIssueView(issue *Issue, conv Converter, warn func(string), serverURL stri
 		Reporter:    displayName(issue.Reporter),
 		Labels:      issue.Labels,
 		Links:       links,
+		Subtasks:    subtasks,
 		Comments:    comments,
 		Parent:      issue.Parent,
 		Created:     issue.Created.Format(time.RFC3339),
@@ -136,6 +146,22 @@ func ToLinksView(links []*IssueLink) []LinkView {
 				Summary:   link.InwardIssue.Summary,
 				Status:    link.InwardIssue.Status,
 			})
+		}
+	}
+	return views
+}
+
+// ToSubtasksView converts a slice of domain LinkedIssues to display-ready SubtaskViews.
+func ToSubtasksView(subtasks []*LinkedIssue) []SubtaskView {
+	if len(subtasks) == 0 {
+		return nil
+	}
+	views := make([]SubtaskView, len(subtasks))
+	for i, subtask := range subtasks {
+		views[i] = SubtaskView{
+			Key:     subtask.Key,
+			Summary: subtask.Summary,
+			Status:  subtask.Status,
 		}
 	}
 	return views

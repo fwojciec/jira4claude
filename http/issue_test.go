@@ -658,6 +658,94 @@ func TestIssueService_Get(t *testing.T) {
 		require.NotNil(t, issue.Comments[0].Body)
 		assert.Equal(t, "doc", issue.Comments[0].Body["type"])
 	})
+
+	t.Run("returns parent issue with subtasks", func(t *testing.T) {
+		t.Parallel()
+
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Method != http.MethodGet || r.URL.Path != "/rest/api/3/issue/TEST-1" {
+				w.WriteHeader(http.StatusNotFound)
+				return
+			}
+
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{
+				"key": "TEST-1",
+				"fields": {
+					"project": {"key": "TEST"},
+					"summary": "Parent issue",
+					"status": {"name": "In Progress"},
+					"issuetype": {"name": "Task"},
+					"subtasks": [
+						{
+							"key": "TEST-2",
+							"fields": {
+								"summary": "First subtask",
+								"status": {"name": "Done"},
+								"issuetype": {"name": "Sub-task"}
+							}
+						},
+						{
+							"key": "TEST-3",
+							"fields": {
+								"summary": "Second subtask",
+								"status": {"name": "To Do"},
+								"issuetype": {"name": "Sub-task"}
+							}
+						}
+					]
+				}
+			}`))
+		}))
+		defer server.Close()
+
+		client := newTestClient(t, server.URL, "user@example.com", "api-token")
+		svc := jirahttp.NewIssueService(client)
+
+		issue, err := svc.Get(context.Background(), "TEST-1")
+
+		require.NoError(t, err)
+		require.Len(t, issue.Subtasks, 2)
+
+		// First subtask
+		assert.Equal(t, "TEST-2", issue.Subtasks[0].Key)
+		assert.Equal(t, "First subtask", issue.Subtasks[0].Summary)
+		assert.Equal(t, "Done", issue.Subtasks[0].Status)
+		assert.Equal(t, "Sub-task", issue.Subtasks[0].Type)
+
+		// Second subtask
+		assert.Equal(t, "TEST-3", issue.Subtasks[1].Key)
+		assert.Equal(t, "Second subtask", issue.Subtasks[1].Summary)
+		assert.Equal(t, "To Do", issue.Subtasks[1].Status)
+		assert.Equal(t, "Sub-task", issue.Subtasks[1].Type)
+	})
+
+	t.Run("returns issue without subtasks when none exist", func(t *testing.T) {
+		t.Parallel()
+
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{
+				"key": "TEST-1",
+				"fields": {
+					"project": {"key": "TEST"},
+					"summary": "Issue without subtasks",
+					"status": {"name": "To Do"},
+					"issuetype": {"name": "Task"},
+					"subtasks": []
+				}
+			}`))
+		}))
+		defer server.Close()
+
+		client := newTestClient(t, server.URL, "user@example.com", "api-token")
+		svc := jirahttp.NewIssueService(client)
+
+		issue, err := svc.Get(context.Background(), "TEST-1")
+
+		require.NoError(t, err)
+		assert.Nil(t, issue.Subtasks)
+	})
 }
 
 func TestIssueService_List(t *testing.T) {

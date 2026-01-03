@@ -331,6 +331,7 @@ type issueResponse struct {
 		Reporter    *userResponse         `json:"reporter"`
 		Labels      []string              `json:"labels"`
 		IssueLinks  []issueLinkResponse   `json:"issuelinks"`
+		Subtasks    []linkedIssueResponse `json:"subtasks"`
 		Comment     *commentsResponse     `json:"comment"`
 		Parent      *struct{ Key string } `json:"parent"`
 		Created     string                `json:"created"`
@@ -462,6 +463,7 @@ func parseIssueResponse(body []byte) (*jira4claude.Issue, error) {
 	}
 
 	issue.Links = mapIssueLinks(resp.Fields.IssueLinks)
+	issue.Subtasks = mapSubtasks(resp.Fields.Subtasks)
 	issue.Comments = mapComments(resp.Fields.Comment)
 
 	return issue, nil
@@ -509,6 +511,18 @@ func mapIssueLinks(links []issueLinkResponse) []*jira4claude.IssueLink {
 			OutwardIssue: mapLinkedIssue(link.OutwardIssue),
 			InwardIssue:  mapLinkedIssue(link.InwardIssue),
 		}
+	}
+	return result
+}
+
+// mapSubtasks converts a slice of linkedIssueResponse to domain LinkedIssues for subtasks. Returns nil if empty.
+func mapSubtasks(subtasks []linkedIssueResponse) []*jira4claude.LinkedIssue {
+	if len(subtasks) == 0 {
+		return nil
+	}
+	result := make([]*jira4claude.LinkedIssue, len(subtasks))
+	for i := range subtasks {
+		result[i] = mapLinkedIssue(&subtasks[i])
 	}
 	return result
 }

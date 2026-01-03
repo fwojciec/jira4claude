@@ -1723,3 +1723,224 @@ func TestTextPrinter_Issue_ColorMode_HeaderKeepsPadding(t *testing.T) {
 	assert.True(t, foundPaddedStatusLine,
 		"color mode should have 2-space padding after border (│  STATUS pattern)")
 }
+
+// J4C-99: Subtask panel tests
+
+func TestTextPrinter_Issue_ShowsSubtasks(t *testing.T) {
+	t.Parallel()
+
+	var out, errOut bytes.Buffer
+	io := gogh.NewIO(&out, &errOut)
+	p := gogh.NewTextPrinter(io)
+
+	view := jira4claude.IssueView{
+		Key:     "TEST-123",
+		Summary: "Parent issue",
+		Status:  "In Progress",
+		Type:    "Task",
+		Created: "2024-01-01T12:00:00Z",
+		Updated: "2024-01-02T12:00:00Z",
+		Subtasks: []jira4claude.SubtaskView{
+			{
+				Key:     "TEST-124",
+				Summary: "First subtask",
+				Status:  "Done",
+			},
+			{
+				Key:     "TEST-125",
+				Summary: "Second subtask",
+				Status:  "To Do",
+			},
+		},
+	}
+
+	p.Issue(view)
+
+	output := out.String()
+	// Should have SUBTASKS section
+	assert.Contains(t, output, "SUBTASKS")
+	assert.Contains(t, output, "TEST-124")
+	assert.Contains(t, output, "First subtask")
+	assert.Contains(t, output, "TEST-125")
+	assert.Contains(t, output, "Second subtask")
+}
+
+func TestTextPrinter_Issue_SubtasksShowsStatus_TextMode(t *testing.T) {
+	t.Parallel()
+
+	var out, errOut bytes.Buffer
+	styles := asciiStyles(t)
+	io := gogh.NewIO(&out, &errOut)
+	p := gogh.NewTextPrinterWithStyles(io, styles)
+
+	view := jira4claude.IssueView{
+		Key:     "TEST-123",
+		Summary: "Parent issue",
+		Status:  "In Progress",
+		Type:    "Task",
+		Created: "2024-01-01T12:00:00Z",
+		Updated: "2024-01-02T12:00:00Z",
+		Subtasks: []jira4claude.SubtaskView{
+			{
+				Key:     "TEST-124",
+				Summary: "Completed subtask",
+				Status:  "Done",
+			},
+			{
+				Key:     "TEST-125",
+				Summary: "Pending subtask",
+				Status:  "To Do",
+			},
+		},
+	}
+
+	p.Issue(view)
+
+	output := out.String()
+	// Status should use consistent badge format (same as top panel and linked issues)
+	assert.Contains(t, output, "[x] Done")
+	assert.Contains(t, output, "[ ] To Do")
+}
+
+func TestTextPrinter_Issue_SubtasksShowsStatus_ColorMode(t *testing.T) {
+	t.Parallel()
+
+	var out, errOut bytes.Buffer
+	styles := trueColorStyles(t)
+	io := gogh.NewIO(&out, &errOut)
+	p := gogh.NewTextPrinterWithStyles(io, styles)
+
+	view := jira4claude.IssueView{
+		Key:     "TEST-123",
+		Summary: "Parent issue",
+		Status:  "In Progress",
+		Type:    "Task",
+		Created: "2024-01-01T12:00:00Z",
+		Updated: "2024-01-02T12:00:00Z",
+		Subtasks: []jira4claude.SubtaskView{
+			{
+				Key:     "TEST-124",
+				Summary: "Completed subtask",
+				Status:  "Done",
+			},
+		},
+	}
+
+	p.Issue(view)
+
+	output := out.String()
+	// Find the SUBTASKS section and check it contains the proper status format
+	subtasksPos := strings.Index(output, "SUBTASKS")
+	if !assert.Positive(t, subtasksPos, "should contain SUBTASKS section") {
+		return
+	}
+
+	subtasksSection := output[subtasksPos:]
+	// In color mode, subtasks should use the checkmark indicator like the top panel
+	assert.Contains(t, subtasksSection, "✓", "subtask status should use checkmark indicator")
+	assert.Contains(t, subtasksSection, "Done", "subtask status should show status text")
+}
+
+func TestTextPrinter_Issue_NoSubtasksSection_WhenNoSubtasks(t *testing.T) {
+	t.Parallel()
+
+	var out, errOut bytes.Buffer
+	io := gogh.NewIO(&out, &errOut)
+	p := gogh.NewTextPrinter(io)
+
+	view := jira4claude.IssueView{
+		Key:     "TEST-123",
+		Summary: "Test issue",
+		Status:  "Open",
+		Type:    "Task",
+		Created: "2024-01-01T12:00:00Z",
+		Updated: "2024-01-02T12:00:00Z",
+	}
+
+	p.Issue(view)
+
+	output := out.String()
+	assert.NotContains(t, output, "SUBTASKS")
+}
+
+func TestTextPrinter_Issue_SubtasksHasCardBorder_ColorMode(t *testing.T) {
+	t.Parallel()
+
+	var out, errOut bytes.Buffer
+	styles := trueColorStyles(t)
+	io := gogh.NewIO(&out, &errOut)
+	p := gogh.NewTextPrinterWithStyles(io, styles)
+
+	view := jira4claude.IssueView{
+		Key:     "TEST-123",
+		Summary: "Parent issue",
+		Status:  "In Progress",
+		Type:    "Task",
+		Created: "2024-01-01T12:00:00Z",
+		Updated: "2024-01-02T12:00:00Z",
+		Subtasks: []jira4claude.SubtaskView{
+			{
+				Key:     "TEST-124",
+				Summary: "A subtask",
+				Status:  "Done",
+			},
+		},
+	}
+
+	p.Issue(view)
+
+	output := out.String()
+	// Should have SUBTASKS card with borders
+	assert.Contains(t, output, "SUBTASKS")
+	// The card should use the same border style as LINKED ISSUES
+	subtasksPos := strings.Index(output, "SUBTASKS")
+	assert.Positive(t, subtasksPos, "should contain SUBTASKS section")
+
+	// After SUBTASKS, there should be a closing border (╯)
+	afterSubtasks := output[subtasksPos:]
+	assert.Contains(t, afterSubtasks, "╯", "SUBTASKS card should have bottom border")
+}
+
+func TestTextPrinter_Issue_SubtasksBeforeLinkedIssues(t *testing.T) {
+	t.Parallel()
+
+	var out, errOut bytes.Buffer
+	io := gogh.NewIO(&out, &errOut)
+	p := gogh.NewTextPrinter(io)
+
+	view := jira4claude.IssueView{
+		Key:     "TEST-123",
+		Summary: "Parent issue",
+		Status:  "In Progress",
+		Type:    "Task",
+		Created: "2024-01-01T12:00:00Z",
+		Updated: "2024-01-02T12:00:00Z",
+		Subtasks: []jira4claude.SubtaskView{
+			{
+				Key:     "TEST-124",
+				Summary: "A subtask",
+				Status:  "Done",
+			},
+		},
+		Links: []jira4claude.LinkView{
+			{
+				Type:      "blocks",
+				Direction: "outward",
+				IssueKey:  "TEST-456",
+				Summary:   "Blocked issue",
+				Status:    "To Do",
+			},
+		},
+	}
+
+	p.Issue(view)
+
+	output := out.String()
+	// SUBTASKS should appear before LINKED ISSUES
+	subtasksPos := strings.Index(output, "SUBTASKS")
+	linkedIssuesPos := strings.Index(output, "LINKED ISSUES")
+
+	assert.Positive(t, subtasksPos, "should contain SUBTASKS section")
+	assert.Positive(t, linkedIssuesPos, "should contain LINKED ISSUES section")
+	assert.Less(t, subtasksPos, linkedIssuesPos, "SUBTASKS should appear before LINKED ISSUES")
+}
