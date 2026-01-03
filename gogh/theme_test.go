@@ -259,3 +259,66 @@ func TestStyles_RenderMarkdown_ColorMode_CodeBlocksHaveStyling(t *testing.T) {
 	// Code blocks should have syntax highlighting (ANSI codes)
 	assert.Contains(t, output, "\x1b[", "code blocks should have syntax highlighting in color mode")
 }
+
+func TestStyles_RenderMarkdown_NoColorMode_NoLeadingIndentation(t *testing.T) {
+	t.Parallel()
+
+	var buf bytes.Buffer
+	r := lipgloss.NewRenderer(&buf)
+	r.SetColorProfile(termenv.Ascii)
+	styles := gogh.NewStyles(r)
+
+	input := "Simple paragraph text."
+	output, err := styles.RenderMarkdown(input)
+
+	require.NoError(t, err)
+
+	// Remove leading/trailing newlines but keep internal structure
+	trimmed := strings.Trim(output, "\n")
+
+	// Each line should start at column 0 (no leading spaces)
+	lines := strings.Split(trimmed, "\n")
+	for _, line := range lines {
+		if line == "" {
+			continue
+		}
+		assert.False(t, strings.HasPrefix(line, " "),
+			"line should not have leading indentation: %q", line)
+	}
+}
+
+func TestStyles_RenderMarkdown_NoColorMode_ListsRenderCorrectly(t *testing.T) {
+	t.Parallel()
+
+	var buf bytes.Buffer
+	r := lipgloss.NewRenderer(&buf)
+	r.SetColorProfile(termenv.Ascii)
+	styles := gogh.NewStyles(r)
+
+	input := "- First item\n- Second item\n- Third item"
+	output, err := styles.RenderMarkdown(input)
+
+	require.NoError(t, err)
+	assert.Contains(t, output, "First item")
+	assert.Contains(t, output, "Second item")
+	assert.Contains(t, output, "Third item")
+	// ASCII style uses • for bullets
+	assert.Contains(t, output, "•")
+}
+
+func TestStyles_RenderMarkdown_NoColorMode_CodeBlocksRenderCorrectly(t *testing.T) {
+	t.Parallel()
+
+	var buf bytes.Buffer
+	r := lipgloss.NewRenderer(&buf)
+	r.SetColorProfile(termenv.Ascii)
+	styles := gogh.NewStyles(r)
+
+	input := "```\ncode here\n```"
+	output, err := styles.RenderMarkdown(input)
+
+	require.NoError(t, err)
+	assert.Contains(t, output, "code here")
+	// Should have no ANSI codes in NO_COLOR mode
+	assert.NotContains(t, output, "\x1b[")
+}
