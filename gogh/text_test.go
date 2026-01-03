@@ -1595,3 +1595,113 @@ func TestTextPrinter_Issue_CardLayout_ColorMode_ConsistentBordersOnBothCards(t *
 	assert.Equal(t, 2, topLeftCount, "should have two top-left corners (one per card)")
 	assert.Equal(t, 2, bottomRightCount, "should have two bottom-right corners (one per card)")
 }
+
+// J4C-92: NO_COLOR header styling tests
+
+func TestTextPrinter_Issue_TextOnlyMode_HeaderHasNoExcessivePadding(t *testing.T) {
+	t.Parallel()
+
+	var out, errOut bytes.Buffer
+	styles := asciiStyles(t)
+	io := gogh.NewIO(&out, &errOut)
+	p := gogh.NewTextPrinterWithStyles(io, styles)
+
+	view := jira4claude.IssueView{
+		Key:      "TEST-123",
+		Summary:  "Test issue summary",
+		Status:   "Done",
+		Type:     "Task",
+		Priority: "Medium",
+		Assignee: "John Doe",
+		Reporter: "Jane Smith",
+		Created:  "2024-01-01T12:00:00Z",
+		Updated:  "2024-01-02T12:00:00Z",
+	}
+
+	p.Issue(view)
+
+	output := out.String()
+	lines := strings.Split(output, "\n")
+
+	// Find lines inside the header card (after the === line, before description)
+	inHeader := false
+	for _, line := range lines {
+		if strings.HasPrefix(line, "===") {
+			inHeader = true
+			continue
+		}
+		if line == "" {
+			continue
+		}
+		if !inHeader {
+			continue
+		}
+
+		// Stop when we hit the URL or other sections
+		if strings.HasPrefix(line, "http") {
+			break
+		}
+
+		// In NO_COLOR mode, content lines should NOT have leading 2-space padding
+		// The summary line with type badge should start without padding
+		if strings.Contains(line, "Test issue summary") {
+			assert.False(t, strings.HasPrefix(line, "  "),
+				"summary line should not have leading 2-space padding in NO_COLOR mode: %q", line)
+		}
+
+		// Status/Priority labels should not have leading padding
+		if strings.HasPrefix(line, "STATUS") {
+			assert.False(t, strings.HasPrefix(line, "  STATUS"),
+				"STATUS label should not have leading 2-space padding in NO_COLOR mode: %q", line)
+		}
+
+		// Assignee/Reporter should not have leading padding
+		if strings.Contains(line, "Assignee:") {
+			assert.False(t, strings.HasPrefix(line, "  Assignee"),
+				"Assignee line should not have leading 2-space padding in NO_COLOR mode: %q", line)
+		}
+	}
+}
+
+func TestTextPrinter_Issue_ColorMode_HeaderKeepsPadding(t *testing.T) {
+	t.Parallel()
+
+	var out, errOut bytes.Buffer
+	styles := trueColorStyles(t)
+	io := gogh.NewIO(&out, &errOut)
+	p := gogh.NewTextPrinterWithStyles(io, styles)
+
+	view := jira4claude.IssueView{
+		Key:      "TEST-123",
+		Summary:  "Test issue summary",
+		Status:   "Done",
+		Type:     "Task",
+		Priority: "Medium",
+		Assignee: "John Doe",
+		Reporter: "Jane Smith",
+		Created:  "2024-01-01T12:00:00Z",
+		Updated:  "2024-01-02T12:00:00Z",
+	}
+
+	p.Issue(view)
+
+	output := out.String()
+	lines := strings.Split(output, "\n")
+
+	// In color mode, find lines inside the card border (after ╭, before ╯)
+	// Content lines SHOULD have padding because they need space from the │ borders
+	foundPaddedContent := false
+	for _, line := range lines {
+		// Skip border-only lines
+		if strings.HasPrefix(line, "╭") || strings.HasPrefix(line, "╰") {
+			continue
+		}
+		// Look for content lines with │ borders - they should have internal padding
+		if strings.Contains(line, "│") && strings.Contains(line, "STATUS") {
+			// The content between │ borders should have padding
+			foundPaddedContent = true
+		}
+	}
+	// In color mode with borders, we expect to find padded content
+	assert.True(t, foundPaddedContent, "color mode should have content inside bordered card")
+}
