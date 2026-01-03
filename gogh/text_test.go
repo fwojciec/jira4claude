@@ -1130,8 +1130,9 @@ func TestTextPrinter_Issue_Description_ColorMode_RendersMarkdownHeaders(t *testi
 
 	output := out.String()
 	// In color mode, headers should be styled (bold/colored)
-	// The header should be present but may have ANSI codes around it
-	assert.Contains(t, output, "Section Header")
+	// The header text is present but may have ANSI codes between words
+	assert.Contains(t, output, "Section")
+	assert.Contains(t, output, "Header")
 }
 
 func TestTextPrinter_Issue_Description_ColorMode_RendersBulletLists(t *testing.T) {
@@ -1189,9 +1190,11 @@ func TestTextPrinter_Issue_Description_ColorMode_RendersCodeBlocks(t *testing.T)
 	p.Issue(view)
 
 	output := out.String()
-	// Code blocks should contain the code content
-	assert.Contains(t, output, "func main()")
-	assert.Contains(t, output, "fmt.Println")
+	// Code blocks should contain the code content (may have ANSI codes between tokens)
+	assert.Contains(t, output, "func")
+	assert.Contains(t, output, "main")
+	assert.Contains(t, output, "fmt")
+	assert.Contains(t, output, "Println")
 }
 
 func TestTextPrinter_Issue_Description_TextOnlyMode_NoANSICodes(t *testing.T) {

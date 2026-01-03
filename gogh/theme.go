@@ -2,6 +2,8 @@ package gogh
 
 import (
 	"github.com/charmbracelet/glamour"
+	"github.com/charmbracelet/glamour/ansi"
+	"github.com/charmbracelet/glamour/styles"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/muesli/termenv"
 )
@@ -206,7 +208,9 @@ func (s *Styles) IsNoColor() bool {
 }
 
 // RenderMarkdown renders markdown text with appropriate styling.
-// In color mode, uses glamour's auto style (adapts to terminal background).
+// In color mode, uses a custom style based on glamour's dark theme with body
+// text using terminal default colors for consistency with the CLI's styling.
+// Headers, code blocks, and other elements retain their distinct styling.
 // In text-only mode (NO_COLOR), uses ascii style with no ANSI codes.
 // Word wrapping is applied at Width columns (default 80).
 //
@@ -222,7 +226,7 @@ func (s *Styles) RenderMarkdown(input string) (string, error) {
 	if s.NoColor {
 		opts = append(opts, glamour.WithStandardStyle("ascii"))
 	} else {
-		opts = append(opts, glamour.WithAutoStyle())
+		opts = append(opts, glamour.WithStyles(markdownStyle()))
 	}
 
 	opts = append(opts, glamour.WithWordWrap(s.Width))
@@ -233,4 +237,39 @@ func (s *Styles) RenderMarkdown(input string) (string, error) {
 	}
 
 	return r.Render(input)
+}
+
+// markdownStyle returns a custom glamour style based on the dark theme
+// with body text using terminal default colors instead of explicit colors.
+// This ensures consistency with the CLI's styling while preserving
+// syntax highlighting for code blocks and styling for other elements.
+//
+// Note: We use DarkStyleConfig as the base rather than auto-detecting
+// terminal background because the CLI's Theme colors use the same values
+// for both light and dark modes (see AdaptiveColor definitions above).
+func markdownStyle() ansi.StyleConfig {
+	style := styles.DarkStyleConfig
+
+	// Remove explicit colors from body text elements so they use terminal default
+	// The Document style applies to the overall text wrapper
+	style.Document.Color = nil
+	style.Document.BackgroundColor = nil
+
+	// Paragraph is the main body text element
+	style.Paragraph.Color = nil
+	style.Paragraph.BackgroundColor = nil
+
+	// Text is for inline text within paragraphs
+	style.Text.Color = nil
+	style.Text.BackgroundColor = nil
+
+	// List items should also use terminal default
+	style.Item.Color = nil
+	style.Item.BackgroundColor = nil
+
+	// Enumeration (numbered lists)
+	style.Enumeration.Color = nil
+	style.Enumeration.BackgroundColor = nil
+
+	return style
 }
