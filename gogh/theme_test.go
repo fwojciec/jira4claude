@@ -190,3 +190,72 @@ func TestStyles_RenderMarkdown_EmptyInput_ReturnsEmpty(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, output)
 }
+
+func TestStyles_RenderMarkdown_ColorMode_BodyTextUsesTerminalDefault(t *testing.T) {
+	t.Parallel()
+
+	var buf bytes.Buffer
+	r := lipgloss.NewRenderer(&buf)
+	r.SetColorProfile(termenv.TrueColor)
+	styles := gogh.NewStyles(r)
+
+	// Input with header and plain body text
+	input := "## Header\n\nPlain body text here."
+	output, err := styles.RenderMarkdown(input)
+
+	require.NoError(t, err)
+	assert.Contains(t, output, "Header")
+	assert.Contains(t, output, "Plain body text here")
+
+	// Find "Plain body text here" in output and verify no color codes around it
+	// ANSI color codes look like \x1b[38;... for foreground colors
+	// The body text line should not have color escape sequences
+	lines := strings.Split(output, "\n")
+	var bodyLine string
+	for _, line := range lines {
+		if strings.Contains(line, "Plain body text") {
+			bodyLine = line
+			break
+		}
+	}
+	require.NotEmpty(t, bodyLine, "should find body text line")
+
+	// Body text should not contain foreground color codes
+	// We check for common foreground patterns: 38;5;xxx (256-color) and 38;2;xxx (true-color)
+	// Any explicit foreground color on body text means we're not using terminal default
+	assert.NotContains(t, bodyLine, "\x1b[38;", "body text should use terminal default color, not explicit colors")
+}
+
+func TestStyles_RenderMarkdown_ColorMode_HeadersHaveColors(t *testing.T) {
+	t.Parallel()
+
+	var buf bytes.Buffer
+	r := lipgloss.NewRenderer(&buf)
+	r.SetColorProfile(termenv.TrueColor)
+	styles := gogh.NewStyles(r)
+
+	input := "## Colored Header"
+	output, err := styles.RenderMarkdown(input)
+
+	require.NoError(t, err)
+	// Headers should have color styling in color mode
+	// The dark style uses color 39 (bright blue) for headers
+	assert.Contains(t, output, "\x1b[38;5;39", "headers should have color styling in color mode")
+}
+
+func TestStyles_RenderMarkdown_ColorMode_CodeBlocksHaveStyling(t *testing.T) {
+	t.Parallel()
+
+	var buf bytes.Buffer
+	r := lipgloss.NewRenderer(&buf)
+	r.SetColorProfile(termenv.TrueColor)
+	styles := gogh.NewStyles(r)
+
+	input := "```go\nfunc main() {}\n```"
+	output, err := styles.RenderMarkdown(input)
+
+	require.NoError(t, err)
+	assert.Contains(t, output, "func")
+	// Code blocks should have syntax highlighting (ANSI codes)
+	assert.Contains(t, output, "\x1b[", "code blocks should have syntax highlighting in color mode")
+}
