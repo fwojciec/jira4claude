@@ -197,6 +197,32 @@ func TestIssueCreateCmd(t *testing.T) {
 		// Description should remain empty
 		assert.Empty(t, capturedIssue.Description)
 	})
+
+	t.Run("sets type to Sub-task when parent is specified", func(t *testing.T) {
+		t.Parallel()
+
+		var capturedIssue *jira4claude.Issue
+		svc := &mock.IssueService{
+			CreateFn: func(ctx context.Context, issue *jira4claude.Issue) (*jira4claude.Issue, error) {
+				capturedIssue = issue
+				return &jira4claude.Issue{Key: "TEST-2"}, nil
+			},
+		}
+
+		var buf bytes.Buffer
+		ctx := makeIssueContext(t, svc, &buf)
+		cmd := main.IssueCreateCmd{
+			Summary: "Subtask issue",
+			Parent:  "TEST-1",
+		}
+		err := cmd.Run(ctx)
+
+		require.NoError(t, err)
+		require.NotNil(t, capturedIssue)
+		// Type must be exactly "Sub-task" (with hyphen) for Jira API
+		assert.Equal(t, "Sub-task", capturedIssue.Type)
+		assert.Equal(t, "TEST-1", capturedIssue.Parent)
+	})
 }
 
 // IssueUpdateCmd tests

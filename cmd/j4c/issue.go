@@ -127,7 +127,7 @@ func (c *IssueCreateCmd) Run(ctx *IssueContext) error {
 
 	issueType := c.Type
 	if c.Parent != "" {
-		issueType = "Subtask"
+		issueType = "Sub-task"
 	}
 
 	// Convert description to ADF (plain text is valid GFM)
