@@ -322,3 +322,35 @@ func TestStyles_RenderMarkdown_NoColorMode_CodeBlocksRenderCorrectly(t *testing.
 	// Should have no ANSI codes in NO_COLOR mode
 	assert.NotContains(t, output, "\x1b[")
 }
+
+func TestStyles_RenderMarkdown_ColorMode_AlignedWithCardPanelContent(t *testing.T) {
+	t.Parallel()
+
+	var buf bytes.Buffer
+	r := lipgloss.NewRenderer(&buf)
+	r.SetColorProfile(termenv.TrueColor)
+	styles := gogh.NewStyles(r)
+
+	// Simple paragraph to test margin
+	input := "Simple paragraph text."
+	output, err := styles.RenderMarkdown(input)
+
+	require.NoError(t, err)
+
+	// Remove leading/trailing newlines but keep internal structure
+	trimmed := strings.Trim(output, "\n")
+
+	// In color mode, markdown should start at column 3 to align with card panel content
+	// Card layout: │ (col 0) + 2 spaces padding = content at column 3
+	// So markdown should have 3-space left margin
+	lines := strings.Split(trimmed, "\n")
+	for _, line := range lines {
+		if line == "" {
+			continue
+		}
+		// Strip ANSI codes to check raw spacing
+		stripped := stripANSI(line)
+		assert.True(t, strings.HasPrefix(stripped, "   "),
+			"line should have 3-space indentation to align with card content: %q", stripped)
+	}
+}

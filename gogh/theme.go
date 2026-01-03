@@ -250,6 +250,11 @@ func (s *Styles) RenderMarkdown(input string) (string, error) {
 func markdownStyle() ansi.StyleConfig {
 	style := styles.DarkStyleConfig
 
+	// Set 3-space margin to align with card panel content
+	// Card layout: │ (col 0) + 2 spaces padding = content at column 3
+	cardAlignMargin := uint(3)
+	style.Document.Margin = &cardAlignMargin
+
 	// Remove explicit colors from body text elements so they use terminal default
 	// The Document style applies to the overall text wrapper
 	style.Document.Color = nil
