@@ -468,3 +468,122 @@ func TestToLinksView(t *testing.T) {
 		assert.Empty(t, views)
 	})
 }
+
+func TestToSubtasksView(t *testing.T) {
+	t.Parallel()
+
+	t.Run("converts subtasks to view models", func(t *testing.T) {
+		t.Parallel()
+
+		subtasks := []*jira4claude.LinkedIssue{
+			{
+				Key:     "TEST-2",
+				Summary: "First subtask",
+				Status:  "Done",
+				Type:    "Sub-task",
+			},
+			{
+				Key:     "TEST-3",
+				Summary: "Second subtask",
+				Status:  "To Do",
+				Type:    "Sub-task",
+			},
+		}
+
+		views := jira4claude.ToSubtasksView(subtasks)
+
+		assert.Len(t, views, 2)
+		assert.Equal(t, "TEST-2", views[0].Key)
+		assert.Equal(t, "First subtask", views[0].Summary)
+		assert.Equal(t, "Done", views[0].Status)
+		assert.Equal(t, "TEST-3", views[1].Key)
+		assert.Equal(t, "Second subtask", views[1].Summary)
+		assert.Equal(t, "To Do", views[1].Status)
+	})
+
+	t.Run("handles empty subtasks", func(t *testing.T) {
+		t.Parallel()
+
+		views := jira4claude.ToSubtasksView([]*jira4claude.LinkedIssue{})
+
+		assert.Empty(t, views)
+	})
+
+	t.Run("handles nil subtasks", func(t *testing.T) {
+		t.Parallel()
+
+		views := jira4claude.ToSubtasksView(nil)
+
+		assert.Empty(t, views)
+	})
+}
+
+func TestToIssueView_Subtasks(t *testing.T) {
+	t.Parallel()
+
+	t.Run("converts subtasks to view models", func(t *testing.T) {
+		t.Parallel()
+
+		conv := &mock.Converter{
+			ToMarkdownFn: func(adf jira4claude.ADF) (string, []string) {
+				return "", nil
+			},
+		}
+
+		issue := &jira4claude.Issue{
+			Key:     "TEST-1",
+			Summary: "Parent issue",
+			Status:  "In Progress",
+			Type:    "Task",
+			Subtasks: []*jira4claude.LinkedIssue{
+				{
+					Key:     "TEST-2",
+					Summary: "First subtask",
+					Status:  "Done",
+					Type:    "Sub-task",
+				},
+				{
+					Key:     "TEST-3",
+					Summary: "Second subtask",
+					Status:  "To Do",
+					Type:    "Sub-task",
+				},
+			},
+			Created: time.Date(2024, 1, 1, 12, 0, 0, 0, time.UTC),
+			Updated: time.Date(2024, 1, 2, 12, 0, 0, 0, time.UTC),
+		}
+
+		view := jira4claude.ToIssueView(issue, conv, func(w string) {}, "")
+
+		assert.Len(t, view.Subtasks, 2)
+		assert.Equal(t, "TEST-2", view.Subtasks[0].Key)
+		assert.Equal(t, "First subtask", view.Subtasks[0].Summary)
+		assert.Equal(t, "Done", view.Subtasks[0].Status)
+		assert.Equal(t, "TEST-3", view.Subtasks[1].Key)
+		assert.Equal(t, "Second subtask", view.Subtasks[1].Summary)
+		assert.Equal(t, "To Do", view.Subtasks[1].Status)
+	})
+
+	t.Run("handles no subtasks", func(t *testing.T) {
+		t.Parallel()
+
+		conv := &mock.Converter{
+			ToMarkdownFn: func(adf jira4claude.ADF) (string, []string) {
+				return "", nil
+			},
+		}
+
+		issue := &jira4claude.Issue{
+			Key:     "TEST-1",
+			Summary: "Issue without subtasks",
+			Status:  "To Do",
+			Type:    "Task",
+			Created: time.Date(2024, 1, 1, 12, 0, 0, 0, time.UTC),
+			Updated: time.Date(2024, 1, 2, 12, 0, 0, 0, time.UTC),
+		}
+
+		view := jira4claude.ToIssueView(issue, conv, func(w string) {}, "")
+
+		assert.Empty(t, view.Subtasks)
+	})
+}

@@ -39,6 +39,14 @@ func (p *TextPrinter) Issue(view jira4claude.IssueView) {
 	header := RenderCardWithStyledTitle(p.styles, p.styles.Key(view.Key), headerContent)
 	fmt.Fprint(p.io.Out, header)
 
+	// Subtasks card
+	if len(view.Subtasks) > 0 {
+		fmt.Fprintln(p.io.Out)
+		subtasksContent := p.renderSubtasksContent(view.Subtasks)
+		subtasks := RenderCard(p.styles, "SUBTASKS", subtasksContent)
+		fmt.Fprint(p.io.Out, subtasks)
+	}
+
 	// Linked issues card
 	if len(view.Links) > 0 {
 		fmt.Fprintln(p.io.Out)
@@ -212,6 +220,29 @@ func (p *TextPrinter) renderLinksContent(links []jira4claude.LinkView) string {
 				statusBadge,
 				link.Summary)
 		}
+	}
+
+	return b.String()
+}
+
+// renderSubtasksContent builds the content for the subtasks card.
+func (p *TextPrinter) renderSubtasksContent(subtasks []jira4claude.SubtaskView) string {
+	// In color mode, content needs padding from the │ borders.
+	// In NO_COLOR mode, there are no borders, so no padding needed.
+	margin := "  "
+	if p.styles.NoColor {
+		margin = ""
+	}
+
+	var b strings.Builder
+	for _, subtask := range subtasks {
+		// Use consistent status badge format as the top panel and linked issues
+		statusBadge := RenderStatusBadge(p.styles, subtask.Status)
+		fmt.Fprintf(&b, "%s%s  %s  %s\n",
+			margin,
+			p.styles.Key(subtask.Key),
+			statusBadge,
+			subtask.Summary)
 	}
 
 	return b.String()
