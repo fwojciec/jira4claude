@@ -87,6 +87,16 @@ func (p *TextPrinter) Issue(view jira4claude.IssueView) {
 // Note: The issue key is rendered in the card border, not in the content.
 func (p *TextPrinter) renderIssueHeader(view jira4claude.IssueView) string {
 	var b strings.Builder
+
+	// In color mode, content needs padding from the │ borders.
+	// In NO_COLOR mode, there are no borders, so no padding needed.
+	margin := "  "
+	marginWidth := 4 // 2 chars on each side
+	if p.styles.NoColor {
+		margin = ""
+		marginWidth = 0
+	}
+
 	// Content width accounts for card borders in color mode (2 chars for │ on each side)
 	contentWidth := p.styles.Width - 2
 	if p.styles.NoColor {
@@ -97,15 +107,15 @@ func (p *TextPrinter) renderIssueHeader(view jira4claude.IssueView) string {
 	typeBadge := strings.ToUpper(view.Type)
 	summaryWidth := len(view.Summary)
 	typeWidth := len(typeBadge)
-	padding := contentWidth - summaryWidth - typeWidth - 4 // account for margins
+	padding := contentWidth - summaryWidth - typeWidth - marginWidth
 	if padding < 1 {
 		padding = 1
 	}
-	fmt.Fprintf(&b, "  %s%s%s  \n", view.Summary, strings.Repeat(" ", padding), typeBadge)
+	fmt.Fprintf(&b, "%s%s%s%s%s\n", margin, view.Summary, strings.Repeat(" ", padding), typeBadge, margin)
 
 	// Separator
-	separatorWidth := contentWidth - 4 // account for margins
-	fmt.Fprintf(&b, "  %s\n", RenderSeparator(p.styles, "dotted", separatorWidth))
+	separatorWidth := contentWidth - marginWidth
+	fmt.Fprintf(&b, "%s%s\n", margin, RenderSeparator(p.styles, "dotted", separatorWidth))
 
 	// Status and Priority section
 	statusBadge := RenderStatusBadge(p.styles, view.Status)
@@ -115,7 +125,7 @@ func (p *TextPrinter) renderIssueHeader(view jira4claude.IssueView) string {
 	}
 
 	// Format as columns: STATUS (left), PRIORITY (right)
-	fmt.Fprintf(&b, "  STATUS              PRIORITY\n")
+	fmt.Fprintf(&b, "%sSTATUS              PRIORITY\n", margin)
 	if priorityBadge != "" {
 		// Use lipgloss.Width to calculate visible width (excludes ANSI codes)
 		statusWidth := lipgloss.Width(statusBadge)
@@ -123,36 +133,36 @@ func (p *TextPrinter) renderIssueHeader(view jira4claude.IssueView) string {
 		if padding < 1 {
 			padding = 1
 		}
-		fmt.Fprintf(&b, "  %s%s%s\n", statusBadge, strings.Repeat(" ", padding), priorityBadge)
+		fmt.Fprintf(&b, "%s%s%s%s\n", margin, statusBadge, strings.Repeat(" ", padding), priorityBadge)
 	} else {
-		fmt.Fprintf(&b, "  %s\n", statusBadge)
+		fmt.Fprintf(&b, "%s%s\n", margin, statusBadge)
 	}
 
 	// Separator before assignee/reporter
-	fmt.Fprintf(&b, "  %s\n", RenderSeparator(p.styles, "dotted", separatorWidth))
+	fmt.Fprintf(&b, "%s%s\n", margin, RenderSeparator(p.styles, "dotted", separatorWidth))
 
 	// Assignee and Reporter (right-aligned values)
 	if view.Assignee != "" {
-		padding := contentWidth - len("Assignee:") - len(view.Assignee) - 4
+		padding := contentWidth - len("Assignee:") - len(view.Assignee) - marginWidth
 		if padding < 1 {
 			padding = 1
 		}
-		fmt.Fprintf(&b, "  Assignee:%s%s  \n", strings.Repeat(" ", padding), view.Assignee)
+		fmt.Fprintf(&b, "%sAssignee:%s%s%s\n", margin, strings.Repeat(" ", padding), view.Assignee, margin)
 	}
 	if view.Reporter != "" {
-		padding := contentWidth - len("Reporter:") - len(view.Reporter) - 4
+		padding := contentWidth - len("Reporter:") - len(view.Reporter) - marginWidth
 		if padding < 1 {
 			padding = 1
 		}
-		fmt.Fprintf(&b, "  Reporter:%s%s  \n", strings.Repeat(" ", padding), view.Reporter)
+		fmt.Fprintf(&b, "%sReporter:%s%s%s\n", margin, strings.Repeat(" ", padding), view.Reporter, margin)
 	}
 
 	// Parent and Labels (if present)
 	if view.Parent != "" {
-		fmt.Fprintf(&b, "\n  Parent: %s", p.styles.Key(view.Parent))
+		fmt.Fprintf(&b, "\n%sParent: %s", margin, p.styles.Key(view.Parent))
 	}
 	if len(view.Labels) > 0 {
-		fmt.Fprintf(&b, "\n  Labels: %s", p.styles.Label(strings.Join(view.Labels, ", ")))
+		fmt.Fprintf(&b, "\n%sLabels: %s", margin, p.styles.Label(strings.Join(view.Labels, ", ")))
 	}
 
 	return b.String()
@@ -170,24 +180,34 @@ func (p *TextPrinter) renderLinksContent(links []jira4claude.LinkView) string {
 		grouped[link.Type] = append(grouped[link.Type], link)
 	}
 
+	// In color mode, content needs padding from the │ borders.
+	// In NO_COLOR mode, there are no borders, so no padding needed.
+	margin := "  "
+	marginWidth := 4 // 2 chars on each side
+	if p.styles.NoColor {
+		margin = ""
+		marginWidth = 0
+	}
+
 	// Content width accounts for card borders in color mode
 	contentWidth := p.styles.Width - 2
 	if p.styles.NoColor {
 		contentWidth = p.styles.Width
 	}
-	separatorWidth := contentWidth - 4 // account for margins
+	separatorWidth := contentWidth - marginWidth
 
 	var b strings.Builder
 	for i, linkType := range order {
 		if i > 0 {
 			// Add dotted separator between link type groups
-			fmt.Fprintf(&b, "  %s\n", RenderSeparator(p.styles, "dotted", separatorWidth))
+			fmt.Fprintf(&b, "%s%s\n", margin, RenderSeparator(p.styles, "dotted", separatorWidth))
 		}
-		fmt.Fprintf(&b, "  %s\n", linkType)
+		fmt.Fprintf(&b, "%s%s\n", margin, linkType)
 		for _, link := range grouped[linkType] {
 			// Use consistent status badge format as the top panel
 			statusBadge := RenderStatusBadge(p.styles, link.Status)
-			fmt.Fprintf(&b, "  %s  %s  %s\n",
+			fmt.Fprintf(&b, "%s%s  %s  %s\n",
+				margin,
 				p.styles.Key(link.IssueKey),
 				statusBadge,
 				link.Summary)

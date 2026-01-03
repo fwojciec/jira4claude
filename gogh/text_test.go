@@ -3,6 +3,7 @@ package gogh_test
 import (
 	"bytes"
 	"errors"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -12,6 +13,14 @@ import (
 	"github.com/muesli/termenv"
 	"github.com/stretchr/testify/assert"
 )
+
+// ansiRegex matches ANSI escape sequences.
+var ansiRegex = regexp.MustCompile(`\x1b\[[0-9;]*m`)
+
+// stripANSI removes ANSI escape codes from a string.
+func stripANSI(s string) string {
+	return ansiRegex.ReplaceAllString(s, "")
+}
 
 func TestTextPrinter_Issue_ShowsKeyAndSummaryAndStatus(t *testing.T) {
 	t.Parallel()
@@ -1597,4 +1606,120 @@ func TestTextPrinter_Issue_CardLayout_ColorMode_ConsistentBordersOnBothCards(t *
 	// Should have 2 of each (one per card)
 	assert.Equal(t, 2, topLeftCount, "should have two top-left corners (one per card)")
 	assert.Equal(t, 2, bottomRightCount, "should have two bottom-right corners (one per card)")
+}
+
+// J4C-92: NO_COLOR header styling tests
+
+func TestTextPrinter_Issue_TextOnlyMode_HeaderHasNoExcessivePadding(t *testing.T) {
+	t.Parallel()
+
+	var out, errOut bytes.Buffer
+	styles := asciiStyles(t)
+	io := gogh.NewIO(&out, &errOut)
+	p := gogh.NewTextPrinterWithStyles(io, styles)
+
+	view := jira4claude.IssueView{
+		Key:      "TEST-123",
+		Summary:  "Test issue summary",
+		Status:   "Done",
+		Type:     "Task",
+		Priority: "Medium",
+		Assignee: "John Doe",
+		Reporter: "Jane Smith",
+		Created:  "2024-01-01T12:00:00Z",
+		Updated:  "2024-01-02T12:00:00Z",
+	}
+
+	p.Issue(view)
+
+	output := out.String()
+	lines := strings.Split(output, "\n")
+
+	// Find lines inside the header card (after the === line, before description)
+	inHeader := false
+	for _, line := range lines {
+		if strings.HasPrefix(line, "===") {
+			inHeader = true
+			continue
+		}
+		if line == "" {
+			continue
+		}
+		if !inHeader {
+			continue
+		}
+
+		// Stop when we hit the URL or other sections
+		if strings.HasPrefix(line, "http") {
+			break
+		}
+
+		// In NO_COLOR mode, content lines should NOT have leading 2-space padding
+		// The summary line with type badge should start without padding
+		if strings.Contains(line, "Test issue summary") {
+			assert.False(t, strings.HasPrefix(line, "  "),
+				"summary line should not have leading 2-space padding in NO_COLOR mode: %q", line)
+		}
+
+		// Status/Priority labels should not have leading padding
+		if strings.HasPrefix(line, "STATUS") {
+			assert.False(t, strings.HasPrefix(line, "  STATUS"),
+				"STATUS label should not have leading 2-space padding in NO_COLOR mode: %q", line)
+		}
+
+		// Assignee/Reporter should not have leading padding
+		if strings.Contains(line, "Assignee:") {
+			assert.False(t, strings.HasPrefix(line, "  Assignee"),
+				"Assignee line should not have leading 2-space padding in NO_COLOR mode: %q", line)
+		}
+	}
+}
+
+func TestTextPrinter_Issue_ColorMode_HeaderKeepsPadding(t *testing.T) {
+	t.Parallel()
+
+	var out, errOut bytes.Buffer
+	styles := trueColorStyles(t)
+	io := gogh.NewIO(&out, &errOut)
+	p := gogh.NewTextPrinterWithStyles(io, styles)
+
+	view := jira4claude.IssueView{
+		Key:      "TEST-123",
+		Summary:  "Test issue summary",
+		Status:   "Done",
+		Type:     "Task",
+		Priority: "Medium",
+		Assignee: "John Doe",
+		Reporter: "Jane Smith",
+		Created:  "2024-01-01T12:00:00Z",
+		Updated:  "2024-01-02T12:00:00Z",
+	}
+
+	p.Issue(view)
+
+	output := out.String()
+	lines := strings.Split(output, "\n")
+
+	// In color mode, content inside card borders should have 2-space padding
+	// Find a STATUS line and verify it has "│  STATUS" pattern (border + 2 spaces)
+	foundPaddedStatusLine := false
+	for _, line := range lines {
+		if strings.Contains(line, "│") && strings.Contains(line, "STATUS") {
+			// Verify the line has proper padding: border followed by 2 spaces before content
+			// The pattern is: │ (with ANSI codes) + "  STATUS"
+			// After stripping the border's ANSI codes, we should see "  STATUS" (2 spaces)
+			borderIdx := strings.Index(line, "│")
+			if borderIdx >= 0 {
+				afterBorder := line[borderIdx+len("│"):]
+				// Strip any ANSI codes that may follow the border character
+				afterBorder = stripANSI(afterBorder)
+				if strings.HasPrefix(afterBorder, "  STATUS") {
+					foundPaddedStatusLine = true
+					break
+				}
+			}
+		}
+	}
+	assert.True(t, foundPaddedStatusLine,
+		"color mode should have 2-space padding after border (│  STATUS pattern)")
 }
