@@ -78,6 +78,70 @@ func makeIssue(key string) *jira4claude.Issue {
 	}
 }
 
+// IssueTransitionsCmd tests
+
+func TestIssueTransitionsCmd(t *testing.T) {
+	t.Parallel()
+
+	t.Run("lists available transitions", func(t *testing.T) {
+		t.Parallel()
+
+		svc := &mock.IssueService{
+			TransitionsFn: func(ctx context.Context, key string) ([]*jira4claude.Transition, error) {
+				require.Equal(t, "TEST-123", key)
+				return []*jira4claude.Transition{
+					{ID: "21", Name: "In Progress"},
+					{ID: "31", Name: "Done"},
+				}, nil
+			},
+		}
+
+		printer := &mock.Printer{}
+		ctx := &main.IssueContext{
+			Service:   svc,
+			Printer:   printer,
+			Converter: &mock.Converter{},
+			Config:    &jira4claude.Config{Project: "TEST"},
+		}
+
+		cmd := main.IssueTransitionsCmd{Key: "TEST-123"}
+		err := cmd.Run(ctx)
+
+		require.NoError(t, err)
+		require.Len(t, printer.TransitionsCalls, 1)
+		assert.Equal(t, "TEST-123", printer.TransitionsCalls[0].Key)
+		assert.Len(t, printer.TransitionsCalls[0].Transitions, 2)
+		assert.Equal(t, "In Progress", printer.TransitionsCalls[0].Transitions[0].Name)
+		assert.Equal(t, "Done", printer.TransitionsCalls[0].Transitions[1].Name)
+	})
+
+	t.Run("returns error when service fails", func(t *testing.T) {
+		t.Parallel()
+
+		svc := &mock.IssueService{
+			TransitionsFn: func(ctx context.Context, key string) ([]*jira4claude.Transition, error) {
+				require.Equal(t, "INVALID-123", key)
+				return nil, &jira4claude.Error{Code: jira4claude.ENotFound, Message: "Issue not found"}
+			},
+		}
+
+		printer := &mock.Printer{}
+		ctx := &main.IssueContext{
+			Service:   svc,
+			Printer:   printer,
+			Converter: &mock.Converter{},
+			Config:    &jira4claude.Config{Project: "TEST"},
+		}
+
+		cmd := main.IssueTransitionsCmd{Key: "INVALID-123"}
+		err := cmd.Run(ctx)
+
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "Issue not found")
+		assert.Empty(t, printer.TransitionsCalls)
+	})
+}
+
 // IssueTransitionCmd tests
 
 func TestIssueTransitionCmd_InvalidStatusShowsQuotedOptions(t *testing.T) {
@@ -606,8 +670,6 @@ func TestIssueViewCmd(t *testing.T) {
 		err := cmd.Run(ctx)
 
 		require.NoError(t, err)
-		// TODO(J4C-80): After view model migration, this should check for "# Hello" markdown output
-		// For now, the printer outputs ADF as JSON so we check for the text content
 		assert.Contains(t, buf.String(), "Hello")
 	})
 
@@ -686,8 +748,6 @@ func TestIssueViewCmd(t *testing.T) {
 		err := cmd.Run(ctx)
 
 		require.NoError(t, err)
-		// TODO(J4C-80): After view model migration, this should check for markdown output
-		// For now, the printer outputs ADF as JSON so we check for the text content
 		assert.Contains(t, buf.String(), "Comment with ")
 		assert.Contains(t, buf.String(), "bold")
 	})

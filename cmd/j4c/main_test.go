@@ -105,46 +105,6 @@ func TestInitCmd_CreatesConfigAndUpdatesGitignore(t *testing.T) {
 	})
 }
 
-// Context wiring tests
-
-func TestIssueContext_HasCorrectDependencies(t *testing.T) {
-	t.Parallel()
-
-	t.Run("IssueContext wires service and printer correctly", func(t *testing.T) {
-		t.Parallel()
-
-		svc := &mock.IssueService{}
-		printer := &mock.Printer{}
-		ctx := &main.IssueContext{
-			Service: svc,
-			Printer: printer,
-		}
-
-		// Verify the context holds the correct dependencies
-		assert.Equal(t, svc, ctx.Service)
-		assert.Equal(t, printer, ctx.Printer)
-	})
-}
-
-func TestLinkContext_HasCorrectDependencies(t *testing.T) {
-	t.Parallel()
-
-	t.Run("LinkContext wires service and printer correctly", func(t *testing.T) {
-		t.Parallel()
-
-		svc := &mock.IssueService{}
-		printer := &mock.Printer{}
-		ctx := &main.LinkContext{
-			Service: svc,
-			Printer: printer,
-		}
-
-		// Verify the context holds the correct dependencies
-		assert.Equal(t, svc, ctx.Service)
-		assert.Equal(t, printer, ctx.Printer)
-	})
-}
-
 // Issue command flag parsing tests
 
 func TestIssueCreateCmd_RequiredFlags(t *testing.T) {
