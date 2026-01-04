@@ -79,9 +79,6 @@ func TestIssueService_Create(t *testing.T) {
 		assert.Equal(t, "strong", marks[0].(map[string]any)["type"])
 	})
 
-	// Tests for "falls back to GFMToADF" removed: conversion now happens at CLI boundary,
-	// not in HTTP layer. See J4C-80 for the full migration.
-
 	t.Run("creates issue and returns it with key", func(t *testing.T) {
 		t.Parallel()
 

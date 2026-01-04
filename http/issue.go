@@ -69,7 +69,6 @@ func (s *IssueService) Create(ctx context.Context, issue *jira4claude.Issue) (*j
 		return nil, err
 	}
 
-	// Parse response
 	var createResp createIssueResponse
 	if err := json.Unmarshal(respBody, &createResp); err != nil {
 		return nil, &jira4claude.Error{
@@ -79,7 +78,6 @@ func (s *IssueService) Create(ctx context.Context, issue *jira4claude.Issue) (*j
 		}
 	}
 
-	// Return issue with key populated
 	result := *issue
 	result.Key = createResp.Key
 	return &result, nil
@@ -134,7 +132,6 @@ func (s *IssueService) List(ctx context.Context, filter jira4claude.IssueFilter)
 		return nil, err
 	}
 
-	// Parse response
 	var searchResp searchResponse
 	if err := json.Unmarshal(respBody, &searchResp); err != nil {
 		return nil, &jira4claude.Error{
@@ -691,6 +688,3 @@ func parseCommentResponse(body []byte) (*jira4claude.Comment, error) {
 
 	return comment, nil
 }
-
-// textOrADF and tryParseADF were removed as part of J4C-79 (ADF-only domain types).
-// Conversion now happens at CLI boundary, not in HTTP layer.
