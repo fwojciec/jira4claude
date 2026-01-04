@@ -150,8 +150,7 @@ func DefaultStyles() *Styles {
 	return NewStyles(lipgloss.DefaultRenderer())
 }
 
-// Backward-compatible styling methods used by TextPrinter.
-// These will be removed or refactored in J4C-86/87/88.
+// Styling methods used by TextPrinter.
 
 // Key styles an issue key.
 func (s *Styles) Key(text string) string {
@@ -199,12 +198,6 @@ func (s *Styles) Header(text string) string {
 		return text
 	}
 	return s.Renderer.NewStyle().Bold(true).Underline(true).Render(text)
-}
-
-// IsNoColor returns whether color output is disabled.
-// Deprecated: Use NoColor field directly.
-func (s *Styles) IsNoColor() bool {
-	return s.NoColor
 }
 
 // RenderMarkdown renders markdown text with appropriate styling.
