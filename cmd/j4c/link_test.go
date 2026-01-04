@@ -82,6 +82,7 @@ func TestLinkListCmd(t *testing.T) {
 
 		svc := &mock.IssueService{
 			GetFn: func(ctx context.Context, key string) (*jira4claude.Issue, error) {
+				require.Equal(t, "TEST-123", key)
 				return &jira4claude.Issue{
 					Key:     "TEST-123",
 					Summary: "Test issue",
@@ -111,6 +112,7 @@ func TestLinkListCmd(t *testing.T) {
 
 		svc := &mock.IssueService{
 			GetFn: func(ctx context.Context, key string) (*jira4claude.Issue, error) {
+				require.Equal(t, "INVALID-123", key)
 				return nil, &jira4claude.Error{Code: jira4claude.ENotFound, Message: "Issue not found"}
 			},
 		}
