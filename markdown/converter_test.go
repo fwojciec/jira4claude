@@ -1,9 +1,9 @@
-package goldmark_test
+package markdown_test
 
 import (
 	"testing"
 
-	"github.com/fwojciec/jira4claude/goldmark"
+	"github.com/fwojciec/jira4claude/markdown"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -52,7 +52,7 @@ This is a paragraph with **bold** and *italic* text.
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			converter := goldmark.New()
+			converter := markdown.New()
 
 			// Markdown -> ADF -> Markdown
 			adfDoc, warnings := converter.ToADF(tc.markdown)

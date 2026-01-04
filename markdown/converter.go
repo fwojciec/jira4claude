@@ -1,6 +1,6 @@
-// Package goldmark provides conversion between GitHub Flavored Markdown (GFM)
+// Package markdown provides conversion between GitHub Flavored Markdown (GFM)
 // and Atlassian Document Format (ADF) using the goldmark library.
-package goldmark
+package markdown
 
 import "github.com/fwojciec/jira4claude"
 

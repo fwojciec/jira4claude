@@ -1,9 +1,9 @@
-package goldmark_test
+package markdown_test
 
 import (
 	"testing"
 
-	"github.com/fwojciec/jira4claude/goldmark"
+	"github.com/fwojciec/jira4claude/markdown"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -14,7 +14,7 @@ func TestConverter_ToADF(t *testing.T) {
 	t.Run("converts plain text to paragraph", func(t *testing.T) {
 		t.Parallel()
 
-		converter := goldmark.New()
+		converter := markdown.New()
 		result, warnings := converter.ToADF("Hello, world!")
 
 		expected := map[string]any{
@@ -40,7 +40,7 @@ func TestConverter_ToADF(t *testing.T) {
 	t.Run("converts bold text to strong mark", func(t *testing.T) {
 		t.Parallel()
 
-		converter := goldmark.New()
+		converter := markdown.New()
 		result, warnings := converter.ToADF("This is **bold** text.")
 
 		expected := map[string]any{
@@ -79,7 +79,7 @@ func TestConverter_ToADF(t *testing.T) {
 	t.Run("converts italic text to em mark", func(t *testing.T) {
 		t.Parallel()
 
-		converter := goldmark.New()
+		converter := markdown.New()
 		result, warnings := converter.ToADF("This is *italic* text.")
 
 		expected := map[string]any{
@@ -118,7 +118,7 @@ func TestConverter_ToADF(t *testing.T) {
 	t.Run("converts inline code to code mark", func(t *testing.T) {
 		t.Parallel()
 
-		converter := goldmark.New()
+		converter := markdown.New()
 		result, warnings := converter.ToADF("Use the `fmt.Println` function.")
 
 		expected := map[string]any{
@@ -157,7 +157,7 @@ func TestConverter_ToADF(t *testing.T) {
 	t.Run("converts fenced code block to codeBlock node", func(t *testing.T) {
 		t.Parallel()
 
-		converter := goldmark.New()
+		converter := markdown.New()
 		result, warnings := converter.ToADF("```go\nfmt.Println(\"hello\")\n```")
 
 		expected := map[string]any{
@@ -186,7 +186,7 @@ func TestConverter_ToADF(t *testing.T) {
 	t.Run("converts heading to heading node with level", func(t *testing.T) {
 		t.Parallel()
 
-		converter := goldmark.New()
+		converter := markdown.New()
 		result, warnings := converter.ToADF("# Heading 1\n\n## Heading 2")
 
 		expected := map[string]any{
@@ -227,7 +227,7 @@ func TestConverter_ToADF(t *testing.T) {
 	t.Run("converts bullet list to bulletList node", func(t *testing.T) {
 		t.Parallel()
 
-		converter := goldmark.New()
+		converter := markdown.New()
 		result, warnings := converter.ToADF("- Item 1\n- Item 2")
 
 		expected := map[string]any{
@@ -277,7 +277,7 @@ func TestConverter_ToADF(t *testing.T) {
 	t.Run("converts ordered list to orderedList node", func(t *testing.T) {
 		t.Parallel()
 
-		converter := goldmark.New()
+		converter := markdown.New()
 		result, warnings := converter.ToADF("1. First\n2. Second")
 
 		expected := map[string]any{
@@ -327,7 +327,7 @@ func TestConverter_ToADF(t *testing.T) {
 	t.Run("converts link to link mark", func(t *testing.T) {
 		t.Parallel()
 
-		converter := goldmark.New()
+		converter := markdown.New()
 		result, warnings := converter.ToADF("Visit [Google](https://google.com) for more.")
 
 		expected := map[string]any{
@@ -369,7 +369,7 @@ func TestConverter_ToADF(t *testing.T) {
 	t.Run("converts blockquote to blockquote node", func(t *testing.T) {
 		t.Parallel()
 
-		converter := goldmark.New()
+		converter := markdown.New()
 		result, warnings := converter.ToADF("> This is a quote.")
 
 		expected := map[string]any{
@@ -400,7 +400,7 @@ func TestConverter_ToADF(t *testing.T) {
 	t.Run("handles combined formatting", func(t *testing.T) {
 		t.Parallel()
 
-		converter := goldmark.New()
+		converter := markdown.New()
 		result, warnings := converter.ToADF("This is ***bold and italic*** text.")
 
 		expected := map[string]any{
@@ -442,7 +442,7 @@ func TestConverter_ToADF(t *testing.T) {
 	t.Run("handles empty input", func(t *testing.T) {
 		t.Parallel()
 
-		converter := goldmark.New()
+		converter := markdown.New()
 		result, warnings := converter.ToADF("")
 
 		expected := map[string]any{
@@ -458,7 +458,7 @@ func TestConverter_ToADF(t *testing.T) {
 	t.Run("returns warning when content is skipped", func(t *testing.T) {
 		t.Parallel()
 
-		converter := goldmark.New()
+		converter := markdown.New()
 		// Horizontal rules (thematic breaks) are not supported
 		result, warnings := converter.ToADF("Before\n\n---\n\nAfter")
 
@@ -479,7 +479,7 @@ func TestConverter_ToADF(t *testing.T) {
 	t.Run("accumulates multiple warnings for different skipped node types", func(t *testing.T) {
 		t.Parallel()
 
-		converter := goldmark.New()
+		converter := markdown.New()
 		// Multiple unsupported block elements: horizontal rule and raw HTML block
 		result, warnings := converter.ToADF("Start\n\n---\n\n<div>html block</div>\n\nEnd")
 
@@ -496,7 +496,7 @@ func TestConverter_ToADF(t *testing.T) {
 	t.Run("returns empty warnings slice when no content is skipped", func(t *testing.T) {
 		t.Parallel()
 
-		converter := goldmark.New()
+		converter := markdown.New()
 		result, warnings := converter.ToADF("Hello")
 
 		require.NotNil(t, result)
@@ -511,7 +511,7 @@ func TestConverter_ToADF(t *testing.T) {
 
 		// Simple unmarked text produces a single text node with no marks field.
 		// This establishes baseline behavior for comparison with marked text.
-		converter := goldmark.New()
+		converter := markdown.New()
 		result, warnings := converter.ToADF("Hello world")
 
 		expected := map[string]any{
@@ -538,7 +538,7 @@ func TestConverter_ToADF(t *testing.T) {
 		t.Parallel()
 
 		// Text with bold followed by text without bold should remain separate
-		converter := goldmark.New()
+		converter := markdown.New()
 		result, warnings := converter.ToADF("**bold**plain")
 
 		require.NotNil(t, result)
@@ -562,7 +562,7 @@ func TestConverter_ToADF(t *testing.T) {
 
 		// Links produce marks with nested attrs maps (href).
 		// This tests the mapEqual code path for nested map comparison.
-		converter := goldmark.New()
+		converter := markdown.New()
 		result, warnings := converter.ToADF("[click here](https://example.com)")
 
 		expected := map[string]any{
@@ -597,7 +597,7 @@ func TestConverter_ToADF(t *testing.T) {
 		t.Parallel()
 
 		// Two adjacent links with different hrefs should remain separate
-		converter := goldmark.New()
+		converter := markdown.New()
 		result, warnings := converter.ToADF("[one](https://one.com)[two](https://two.com)")
 
 		require.NotNil(t, result)
@@ -620,7 +620,7 @@ func TestConverter_ToADF(t *testing.T) {
 		t.Parallel()
 
 		// Text without marks followed by text with marks should remain separate
-		converter := goldmark.New()
+		converter := markdown.New()
 		result, warnings := converter.ToADF("plain**bold**")
 
 		require.NotNil(t, result)
@@ -643,7 +643,7 @@ func TestConverter_ToADF(t *testing.T) {
 		t.Parallel()
 
 		// Bold text vs bold+italic text should remain separate (different mark counts)
-		converter := goldmark.New()
+		converter := markdown.New()
 		result, warnings := converter.ToADF("**just bold*****bold and italic***")
 
 		require.NotNil(t, result)

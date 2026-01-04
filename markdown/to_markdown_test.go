@@ -1,9 +1,9 @@
-package goldmark_test
+package markdown_test
 
 import (
 	"testing"
 
-	"github.com/fwojciec/jira4claude/goldmark"
+	"github.com/fwojciec/jira4claude/markdown"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -14,7 +14,7 @@ func TestConverter_ToMarkdown(t *testing.T) {
 	t.Run("converts simple paragraph to plain text", func(t *testing.T) {
 		t.Parallel()
 
-		converter := goldmark.New()
+		converter := markdown.New()
 		adfDoc := map[string]any{
 			"type":    "doc",
 			"version": 1,
@@ -40,7 +40,7 @@ func TestConverter_ToMarkdown(t *testing.T) {
 	t.Run("converts strong mark to bold", func(t *testing.T) {
 		t.Parallel()
 
-		converter := goldmark.New()
+		converter := markdown.New()
 		adfDoc := map[string]any{
 			"type":    "doc",
 			"version": 1,
@@ -79,7 +79,7 @@ func TestConverter_ToMarkdown(t *testing.T) {
 	t.Run("converts em mark to italic", func(t *testing.T) {
 		t.Parallel()
 
-		converter := goldmark.New()
+		converter := markdown.New()
 		adfDoc := map[string]any{
 			"type":    "doc",
 			"version": 1,
@@ -118,7 +118,7 @@ func TestConverter_ToMarkdown(t *testing.T) {
 	t.Run("converts code mark to inline code", func(t *testing.T) {
 		t.Parallel()
 
-		converter := goldmark.New()
+		converter := markdown.New()
 		adfDoc := map[string]any{
 			"type":    "doc",
 			"version": 1,
@@ -157,7 +157,7 @@ func TestConverter_ToMarkdown(t *testing.T) {
 	t.Run("converts codeBlock to fenced code block", func(t *testing.T) {
 		t.Parallel()
 
-		converter := goldmark.New()
+		converter := markdown.New()
 		adfDoc := map[string]any{
 			"type":    "doc",
 			"version": 1,
@@ -186,7 +186,7 @@ func TestConverter_ToMarkdown(t *testing.T) {
 	t.Run("converts heading to markdown heading", func(t *testing.T) {
 		t.Parallel()
 
-		converter := goldmark.New()
+		converter := markdown.New()
 		adfDoc := map[string]any{
 			"type":    "doc",
 			"version": 1,
@@ -215,7 +215,7 @@ func TestConverter_ToMarkdown(t *testing.T) {
 	t.Run("converts bulletList to markdown list", func(t *testing.T) {
 		t.Parallel()
 
-		converter := goldmark.New()
+		converter := markdown.New()
 		adfDoc := map[string]any{
 			"type":    "doc",
 			"version": 1,
@@ -265,7 +265,7 @@ func TestConverter_ToMarkdown(t *testing.T) {
 	t.Run("converts orderedList to markdown list", func(t *testing.T) {
 		t.Parallel()
 
-		converter := goldmark.New()
+		converter := markdown.New()
 		adfDoc := map[string]any{
 			"type":    "doc",
 			"version": 1,
@@ -315,7 +315,7 @@ func TestConverter_ToMarkdown(t *testing.T) {
 	t.Run("converts link mark to markdown link", func(t *testing.T) {
 		t.Parallel()
 
-		converter := goldmark.New()
+		converter := markdown.New()
 		adfDoc := map[string]any{
 			"type":    "doc",
 			"version": 1,
@@ -357,7 +357,7 @@ func TestConverter_ToMarkdown(t *testing.T) {
 	t.Run("converts blockquote to markdown blockquote", func(t *testing.T) {
 		t.Parallel()
 
-		converter := goldmark.New()
+		converter := markdown.New()
 		adfDoc := map[string]any{
 			"type":    "doc",
 			"version": 1,
@@ -388,7 +388,7 @@ func TestConverter_ToMarkdown(t *testing.T) {
 	t.Run("handles multiple paragraphs", func(t *testing.T) {
 		t.Parallel()
 
-		converter := goldmark.New()
+		converter := markdown.New()
 		adfDoc := map[string]any{
 			"type":    "doc",
 			"version": 1,
@@ -423,7 +423,7 @@ func TestConverter_ToMarkdown(t *testing.T) {
 	t.Run("handles combined formatting (bold and italic)", func(t *testing.T) {
 		t.Parallel()
 
-		converter := goldmark.New()
+		converter := markdown.New()
 		adfDoc := map[string]any{
 			"type":    "doc",
 			"version": 1,
@@ -465,7 +465,7 @@ func TestConverter_ToMarkdown(t *testing.T) {
 	t.Run("handles nil input", func(t *testing.T) {
 		t.Parallel()
 
-		converter := goldmark.New()
+		converter := markdown.New()
 		result, warnings := converter.ToMarkdown(nil)
 
 		assert.Empty(t, warnings)
@@ -475,7 +475,7 @@ func TestConverter_ToMarkdown(t *testing.T) {
 	t.Run("handles empty document", func(t *testing.T) {
 		t.Parallel()
 
-		converter := goldmark.New()
+		converter := markdown.New()
 		adfDoc := map[string]any{
 			"type":    "doc",
 			"version": 1,
@@ -491,7 +491,7 @@ func TestConverter_ToMarkdown(t *testing.T) {
 	t.Run("returns warning when content is skipped", func(t *testing.T) {
 		t.Parallel()
 
-		converter := goldmark.New()
+		converter := markdown.New()
 		// ADF with an unsupported node type (e.g., "table")
 		adfDoc := map[string]any{
 			"type":    "doc",
@@ -537,7 +537,7 @@ func TestConverter_ToMarkdown(t *testing.T) {
 	t.Run("accumulates multiple warnings for different skipped node types", func(t *testing.T) {
 		t.Parallel()
 
-		converter := goldmark.New()
+		converter := markdown.New()
 		// ADF with multiple unsupported node types
 		adfDoc := map[string]any{
 			"type":    "doc",
@@ -592,7 +592,7 @@ func TestConverter_ToMarkdown(t *testing.T) {
 	t.Run("returns empty warnings slice when no content is skipped", func(t *testing.T) {
 		t.Parallel()
 
-		converter := goldmark.New()
+		converter := markdown.New()
 		adfDoc := map[string]any{
 			"type":    "doc",
 			"version": 1,
@@ -620,7 +620,7 @@ func TestConverter_ToMarkdown(t *testing.T) {
 
 		// When ADF is unmarshaled from JSON, numbers become float64.
 		// This test verifies the float64 code path in adfHeadingToGFM.
-		converter := goldmark.New()
+		converter := markdown.New()
 		adfDoc := map[string]any{
 			"type":    "doc",
 			"version": 1,
@@ -650,7 +650,7 @@ func TestConverter_ToMarkdown(t *testing.T) {
 		t.Parallel()
 
 		// When attrs are missing entirely, should default to level 1.
-		converter := goldmark.New()
+		converter := markdown.New()
 		adfDoc := map[string]any{
 			"type":    "doc",
 			"version": 1,
@@ -678,7 +678,7 @@ func TestConverter_ToMarkdown(t *testing.T) {
 		t.Parallel()
 
 		// When attrs exist but level is missing, should default to level 1.
-		converter := goldmark.New()
+		converter := markdown.New()
 		adfDoc := map[string]any{
 			"type":    "doc",
 			"version": 1,
