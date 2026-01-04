@@ -3,24 +3,14 @@ package goldmark_test
 import (
 	"testing"
 
-	"github.com/fwojciec/jira4claude"
 	"github.com/fwojciec/jira4claude/goldmark"
 	"github.com/stretchr/testify/assert"
 )
 
-func TestNew(t *testing.T) {
-	t.Parallel()
-
-	t.Run("returns a Converter that implements jira4claude.Converter", func(t *testing.T) {
-		t.Parallel()
-
-		converter := goldmark.New()
-
-		// This verifies that the returned type satisfies the interface
-		var _ jira4claude.Converter = converter
-		assert.NotNil(t, converter)
-	})
-}
+// TestNew was removed as redundant.
+// Interface compliance is verified at compile time via:
+//   var _ jira4claude.Converter = (*Converter)(nil)
+// in goldmark.go. Per CLAUDE.md, these checks must be in production code, not tests.
 
 func TestRoundTrip(t *testing.T) {
 	t.Parallel()

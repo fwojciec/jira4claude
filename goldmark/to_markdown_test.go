@@ -614,4 +614,93 @@ func TestConverter_ToMarkdown(t *testing.T) {
 		assert.Equal(t, "Hello", result)
 		assert.Empty(t, warnings)
 	})
+
+	t.Run("handles heading level as float64 from JSON unmarshaling", func(t *testing.T) {
+		t.Parallel()
+
+		// When ADF is unmarshaled from JSON, numbers become float64.
+		// This test verifies the float64 code path in adfHeadingToGFM.
+		converter := goldmark.New()
+		adfDoc := map[string]any{
+			"type":    "doc",
+			"version": 1,
+			"content": []any{
+				map[string]any{
+					"type": "heading",
+					"attrs": map[string]any{
+						"level": float64(3), // Simulates JSON unmarshaling
+					},
+					"content": []any{
+						map[string]any{
+							"type": "text",
+							"text": "Level 3 Heading",
+						},
+					},
+				},
+			},
+		}
+
+		result, warnings := converter.ToMarkdown(adfDoc)
+
+		assert.Empty(t, warnings)
+		assert.Equal(t, "### Level 3 Heading", result)
+	})
+
+	t.Run("defaults heading level to 1 when attrs missing", func(t *testing.T) {
+		t.Parallel()
+
+		// When attrs are missing entirely, should default to level 1.
+		converter := goldmark.New()
+		adfDoc := map[string]any{
+			"type":    "doc",
+			"version": 1,
+			"content": []any{
+				map[string]any{
+					"type": "heading",
+					// No attrs - level should default to 1
+					"content": []any{
+						map[string]any{
+							"type": "text",
+							"text": "Default Heading",
+						},
+					},
+				},
+			},
+		}
+
+		result, warnings := converter.ToMarkdown(adfDoc)
+
+		assert.Empty(t, warnings)
+		assert.Equal(t, "# Default Heading", result)
+	})
+
+	t.Run("defaults heading level to 1 when level attr missing", func(t *testing.T) {
+		t.Parallel()
+
+		// When attrs exist but level is missing, should default to level 1.
+		converter := goldmark.New()
+		adfDoc := map[string]any{
+			"type":    "doc",
+			"version": 1,
+			"content": []any{
+				map[string]any{
+					"type":  "heading",
+					"attrs": map[string]any{
+						// level is missing
+					},
+					"content": []any{
+						map[string]any{
+							"type": "text",
+							"text": "Default Heading",
+						},
+					},
+				},
+			},
+		}
+
+		result, warnings := converter.ToMarkdown(adfDoc)
+
+		assert.Empty(t, warnings)
+		assert.Equal(t, "# Default Heading", result)
+	})
 }
