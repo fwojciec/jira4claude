@@ -7,7 +7,7 @@ Simplify CLI output to a single markdown-based format, eliminating the color/no-
 ## Principles
 
 1. All content output is valid GitHub-Flavored Markdown
-2. Bracket notation `[x]` for visual indicators (status, priority, messages)
+2. Human-readable bracket notation for visual indicators (e.g., `[Done]`, `[P2]`, `[ok]`)
 3. Omit empty fields rather than showing placeholders
 4. Minimal decoration - no `===` separators, no `...` lines
 5. Consistent message vocabulary: `[ok]`, `[warn]`, `[error]`, `[info]`
@@ -52,17 +52,17 @@ coverage in the cmd/j4c package.
 
 ## Subtasks
 
-- [x] J4C-97: Investigate current subtask behavior and gaps
-- [x] J4C-98: Fix subtask type name mismatch
-- [ ] J4C-99: Display subtasks in parent issue view
+- [Done] J4C-97: Investigate current subtask behavior and gaps
+- [Done] J4C-98: Fix subtask type name mismatch
+- [To Do] J4C-99: Display subtasks in parent issue view
 
 ## Linked Issues
 
 **blocks:**
-- [ ] J4C-78: Rename adf package
+- [To Do] J4C-78: Rename adf package
 
 **is blocked by:**
-- [x] J4C-74: Inject Converter into CLI IssueContext
+- [Done] J4C-74: Inject Converter into CLI IssueContext
 
 ## Comments
 
@@ -84,25 +84,25 @@ Completed the initial investigation, found three issues.
 ### Issue List
 
 ```markdown
-- [x] [!] **J4C-103** http package: cleanup stale comments and reduce duplication
-- [x] [!] **J4C-102** goldmark package: improve test coverage for edge cases
-- [ ] [!] **J4C-95** Investigate epic support in issue display
-- [~] [!!] **J4C-104** Implement new feature
+- **J4C-103** [Done] [P2] http package: cleanup stale comments and reduce duplication
+- **J4C-102** [Done] [P2] goldmark package: improve test coverage for edge cases
+- **J4C-95** [To Do] [P2] Investigate epic support in issue display
+- **J4C-104** [In Progress] [P1] Implement new feature
 ```
 
-**Format:** `- [status] [priority] **KEY** summary`
+**Format:** `- **KEY** [Status] [Priority] summary`
 
-**Status indicators:**
-- `[x]` - Done
-- `[ ]` - To Do
-- `[~]` - In Progress
+**Status markers:**
+- `[Done]`
+- `[In Progress]`
+- `[To Do]`
 
-**Priority indicators:**
-- `[!!!]` - Highest
-- `[!!]` - High
-- `[!]` - Medium
-- `[-]` - Low
-- `[--]` - Lowest
+**Priority markers (P0 = highest):**
+- `[P0]` - Highest
+- `[P1]` - High
+- `[P2]` - Medium
+- `[P3]` - Low
+- `[P4]` - Lowest
 
 **Truncation:** Constant `maxSummaryLength = 60`, truncate with `...`
 
@@ -110,10 +110,10 @@ Completed the initial investigation, found three issues.
 
 ```markdown
 **blocks:**
-- [ ] J4C-78: Rename adf package
+- [To Do] J4C-78: Rename adf package
 
 **is blocked by:**
-- [x] J4C-74: Inject Converter into CLI IssueContext
+- [Done] J4C-74: Inject Converter into CLI IssueContext
 ```
 
 ### Transitions List

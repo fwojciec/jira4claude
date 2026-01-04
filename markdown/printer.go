@@ -103,7 +103,7 @@ func (p *Printer) Issues(views []jira4claude.IssueView) {
 		statusInd := statusIndicator(view.Status)
 		priorityInd := priorityIndicator(view.Priority)
 		summary := truncate(view.Summary, maxSummaryLength)
-		fmt.Fprintf(p.out, "- [%s] [%s] **%s** %s\n", statusInd, priorityInd, view.Key, summary)
+		fmt.Fprintf(p.out, "- **%s** [%s] [%s] %s\n", view.Key, statusInd, priorityInd, summary)
 	}
 }
 
@@ -196,33 +196,33 @@ func (p *Printer) renderLinksGrouped(links []jira4claude.LinkView) {
 	}
 }
 
-// statusIndicator returns the bracket notation for a status.
+// statusIndicator returns a human-readable status marker.
 func statusIndicator(status string) string {
 	switch status {
 	case "Done":
-		return "x"
+		return "Done"
 	case "In Progress":
-		return "~"
+		return "In Progress"
 	default: // "To Do" and others
-		return " "
+		return "To Do"
 	}
 }
 
-// priorityIndicator returns the bracket notation for a priority.
+// priorityIndicator returns a P0-P4 priority marker.
 func priorityIndicator(priority string) string {
 	switch priority {
 	case "Highest":
-		return "!!!"
+		return "P0"
 	case "High":
-		return "!!"
+		return "P1"
 	case "Medium":
-		return "!"
+		return "P2"
 	case "Low":
-		return "-"
+		return "P3"
 	case "Lowest":
-		return "--"
+		return "P4"
 	default:
-		return "!"
+		return "P2"
 	}
 }
 
