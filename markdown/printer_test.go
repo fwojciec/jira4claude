@@ -1,0 +1,460 @@
+package markdown_test
+
+import (
+	"bytes"
+	"errors"
+	"testing"
+
+	"github.com/fwojciec/jira4claude"
+	"github.com/fwojciec/jira4claude/markdown"
+	"github.com/stretchr/testify/assert"
+)
+
+func TestPrinter_Issue(t *testing.T) {
+	t.Parallel()
+
+	t.Run("renders complete issue with all fields", func(t *testing.T) {
+		t.Parallel()
+		var out bytes.Buffer
+		p := markdown.NewPrinter(&out)
+
+		view := jira4claude.IssueView{
+			Key:         "J4C-100",
+			Summary:     "cmd package cleanup and test coverage improvements",
+			Type:        "Task",
+			Status:      "Done",
+			Priority:    "Medium",
+			Assignee:    "Filip Wojciechowski",
+			Reporter:    "Filip Wojciechowski",
+			Parent:      "J4C-96",
+			Labels:      []string{"backend", "cleanup"},
+			Description: "Code review identified stale TODO comments.",
+			Subtasks: []jira4claude.SubtaskView{
+				{Key: "J4C-97", Summary: "Investigate current subtask behavior", Status: "Done"},
+				{Key: "J4C-98", Summary: "Fix subtask type name mismatch", Status: "Done"},
+				{Key: "J4C-99", Summary: "Display subtasks in parent issue view", Status: "To Do"},
+			},
+			Links: []jira4claude.LinkView{
+				{Type: "blocks", IssueKey: "J4C-78", Summary: "Rename adf package", Status: "To Do"},
+				{Type: "is blocked by", IssueKey: "J4C-74", Summary: "Inject Converter into CLI", Status: "Done"},
+			},
+			Comments: []jira4claude.CommentView{
+				{Author: "Filip Wojciechowski", Created: "2026-01-04T10:30:00Z", Body: "Completed the initial investigation."},
+			},
+			URL: "https://fwojciec.atlassian.net/browse/J4C-100",
+		}
+
+		p.Issue(view)
+		result := out.String()
+
+		// Header
+		assert.Contains(t, result, "# J4C-100: cmd package cleanup and test coverage improvements")
+		// Metadata
+		assert.Contains(t, result, "**Type:** Task")
+		assert.Contains(t, result, "**Status:** Done")
+		assert.Contains(t, result, "**Priority:** Medium")
+		assert.Contains(t, result, "**Assignee:** Filip Wojciechowski")
+		assert.Contains(t, result, "**Reporter:** Filip Wojciechowski")
+		assert.Contains(t, result, "**Parent:** J4C-96")
+		assert.Contains(t, result, "**Labels:** backend, cleanup")
+		// Description
+		assert.Contains(t, result, "Code review identified stale TODO comments.")
+		// Subtasks section
+		assert.Contains(t, result, "## Subtasks")
+		assert.Contains(t, result, "- [x] J4C-97: Investigate current subtask behavior")
+		assert.Contains(t, result, "- [x] J4C-98: Fix subtask type name mismatch")
+		assert.Contains(t, result, "- [ ] J4C-99: Display subtasks in parent issue view")
+		// Links section
+		assert.Contains(t, result, "## Linked Issues")
+		assert.Contains(t, result, "**blocks:**")
+		assert.Contains(t, result, "- [ ] J4C-78: Rename adf package")
+		assert.Contains(t, result, "**is blocked by:**")
+		assert.Contains(t, result, "- [x] J4C-74: Inject Converter into CLI")
+		// Comments section
+		assert.Contains(t, result, "## Comments")
+		assert.Contains(t, result, "**Filip Wojciechowski** (2026-01-04 10:30):")
+		assert.Contains(t, result, "Completed the initial investigation.")
+		// URL
+		assert.Contains(t, result, "[View in Jira](https://fwojciec.atlassian.net/browse/J4C-100)")
+	})
+
+	t.Run("omits empty fields", func(t *testing.T) {
+		t.Parallel()
+		var out bytes.Buffer
+		p := markdown.NewPrinter(&out)
+
+		view := jira4claude.IssueView{
+			Key:     "J4C-101",
+			Summary: "Minimal issue",
+			Type:    "Task",
+			Status:  "To Do",
+		}
+
+		p.Issue(view)
+		result := out.String()
+
+		assert.Contains(t, result, "# J4C-101: Minimal issue")
+		assert.Contains(t, result, "**Type:** Task")
+		assert.Contains(t, result, "**Status:** To Do")
+		// Empty fields should not appear
+		assert.NotContains(t, result, "**Priority:**")
+		assert.NotContains(t, result, "**Assignee:**")
+		assert.NotContains(t, result, "**Reporter:**")
+		assert.NotContains(t, result, "**Parent:**")
+		assert.NotContains(t, result, "**Labels:**")
+		assert.NotContains(t, result, "## Subtasks")
+		assert.NotContains(t, result, "## Linked Issues")
+		assert.NotContains(t, result, "## Comments")
+		assert.NotContains(t, result, "[View in Jira]")
+	})
+
+	t.Run("handles In Progress status", func(t *testing.T) {
+		t.Parallel()
+		var out bytes.Buffer
+		p := markdown.NewPrinter(&out)
+
+		view := jira4claude.IssueView{
+			Key:     "J4C-102",
+			Summary: "In progress issue",
+			Type:    "Task",
+			Status:  "In Progress",
+			Subtasks: []jira4claude.SubtaskView{
+				{Key: "J4C-103", Summary: "Subtask in progress", Status: "In Progress"},
+			},
+		}
+
+		p.Issue(view)
+		result := out.String()
+
+		assert.Contains(t, result, "**Status:** In Progress")
+		assert.Contains(t, result, "- [~] J4C-103: Subtask in progress")
+	})
+}
+
+func TestPrinter_Issues(t *testing.T) {
+	t.Parallel()
+
+	t.Run("renders issue list with status and priority indicators", func(t *testing.T) {
+		t.Parallel()
+		var out bytes.Buffer
+		p := markdown.NewPrinter(&out)
+
+		views := []jira4claude.IssueView{
+			{Key: "J4C-103", Summary: "http package cleanup", Status: "Done", Priority: "Medium"},
+			{Key: "J4C-102", Summary: "goldmark package test coverage", Status: "Done", Priority: "Medium"},
+			{Key: "J4C-95", Summary: "Investigate epic support", Status: "To Do", Priority: "Medium"},
+			{Key: "J4C-104", Summary: "Implement new feature", Status: "In Progress", Priority: "High"},
+		}
+
+		p.Issues(views)
+		result := out.String()
+
+		assert.Contains(t, result, "- [x] [!] **J4C-103** http package cleanup")
+		assert.Contains(t, result, "- [x] [!] **J4C-102** goldmark package test coverage")
+		assert.Contains(t, result, "- [ ] [!] **J4C-95** Investigate epic support")
+		assert.Contains(t, result, "- [~] [!!] **J4C-104** Implement new feature")
+	})
+
+	t.Run("truncates long summaries", func(t *testing.T) {
+		t.Parallel()
+		var out bytes.Buffer
+		p := markdown.NewPrinter(&out)
+
+		views := []jira4claude.IssueView{
+			{
+				Key:      "J4C-100",
+				Summary:  "This is a very long summary that exceeds sixty characters and should be truncated",
+				Status:   "To Do",
+				Priority: "Medium",
+			},
+		}
+
+		p.Issues(views)
+		result := out.String()
+
+		// Should truncate at 60 chars with ...
+		assert.Contains(t, result, "This is a very long summary that exceeds sixty characters...")
+		assert.NotContains(t, result, "should be truncated")
+	})
+
+	t.Run("handles all priority levels", func(t *testing.T) {
+		t.Parallel()
+		var out bytes.Buffer
+		p := markdown.NewPrinter(&out)
+
+		views := []jira4claude.IssueView{
+			{Key: "J4C-1", Summary: "Highest priority", Status: "To Do", Priority: "Highest"},
+			{Key: "J4C-2", Summary: "High priority", Status: "To Do", Priority: "High"},
+			{Key: "J4C-3", Summary: "Medium priority", Status: "To Do", Priority: "Medium"},
+			{Key: "J4C-4", Summary: "Low priority", Status: "To Do", Priority: "Low"},
+			{Key: "J4C-5", Summary: "Lowest priority", Status: "To Do", Priority: "Lowest"},
+		}
+
+		p.Issues(views)
+		result := out.String()
+
+		assert.Contains(t, result, "- [ ] [!!!] **J4C-1** Highest priority")
+		assert.Contains(t, result, "- [ ] [!!] **J4C-2** High priority")
+		assert.Contains(t, result, "- [ ] [!] **J4C-3** Medium priority")
+		assert.Contains(t, result, "- [ ] [-] **J4C-4** Low priority")
+		assert.Contains(t, result, "- [ ] [--] **J4C-5** Lowest priority")
+	})
+
+	t.Run("empty list shows info message", func(t *testing.T) {
+		t.Parallel()
+		var out bytes.Buffer
+		p := markdown.NewPrinter(&out)
+
+		p.Issues(nil)
+		result := out.String()
+
+		assert.Contains(t, result, "[info] No issues found")
+	})
+}
+
+func TestPrinter_Comment(t *testing.T) {
+	t.Parallel()
+
+	t.Run("renders comment with author and timestamp", func(t *testing.T) {
+		t.Parallel()
+		var out bytes.Buffer
+		p := markdown.NewPrinter(&out)
+
+		view := jira4claude.CommentView{
+			Author:  "Filip Wojciechowski",
+			Created: "2026-01-04T10:30:00Z",
+			Body:    "This is a comment body.",
+		}
+
+		p.Comment(view)
+		result := out.String()
+
+		assert.Contains(t, result, "**Filip Wojciechowski** (2026-01-04 10:30):")
+		assert.Contains(t, result, "This is a comment body.")
+	})
+
+	t.Run("handles unknown author", func(t *testing.T) {
+		t.Parallel()
+		var out bytes.Buffer
+		p := markdown.NewPrinter(&out)
+
+		view := jira4claude.CommentView{
+			Created: "2026-01-04T10:30:00Z",
+			Body:    "Anonymous comment.",
+		}
+
+		p.Comment(view)
+		result := out.String()
+
+		assert.Contains(t, result, "**Unknown** (2026-01-04 10:30):")
+	})
+
+	t.Run("preserves short timestamp", func(t *testing.T) {
+		t.Parallel()
+		var out bytes.Buffer
+		p := markdown.NewPrinter(&out)
+
+		view := jira4claude.CommentView{
+			Author:  "Test User",
+			Created: "2026-01", // Short timestamp
+			Body:    "Test body.",
+		}
+
+		p.Comment(view)
+		result := out.String()
+
+		assert.Contains(t, result, "(2026-01):")
+	})
+
+	t.Run("handles multi-line comment body", func(t *testing.T) {
+		t.Parallel()
+		var out bytes.Buffer
+		p := markdown.NewPrinter(&out)
+
+		view := jira4claude.CommentView{
+			Author:  "Test User",
+			Created: "2026-01-04T10:30:00Z",
+			Body:    "Line 1\nLine 2\nLine 3",
+		}
+
+		p.Comment(view)
+		result := out.String()
+
+		assert.Contains(t, result, "Line 1\nLine 2\nLine 3")
+	})
+}
+
+func TestPrinter_Transitions(t *testing.T) {
+	t.Parallel()
+
+	t.Run("renders transition list", func(t *testing.T) {
+		t.Parallel()
+		var out bytes.Buffer
+		p := markdown.NewPrinter(&out)
+
+		transitions := []*jira4claude.Transition{
+			{ID: "1", Name: "In Progress"},
+			{ID: "2", Name: "Done"},
+			{ID: "3", Name: "Blocked"},
+		}
+
+		p.Transitions("J4C-100", transitions)
+		result := out.String()
+
+		assert.Contains(t, result, "- In Progress")
+		assert.Contains(t, result, "- Done")
+		assert.Contains(t, result, "- Blocked")
+	})
+
+	t.Run("empty transitions shows info message", func(t *testing.T) {
+		t.Parallel()
+		var out bytes.Buffer
+		p := markdown.NewPrinter(&out)
+
+		p.Transitions("J4C-100", nil)
+		result := out.String()
+
+		assert.Contains(t, result, "[info] No transitions available for J4C-100")
+	})
+}
+
+func TestPrinter_Links(t *testing.T) {
+	t.Parallel()
+
+	t.Run("renders links grouped by type", func(t *testing.T) {
+		t.Parallel()
+		var out bytes.Buffer
+		p := markdown.NewPrinter(&out)
+
+		links := []jira4claude.LinkView{
+			{Type: "blocks", IssueKey: "J4C-78", Summary: "Rename adf package", Status: "To Do"},
+			{Type: "blocks", IssueKey: "J4C-79", Summary: "Another blocked issue", Status: "Done"},
+			{Type: "is blocked by", IssueKey: "J4C-74", Summary: "Inject Converter into CLI", Status: "Done"},
+		}
+
+		p.Links("J4C-100", links)
+		result := out.String()
+
+		assert.Contains(t, result, "**blocks:**")
+		assert.Contains(t, result, "- [ ] J4C-78: Rename adf package")
+		assert.Contains(t, result, "- [x] J4C-79: Another blocked issue")
+		assert.Contains(t, result, "**is blocked by:**")
+		assert.Contains(t, result, "- [x] J4C-74: Inject Converter into CLI")
+	})
+
+	t.Run("empty links shows info message", func(t *testing.T) {
+		t.Parallel()
+		var out bytes.Buffer
+		p := markdown.NewPrinter(&out)
+
+		p.Links("J4C-100", nil)
+		result := out.String()
+
+		assert.Contains(t, result, "[info] No links for J4C-100")
+	})
+}
+
+func TestPrinter_Success(t *testing.T) {
+	t.Parallel()
+
+	t.Run("renders success message without keys", func(t *testing.T) {
+		t.Parallel()
+		var out bytes.Buffer
+		p := markdown.NewPrinter(&out)
+
+		p.Success("Operation completed")
+		result := out.String()
+
+		assert.Equal(t, "[ok] Operation completed\n", result)
+	})
+
+	t.Run("renders success message with keys", func(t *testing.T) {
+		t.Parallel()
+		var out bytes.Buffer
+		p := markdown.NewPrinter(&out)
+
+		p.Success("Issue created", "J4C-105")
+		result := out.String()
+
+		assert.Contains(t, result, "[ok] Issue created J4C-105")
+	})
+
+	t.Run("renders success message with multiple keys", func(t *testing.T) {
+		t.Parallel()
+		var out bytes.Buffer
+		p := markdown.NewPrinter(&out)
+
+		p.Success("Issues created", "J4C-105", "J4C-106")
+		result := out.String()
+
+		assert.Contains(t, result, "[ok] Issues created J4C-105, J4C-106")
+	})
+
+	t.Run("includes URLs when server URL is set", func(t *testing.T) {
+		t.Parallel()
+		var out bytes.Buffer
+		p := markdown.NewPrinter(&out)
+		p.SetServerURL("https://fwojciec.atlassian.net")
+
+		p.Success("Issue created", "J4C-105")
+		result := out.String()
+
+		assert.Contains(t, result, "[ok] Issue created J4C-105")
+		assert.Contains(t, result, "https://fwojciec.atlassian.net/browse/J4C-105")
+	})
+}
+
+func TestPrinter_Warning(t *testing.T) {
+	t.Parallel()
+
+	t.Run("renders warning to stderr", func(t *testing.T) {
+		t.Parallel()
+		var out, errOut bytes.Buffer
+		p := markdown.NewPrinterWithIO(&out, &errOut)
+
+		p.Warning("Description contained unsupported formatting")
+
+		assert.Empty(t, out.String())
+		assert.Equal(t, "[warn] Description contained unsupported formatting\n", errOut.String())
+	})
+
+	t.Run("discards warnings when using NewPrinter", func(t *testing.T) {
+		t.Parallel()
+		var out bytes.Buffer
+		p := markdown.NewPrinter(&out)
+
+		p.Warning("This should be discarded")
+
+		assert.Empty(t, out.String())
+	})
+}
+
+func TestPrinter_Error(t *testing.T) {
+	t.Parallel()
+
+	t.Run("renders error to stderr", func(t *testing.T) {
+		t.Parallel()
+		var out, errOut bytes.Buffer
+		p := markdown.NewPrinterWithIO(&out, &errOut)
+
+		p.Error(errors.New("connection failed"))
+
+		assert.Empty(t, out.String())
+		assert.Equal(t, "[error] connection failed\n", errOut.String())
+	})
+
+	t.Run("handles jira4claude.Error", func(t *testing.T) {
+		t.Parallel()
+		var out, errOut bytes.Buffer
+		p := markdown.NewPrinterWithIO(&out, &errOut)
+
+		err := &jira4claude.Error{
+			Code:    jira4claude.ENotFound,
+			Message: "Issue not found",
+		}
+
+		p.Error(err)
+
+		assert.Equal(t, "[error] Issue not found\n", errOut.String())
+	})
+}
