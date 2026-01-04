@@ -7,11 +7,6 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// TestNew was removed as redundant.
-// Interface compliance is verified at compile time via:
-//   var _ jira4claude.Converter = (*Converter)(nil)
-// in goldmark.go. Per CLAUDE.md, these checks must be in production code, not tests.
-
 func TestRoundTrip(t *testing.T) {
 	t.Parallel()
 
