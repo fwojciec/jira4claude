@@ -1,26 +1,14 @@
 package main_test
 
 import (
-	"bytes"
 	"testing"
 
 	"github.com/fwojciec/jira4claude"
 	main "github.com/fwojciec/jira4claude/cmd/j4c"
-	"github.com/fwojciec/jira4claude/gogh"
 	"github.com/fwojciec/jira4claude/mock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
-
-func makeConfigContext(t *testing.T, svc jira4claude.ConfigService, out *bytes.Buffer) *main.ConfigContext {
-	t.Helper()
-	io := gogh.NewIO(out, out)
-	printer := gogh.NewTextPrinter(io)
-	return &main.ConfigContext{
-		Service: svc,
-		Printer: printer,
-	}
-}
 
 func TestInitCmd(t *testing.T) {
 	t.Parallel()
@@ -38,8 +26,8 @@ func TestInitCmd(t *testing.T) {
 			},
 		}
 
-		var buf bytes.Buffer
-		ctx := makeConfigContext(t, svc, &buf)
+		printer := &mock.Printer{}
+		ctx := &main.ConfigContext{Service: svc, Printer: printer}
 		cmd := main.InitCmd{
 			Server:  "https://example.atlassian.net",
 			Project: "TEST",
@@ -62,14 +50,15 @@ func TestInitCmd(t *testing.T) {
 			},
 		}
 
-		var buf bytes.Buffer
-		ctx := makeConfigContext(t, svc, &buf)
+		printer := &mock.Printer{}
+		ctx := &main.ConfigContext{Service: svc, Printer: printer}
 		cmd := main.InitCmd{Server: "https://example.atlassian.net", Project: "TEST"}
 
 		err := cmd.Run(ctx)
 
 		require.NoError(t, err)
-		assert.Contains(t, buf.String(), "Created .jira4claude.yaml")
+		require.Len(t, printer.SuccessCalls, 1)
+		assert.Equal(t, "Created .jira4claude.yaml", printer.SuccessCalls[0].Msg)
 	})
 
 	t.Run("prints success when gitignore entry added", func(t *testing.T) {
@@ -84,14 +73,16 @@ func TestInitCmd(t *testing.T) {
 			},
 		}
 
-		var buf bytes.Buffer
-		ctx := makeConfigContext(t, svc, &buf)
+		printer := &mock.Printer{}
+		ctx := &main.ConfigContext{Service: svc, Printer: printer}
 		cmd := main.InitCmd{Server: "https://example.atlassian.net", Project: "TEST"}
 
 		err := cmd.Run(ctx)
 
 		require.NoError(t, err)
-		assert.Contains(t, buf.String(), "Added .jira4claude.yaml to .gitignore")
+		require.Len(t, printer.SuccessCalls, 2)
+		assert.Equal(t, "Created .jira4claude.yaml", printer.SuccessCalls[0].Msg)
+		assert.Equal(t, "Added .jira4claude.yaml to .gitignore", printer.SuccessCalls[1].Msg)
 	})
 
 	t.Run("prints success when gitignore entry already exists", func(t *testing.T) {
@@ -106,14 +97,16 @@ func TestInitCmd(t *testing.T) {
 			},
 		}
 
-		var buf bytes.Buffer
-		ctx := makeConfigContext(t, svc, &buf)
+		printer := &mock.Printer{}
+		ctx := &main.ConfigContext{Service: svc, Printer: printer}
 		cmd := main.InitCmd{Server: "https://example.atlassian.net", Project: "TEST"}
 
 		err := cmd.Run(ctx)
 
 		require.NoError(t, err)
-		assert.Contains(t, buf.String(), ".jira4claude.yaml already in .gitignore")
+		require.Len(t, printer.SuccessCalls, 2)
+		assert.Equal(t, "Created .jira4claude.yaml", printer.SuccessCalls[0].Msg)
+		assert.Equal(t, ".jira4claude.yaml already in .gitignore", printer.SuccessCalls[1].Msg)
 	})
 
 	t.Run("returns error when config already exists", func(t *testing.T) {
@@ -128,8 +121,8 @@ func TestInitCmd(t *testing.T) {
 			},
 		}
 
-		var buf bytes.Buffer
-		ctx := makeConfigContext(t, svc, &buf)
+		printer := &mock.Printer{}
+		ctx := &main.ConfigContext{Service: svc, Printer: printer}
 		cmd := main.InitCmd{Server: "https://example.atlassian.net", Project: "TEST"}
 
 		err := cmd.Run(ctx)
@@ -150,8 +143,8 @@ func TestInitCmd(t *testing.T) {
 			},
 		}
 
-		var buf bytes.Buffer
-		ctx := makeConfigContext(t, svc, &buf)
+		printer := &mock.Printer{}
+		ctx := &main.ConfigContext{Service: svc, Printer: printer}
 		cmd := main.InitCmd{Server: "https://example.atlassian.net", Project: "TEST"}
 
 		err := cmd.Run(ctx)

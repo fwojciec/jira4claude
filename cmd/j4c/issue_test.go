@@ -1,28 +1,21 @@
 package main_test
 
 import (
-	"bytes"
 	"context"
 	"testing"
 	"time"
 
 	"github.com/fwojciec/jira4claude"
 	main "github.com/fwojciec/jira4claude/cmd/j4c"
-	"github.com/fwojciec/jira4claude/gogh"
 	"github.com/fwojciec/jira4claude/mock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-// Test helpers
-
-func makeIssueContext(t *testing.T, svc jira4claude.IssueService, out *bytes.Buffer) *main.IssueContext {
-	t.Helper()
-	io := gogh.NewIO(out, out)
-	printer := gogh.NewTextPrinter(io)
-	converter := &mock.Converter{
+// mockConverter returns a converter that creates valid ADF from markdown.
+func mockConverter() *mock.Converter {
+	return &mock.Converter{
 		ToADFFn: func(markdown string) (jira4claude.ADF, []string) {
-			// Simple mock that creates a valid ADF document
 			return jira4claude.ADF{
 				"type":    "doc",
 				"version": 1,
@@ -40,7 +33,6 @@ func makeIssueContext(t *testing.T, svc jira4claude.IssueService, out *bytes.Buf
 			}, nil
 		},
 		ToMarkdownFn: func(adf jira4claude.ADF) (string, []string) {
-			// Simple mock that extracts and concatenates text from ADF
 			var result string
 			if content, ok := adf["content"].([]any); ok {
 				for _, block := range content {
@@ -59,12 +51,6 @@ func makeIssueContext(t *testing.T, svc jira4claude.IssueService, out *bytes.Buf
 			}
 			return result, nil
 		},
-	}
-	return &main.IssueContext{
-		Service:   svc,
-		Printer:   printer,
-		Converter: converter,
-		Config:    &jira4claude.Config{Project: "TEST", Server: "https://test.atlassian.net"},
 	}
 }
 
@@ -147,10 +133,6 @@ func TestIssueTransitionsCmd(t *testing.T) {
 func TestIssueTransitionCmd_InvalidStatusShowsQuotedOptions(t *testing.T) {
 	t.Parallel()
 
-	var out, errOut bytes.Buffer
-	io := gogh.NewIO(&out, &errOut)
-	printer := gogh.NewTextPrinter(io)
-
 	svc := &mock.IssueService{
 		TransitionsFn: func(ctx context.Context, key string) ([]*jira4claude.Transition, error) {
 			return []*jira4claude.Transition{
@@ -160,10 +142,11 @@ func TestIssueTransitionCmd_InvalidStatusShowsQuotedOptions(t *testing.T) {
 		},
 	}
 
+	printer := &mock.Printer{}
 	ctx := &main.IssueContext{
 		Service:   svc,
 		Printer:   printer,
-		Converter: &mock.Converter{}, // Not used by transitions, but required
+		Converter: &mock.Converter{},
 		Config:    &jira4claude.Config{Project: "TEST"},
 	}
 
@@ -198,8 +181,13 @@ func TestIssueCreateCmd(t *testing.T) {
 			},
 		}
 
-		var buf bytes.Buffer
-		ctx := makeIssueContext(t, svc, &buf)
+		printer := &mock.Printer{}
+		ctx := &main.IssueContext{
+			Service:   svc,
+			Printer:   printer,
+			Converter: mockConverter(),
+			Config:    &jira4claude.Config{Project: "TEST", Server: "https://test.atlassian.net"},
+		}
 		cmd := main.IssueCreateCmd{
 			Summary:     "Test issue",
 			Description: "**bold** and *italic*",
@@ -223,8 +211,13 @@ func TestIssueCreateCmd(t *testing.T) {
 			},
 		}
 
-		var buf bytes.Buffer
-		ctx := makeIssueContext(t, svc, &buf)
+		printer := &mock.Printer{}
+		ctx := &main.IssueContext{
+			Service:   svc,
+			Printer:   printer,
+			Converter: mockConverter(),
+			Config:    &jira4claude.Config{Project: "TEST", Server: "https://test.atlassian.net"},
+		}
 		cmd := main.IssueCreateCmd{
 			Summary:     "Test issue",
 			Description: "plain text without formatting",
@@ -248,8 +241,13 @@ func TestIssueCreateCmd(t *testing.T) {
 			},
 		}
 
-		var buf bytes.Buffer
-		ctx := makeIssueContext(t, svc, &buf)
+		printer := &mock.Printer{}
+		ctx := &main.IssueContext{
+			Service:   svc,
+			Printer:   printer,
+			Converter: mockConverter(),
+			Config:    &jira4claude.Config{Project: "TEST", Server: "https://test.atlassian.net"},
+		}
 		cmd := main.IssueCreateCmd{
 			Summary:     "Test issue",
 			Description: "",
@@ -273,8 +271,13 @@ func TestIssueCreateCmd(t *testing.T) {
 			},
 		}
 
-		var buf bytes.Buffer
-		ctx := makeIssueContext(t, svc, &buf)
+		printer := &mock.Printer{}
+		ctx := &main.IssueContext{
+			Service:   svc,
+			Printer:   printer,
+			Converter: mockConverter(),
+			Config:    &jira4claude.Config{Project: "TEST", Server: "https://test.atlassian.net"},
+		}
 		cmd := main.IssueCreateCmd{
 			Summary: "Subtask issue",
 			Parent:  "TEST-1",
@@ -305,8 +308,13 @@ func TestIssueUpdateCmd(t *testing.T) {
 			},
 		}
 
-		var buf bytes.Buffer
-		ctx := makeIssueContext(t, svc, &buf)
+		printer := &mock.Printer{}
+		ctx := &main.IssueContext{
+			Service:   svc,
+			Printer:   printer,
+			Converter: mockConverter(),
+			Config:    &jira4claude.Config{Project: "TEST", Server: "https://test.atlassian.net"},
+		}
 		description := "**bold** and *italic*"
 		cmd := main.IssueUpdateCmd{Key: "TEST-1", Description: &description}
 		err := cmd.Run(ctx)
@@ -328,8 +336,13 @@ func TestIssueUpdateCmd(t *testing.T) {
 			},
 		}
 
-		var buf bytes.Buffer
-		ctx := makeIssueContext(t, svc, &buf)
+		printer := &mock.Printer{}
+		ctx := &main.IssueContext{
+			Service:   svc,
+			Printer:   printer,
+			Converter: mockConverter(),
+			Config:    &jira4claude.Config{Project: "TEST", Server: "https://test.atlassian.net"},
+		}
 		description := "plain text without formatting"
 		cmd := main.IssueUpdateCmd{Key: "TEST-1", Description: &description}
 		err := cmd.Run(ctx)
@@ -351,8 +364,13 @@ func TestIssueUpdateCmd(t *testing.T) {
 			},
 		}
 
-		var buf bytes.Buffer
-		ctx := makeIssueContext(t, svc, &buf)
+		printer := &mock.Printer{}
+		ctx := &main.IssueContext{
+			Service:   svc,
+			Printer:   printer,
+			Converter: mockConverter(),
+			Config:    &jira4claude.Config{Project: "TEST", Server: "https://test.atlassian.net"},
+		}
 		description := ""
 		cmd := main.IssueUpdateCmd{Key: "TEST-1", Description: &description}
 		err := cmd.Run(ctx)
@@ -384,8 +402,13 @@ func TestIssueCommentCmd(t *testing.T) {
 			},
 		}
 
-		var buf bytes.Buffer
-		ctx := makeIssueContext(t, svc, &buf)
+		printer := &mock.Printer{}
+		ctx := &main.IssueContext{
+			Service:   svc,
+			Printer:   printer,
+			Converter: mockConverter(),
+			Config:    &jira4claude.Config{Project: "TEST", Server: "https://test.atlassian.net"},
+		}
 		cmd := main.IssueCommentCmd{Key: "TEST-1", Body: "**bold** and *italic*"}
 		err := cmd.Run(ctx)
 
@@ -410,8 +433,13 @@ func TestIssueCommentCmd(t *testing.T) {
 			},
 		}
 
-		var buf bytes.Buffer
-		ctx := makeIssueContext(t, svc, &buf)
+		printer := &mock.Printer{}
+		ctx := &main.IssueContext{
+			Service:   svc,
+			Printer:   printer,
+			Converter: mockConverter(),
+			Config:    &jira4claude.Config{Project: "TEST", Server: "https://test.atlassian.net"},
+		}
 		cmd := main.IssueCommentCmd{Key: "TEST-1", Body: "plain text without formatting"}
 		err := cmd.Run(ctx)
 
@@ -437,8 +465,13 @@ func TestIssueReadyCmd(t *testing.T) {
 			},
 		}
 
-		var buf bytes.Buffer
-		ctx := makeIssueContext(t, svc, &buf)
+		printer := &mock.Printer{}
+		ctx := &main.IssueContext{
+			Service:   svc,
+			Printer:   printer,
+			Converter: mockConverter(),
+			Config:    &jira4claude.Config{Project: "TEST", Server: "https://test.atlassian.net"},
+		}
 		cmd := main.IssueReadyCmd{} // No project specified
 		err := cmd.Run(ctx)
 
@@ -458,8 +491,13 @@ func TestIssueReadyCmd(t *testing.T) {
 			},
 		}
 
-		var buf bytes.Buffer
-		ctx := makeIssueContext(t, svc, &buf)
+		printer := &mock.Printer{}
+		ctx := &main.IssueContext{
+			Service:   svc,
+			Printer:   printer,
+			Converter: mockConverter(),
+			Config:    &jira4claude.Config{Project: "TEST", Server: "https://test.atlassian.net"},
+		}
 		cmd := main.IssueReadyCmd{Project: "CUSTOM"}
 		err := cmd.Run(ctx)
 
@@ -480,8 +518,13 @@ func TestIssueReadyCmd(t *testing.T) {
 			},
 		}
 
-		var buf bytes.Buffer
-		ctx := makeIssueContext(t, svc, &buf)
+		printer := &mock.Printer{}
+		ctx := &main.IssueContext{
+			Service:   svc,
+			Printer:   printer,
+			Converter: mockConverter(),
+			Config:    &jira4claude.Config{Project: "TEST", Server: "https://test.atlassian.net"},
+		}
 		cmd := main.IssueReadyCmd{Limit: 25}
 		err := cmd.Run(ctx)
 
@@ -536,18 +579,23 @@ func TestIssueReadyCmd(t *testing.T) {
 			},
 		}
 
-		var buf bytes.Buffer
-		ctx := makeIssueContext(t, svc, &buf)
+		printer := &mock.Printer{}
+		ctx := &main.IssueContext{
+			Service:   svc,
+			Printer:   printer,
+			Converter: mockConverter(),
+			Config:    &jira4claude.Config{Project: "TEST", Server: "https://test.atlassian.net"},
+		}
 		cmd := main.IssueReadyCmd{}
 		err := cmd.Run(ctx)
 
 		require.NoError(t, err)
-		output := buf.String()
-		// Ready issues should be in output
-		assert.Contains(t, output, "TEST-1")
-		assert.Contains(t, output, "TEST-4")
-		// Blocked issue should NOT be in output
-		assert.NotContains(t, output, "TEST-2")
+		// Should have called Issues with 2 ready issues (TEST-1 and TEST-4)
+		require.Len(t, printer.IssuesCalls, 1)
+		views := printer.IssuesCalls[0]
+		require.Len(t, views, 2)
+		assert.Equal(t, "TEST-1", views[0].Key)
+		assert.Equal(t, "TEST-4", views[1].Key)
 	})
 
 	t.Run("handles empty result", func(t *testing.T) {
@@ -559,15 +607,20 @@ func TestIssueReadyCmd(t *testing.T) {
 			},
 		}
 
-		var buf bytes.Buffer
-		ctx := makeIssueContext(t, svc, &buf)
+		printer := &mock.Printer{}
+		ctx := &main.IssueContext{
+			Service:   svc,
+			Printer:   printer,
+			Converter: mockConverter(),
+			Config:    &jira4claude.Config{Project: "TEST", Server: "https://test.atlassian.net"},
+		}
 		cmd := main.IssueReadyCmd{}
 		err := cmd.Run(ctx)
 
 		require.NoError(t, err)
-		// Should not panic or error on empty result
-		// Output may be empty or contain a header, but no issue keys
-		assert.NotContains(t, buf.String(), "TEST-")
+		// Should have called Issues with empty slice
+		require.Len(t, printer.IssuesCalls, 1)
+		assert.Empty(t, printer.IssuesCalls[0])
 	})
 
 	t.Run("handles all issues filtered out", func(t *testing.T) {
@@ -596,14 +649,20 @@ func TestIssueReadyCmd(t *testing.T) {
 			},
 		}
 
-		var buf bytes.Buffer
-		ctx := makeIssueContext(t, svc, &buf)
+		printer := &mock.Printer{}
+		ctx := &main.IssueContext{
+			Service:   svc,
+			Printer:   printer,
+			Converter: mockConverter(),
+			Config:    &jira4claude.Config{Project: "TEST", Server: "https://test.atlassian.net"},
+		}
 		cmd := main.IssueReadyCmd{}
 		err := cmd.Run(ctx)
 
 		require.NoError(t, err)
-		// No ready issues should be in output
-		assert.NotContains(t, buf.String(), "TEST-1")
+		// Should have called Issues with empty slice (all filtered out)
+		require.Len(t, printer.IssuesCalls, 1)
+		assert.Empty(t, printer.IssuesCalls[0])
 	})
 
 	t.Run("propagates service errors", func(t *testing.T) {
@@ -616,8 +675,13 @@ func TestIssueReadyCmd(t *testing.T) {
 			},
 		}
 
-		var buf bytes.Buffer
-		ctx := makeIssueContext(t, svc, &buf)
+		printer := &mock.Printer{}
+		ctx := &main.IssueContext{
+			Service:   svc,
+			Printer:   printer,
+			Converter: mockConverter(),
+			Config:    &jira4claude.Config{Project: "TEST", Server: "https://test.atlassian.net"},
+		}
 		cmd := main.IssueReadyCmd{}
 		err := cmd.Run(ctx)
 
@@ -641,7 +705,6 @@ func TestIssueViewCmd(t *testing.T) {
 					Summary: "Test issue",
 					Status:  "To Do",
 					Type:    "Task",
-					// Description is now ADF - the printer outputs it as JSON
 					Description: jira4claude.ADF{
 						"type":    "doc",
 						"version": 1,
@@ -664,13 +727,20 @@ func TestIssueViewCmd(t *testing.T) {
 			},
 		}
 
-		var buf bytes.Buffer
-		ctx := makeIssueContext(t, svc, &buf)
+		printer := &mock.Printer{}
+		ctx := &main.IssueContext{
+			Service:   svc,
+			Printer:   printer,
+			Converter: mockConverter(),
+			Config:    &jira4claude.Config{Project: "TEST", Server: "https://test.atlassian.net"},
+		}
 		cmd := main.IssueViewCmd{Key: "TEST-1"}
 		err := cmd.Run(ctx)
 
 		require.NoError(t, err)
-		assert.Contains(t, buf.String(), "Hello")
+		require.Len(t, printer.IssueCalls, 1)
+		// Description should contain "Hello" after conversion
+		assert.Contains(t, printer.IssueCalls[0].Description, "Hello")
 	})
 
 	t.Run("handles nil description", func(t *testing.T) {
@@ -688,14 +758,20 @@ func TestIssueViewCmd(t *testing.T) {
 			},
 		}
 
-		var buf bytes.Buffer
-		ctx := makeIssueContext(t, svc, &buf)
+		printer := &mock.Printer{}
+		ctx := &main.IssueContext{
+			Service:   svc,
+			Printer:   printer,
+			Converter: mockConverter(),
+			Config:    &jira4claude.Config{Project: "TEST", Server: "https://test.atlassian.net"},
+		}
 		cmd := main.IssueViewCmd{Key: "TEST-1"}
 		err := cmd.Run(ctx)
 
 		require.NoError(t, err)
-		// No description should be shown when nil
-		assert.NotContains(t, buf.String(), "description")
+		require.Len(t, printer.IssueCalls, 1)
+		// Description should be empty when nil
+		assert.Empty(t, printer.IssueCalls[0].Description)
 	})
 
 	t.Run("displays comment bodies as ADF", func(t *testing.T) {
@@ -712,7 +788,6 @@ func TestIssueViewCmd(t *testing.T) {
 						{
 							ID:     "10001",
 							Author: &jira4claude.User{DisplayName: "John Doe"},
-							// Body is now ADF - the printer outputs it as JSON
 							Body: jira4claude.ADF{
 								"type":    "doc",
 								"version": 1,
@@ -742,14 +817,21 @@ func TestIssueViewCmd(t *testing.T) {
 			},
 		}
 
-		var buf bytes.Buffer
-		ctx := makeIssueContext(t, svc, &buf)
+		printer := &mock.Printer{}
+		ctx := &main.IssueContext{
+			Service:   svc,
+			Printer:   printer,
+			Converter: mockConverter(),
+			Config:    &jira4claude.Config{Project: "TEST", Server: "https://test.atlassian.net"},
+		}
 		cmd := main.IssueViewCmd{Key: "TEST-1"}
 		err := cmd.Run(ctx)
 
 		require.NoError(t, err)
-		assert.Contains(t, buf.String(), "Comment with ")
-		assert.Contains(t, buf.String(), "bold")
+		require.Len(t, printer.IssueCalls, 1)
+		require.Len(t, printer.IssueCalls[0].Comments, 1)
+		// Comment body should contain the text after conversion
+		assert.Contains(t, printer.IssueCalls[0].Comments[0].Body, "Comment with ")
 	})
 }
 
@@ -769,9 +851,13 @@ func TestIssueListCmd(t *testing.T) {
 			},
 		}
 
-		var buf bytes.Buffer
-		ctx := makeIssueContext(t, svc, &buf)
-		// Config has Project set to "TEST" via makeIssueContext
+		printer := &mock.Printer{}
+		ctx := &main.IssueContext{
+			Service:   svc,
+			Printer:   printer,
+			Converter: mockConverter(),
+			Config:    &jira4claude.Config{Project: "TEST", Server: "https://test.atlassian.net"},
+		}
 		cmd := main.IssueListCmd{}
 		err := cmd.Run(ctx)
 
@@ -790,8 +876,13 @@ func TestIssueListCmd(t *testing.T) {
 			},
 		}
 
-		var buf bytes.Buffer
-		ctx := makeIssueContext(t, svc, &buf)
+		printer := &mock.Printer{}
+		ctx := &main.IssueContext{
+			Service:   svc,
+			Printer:   printer,
+			Converter: mockConverter(),
+			Config:    &jira4claude.Config{Project: "TEST", Server: "https://test.atlassian.net"},
+		}
 		cmd := main.IssueListCmd{Project: "OVERRIDE"}
 		err := cmd.Run(ctx)
 
@@ -810,8 +901,13 @@ func TestIssueListCmd(t *testing.T) {
 			},
 		}
 
-		var buf bytes.Buffer
-		ctx := makeIssueContext(t, svc, &buf)
+		printer := &mock.Printer{}
+		ctx := &main.IssueContext{
+			Service:   svc,
+			Printer:   printer,
+			Converter: mockConverter(),
+			Config:    &jira4claude.Config{Project: "TEST", Server: "https://test.atlassian.net"},
+		}
 		cmd := main.IssueListCmd{JQL: "project = CUSTOM"}
 		err := cmd.Run(ctx)
 
@@ -832,8 +928,13 @@ func TestIssueListCmd(t *testing.T) {
 			},
 		}
 
-		var buf bytes.Buffer
-		ctx := makeIssueContext(t, svc, &buf)
+		printer := &mock.Printer{}
+		ctx := &main.IssueContext{
+			Service:   svc,
+			Printer:   printer,
+			Converter: mockConverter(),
+			Config:    &jira4claude.Config{Project: "TEST", Server: "https://test.atlassian.net"},
+		}
 		cmd := main.IssueListCmd{
 			Project:  "MYPROJ",
 			Status:   "In Progress",
@@ -864,8 +965,13 @@ func TestIssueListCmd(t *testing.T) {
 			},
 		}
 
-		var buf bytes.Buffer
-		ctx := makeIssueContext(t, svc, &buf)
+		printer := &mock.Printer{}
+		ctx := &main.IssueContext{
+			Service:   svc,
+			Printer:   printer,
+			Converter: mockConverter(),
+			Config:    &jira4claude.Config{Project: "TEST", Server: "https://test.atlassian.net"},
+		}
 		cmd := main.IssueListCmd{
 			JQL:   "assignee = currentUser() ORDER BY created DESC",
 			Limit: 10,
@@ -886,8 +992,13 @@ func TestIssueListCmd(t *testing.T) {
 			},
 		}
 
-		var buf bytes.Buffer
-		ctx := makeIssueContext(t, svc, &buf)
+		printer := &mock.Printer{}
+		ctx := &main.IssueContext{
+			Service:   svc,
+			Printer:   printer,
+			Converter: mockConverter(),
+			Config:    &jira4claude.Config{Project: "TEST", Server: "https://test.atlassian.net"},
+		}
 		cmd := main.IssueListCmd{Project: "NONEXISTENT"}
 		err := cmd.Run(ctx)
 
@@ -907,15 +1018,22 @@ func TestIssueListCmd(t *testing.T) {
 			},
 		}
 
-		var buf bytes.Buffer
-		ctx := makeIssueContext(t, svc, &buf)
+		printer := &mock.Printer{}
+		ctx := &main.IssueContext{
+			Service:   svc,
+			Printer:   printer,
+			Converter: mockConverter(),
+			Config:    &jira4claude.Config{Project: "TEST", Server: "https://test.atlassian.net"},
+		}
 		cmd := main.IssueListCmd{Project: "TEST"}
 		err := cmd.Run(ctx)
 
 		require.NoError(t, err)
-		output := buf.String()
-		assert.Contains(t, output, "TEST-1")
-		assert.Contains(t, output, "TEST-2")
+		require.Len(t, printer.IssuesCalls, 1)
+		views := printer.IssuesCalls[0]
+		require.Len(t, views, 2)
+		assert.Equal(t, "TEST-1", views[0].Key)
+		assert.Equal(t, "TEST-2", views[1].Key)
 	})
 }
 
@@ -933,14 +1051,20 @@ func TestIssueAssignCmd(t *testing.T) {
 			},
 		}
 
-		var buf bytes.Buffer
-		ctx := makeIssueContext(t, svc, &buf)
+		printer := &mock.Printer{}
+		ctx := &main.IssueContext{
+			Service:   svc,
+			Printer:   printer,
+			Converter: mockConverter(),
+			Config:    &jira4claude.Config{Project: "TEST", Server: "https://test.atlassian.net"},
+		}
 		cmd := main.IssueAssignCmd{Key: "TEST-1", AccountID: "abc123"}
 		err := cmd.Run(ctx)
 
 		require.NoError(t, err)
-		assert.Contains(t, buf.String(), "Assigned:")
-		assert.Contains(t, buf.String(), "TEST-1")
+		require.Len(t, printer.SuccessCalls, 1)
+		assert.Equal(t, "Assigned:", printer.SuccessCalls[0].Msg)
+		assert.Equal(t, []string{"TEST-1"}, printer.SuccessCalls[0].Keys)
 	})
 
 	t.Run("prints unassign message when account ID is empty", func(t *testing.T) {
@@ -952,14 +1076,20 @@ func TestIssueAssignCmd(t *testing.T) {
 			},
 		}
 
-		var buf bytes.Buffer
-		ctx := makeIssueContext(t, svc, &buf)
+		printer := &mock.Printer{}
+		ctx := &main.IssueContext{
+			Service:   svc,
+			Printer:   printer,
+			Converter: mockConverter(),
+			Config:    &jira4claude.Config{Project: "TEST", Server: "https://test.atlassian.net"},
+		}
 		cmd := main.IssueAssignCmd{Key: "TEST-1", AccountID: ""}
 		err := cmd.Run(ctx)
 
 		require.NoError(t, err)
-		assert.Contains(t, buf.String(), "Unassigned:")
-		assert.Contains(t, buf.String(), "TEST-1")
+		require.Len(t, printer.SuccessCalls, 1)
+		assert.Equal(t, "Unassigned:", printer.SuccessCalls[0].Msg)
+		assert.Equal(t, []string{"TEST-1"}, printer.SuccessCalls[0].Keys)
 	})
 
 	t.Run("returns error when service fails", func(t *testing.T) {
@@ -971,8 +1101,13 @@ func TestIssueAssignCmd(t *testing.T) {
 			},
 		}
 
-		var buf bytes.Buffer
-		ctx := makeIssueContext(t, svc, &buf)
+		printer := &mock.Printer{}
+		ctx := &main.IssueContext{
+			Service:   svc,
+			Printer:   printer,
+			Converter: mockConverter(),
+			Config:    &jira4claude.Config{Project: "TEST", Server: "https://test.atlassian.net"},
+		}
 		cmd := main.IssueAssignCmd{Key: "NOTFOUND-1", AccountID: "abc123"}
 		err := cmd.Run(ctx)
 

@@ -6,8 +6,8 @@ import (
 
 	"github.com/alecthomas/kong"
 	"github.com/fwojciec/jira4claude"
-	"github.com/fwojciec/jira4claude/gogh"
 	"github.com/fwojciec/jira4claude/http"
+	"github.com/fwojciec/jira4claude/json"
 	"github.com/fwojciec/jira4claude/markdown"
 	"github.com/fwojciec/jira4claude/yaml"
 )
@@ -56,15 +56,16 @@ func main() {
 		kong.UsageOnError(),
 	)
 
-	// Build IO and printer (ServerURL set later after config is loaded)
-	io := gogh.NewIO(os.Stdout, os.Stderr)
+	// Build printer (ServerURL set later after config is loaded)
 	var printer jira4claude.Printer
-	var jsonPrinter *gogh.JSONPrinter
+	var jsonPrinter *json.Printer
+	var mdPrinter *markdown.Printer
 	if cli.JSON {
-		jsonPrinter = gogh.NewJSONPrinterWithIO(io.Out, io.Err)
+		jsonPrinter = json.NewPrinterWithIO(os.Stdout, os.Stderr)
 		printer = jsonPrinter
 	} else {
-		printer = gogh.NewTextPrinter(io)
+		mdPrinter = markdown.NewPrinterWithIO(os.Stdout, os.Stderr)
+		printer = mdPrinter
 	}
 
 	// Init command doesn't need config
@@ -88,9 +89,11 @@ func main() {
 	}
 
 	// Set server URL on printers for URL output
-	io.ServerURL = cfg.Server
 	if jsonPrinter != nil {
 		jsonPrinter.SetServerURL(cfg.Server)
+	}
+	if mdPrinter != nil {
+		mdPrinter.SetServerURL(cfg.Server)
 	}
 
 	// Build service
