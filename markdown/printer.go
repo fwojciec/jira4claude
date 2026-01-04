@@ -67,8 +67,7 @@ func (p *Printer) Issue(view jira4claude.IssueView) {
 	if len(view.Subtasks) > 0 {
 		fmt.Fprint(p.out, "\n## Subtasks\n\n")
 		for _, subtask := range view.Subtasks {
-			indicator := statusIndicator(subtask.Status)
-			fmt.Fprintf(p.out, "- [%s] %s: %s\n", indicator, subtask.Key, subtask.Summary)
+			fmt.Fprintln(p.out, formatIssueListItem(subtask.Key, subtask.Status, "", subtask.Summary))
 		}
 	}
 
@@ -100,10 +99,8 @@ func (p *Printer) Issues(views []jira4claude.IssueView) {
 	}
 
 	for _, view := range views {
-		statusInd := statusIndicator(view.Status)
-		priorityInd := priorityIndicator(view.Priority)
 		summary := truncate(view.Summary, maxSummaryLength)
-		fmt.Fprintf(p.out, "- **%s** [%s] [%s] %s\n", view.Key, statusInd, priorityInd, summary)
+		fmt.Fprintln(p.out, formatIssueListItem(view.Key, view.Status, view.Priority, summary))
 	}
 }
 
@@ -190,10 +187,21 @@ func (p *Printer) renderLinksGrouped(links []jira4claude.LinkView) {
 		}
 		fmt.Fprintf(p.out, "**%s:**\n", linkType)
 		for _, link := range grouped[linkType] {
-			indicator := statusIndicator(link.Status)
-			fmt.Fprintf(p.out, "- [%s] %s: %s\n", indicator, link.IssueKey, link.Summary)
+			fmt.Fprintln(p.out, formatIssueListItem(link.IssueKey, link.Status, "", link.Summary))
 		}
 	}
+}
+
+// formatIssueListItem formats an issue list item in the standard format.
+// Format with priority: - **KEY** [Status] [Priority] Summary
+// Format without priority: - **KEY** [Status] Summary
+func formatIssueListItem(key, status, priority, summary string) string {
+	statusInd := statusIndicator(status)
+	if priority == "" {
+		return fmt.Sprintf("- **%s** [%s] %s", key, statusInd, summary)
+	}
+	priorityInd := priorityIndicator(priority)
+	return fmt.Sprintf("- **%s** [%s] [%s] %s", key, statusInd, priorityInd, summary)
 }
 
 // statusIndicator returns a human-readable status marker.
