@@ -502,4 +502,163 @@ func TestConverter_ToADF(t *testing.T) {
 		require.NotNil(t, result)
 		assert.Empty(t, warnings)
 	})
+
+	// Tests for consolidateTextNodes via marksEqual and mapEqual.
+	// These test text node behavior by observing the output structure.
+
+	t.Run("produces single text node for unmarked text", func(t *testing.T) {
+		t.Parallel()
+
+		// Simple unmarked text produces a single text node with no marks field.
+		// This establishes baseline behavior for comparison with marked text.
+		converter := goldmark.New()
+		result, warnings := converter.ToADF("Hello world")
+
+		expected := map[string]any{
+			"type":    "doc",
+			"version": 1,
+			"content": []any{
+				map[string]any{
+					"type": "paragraph",
+					"content": []any{
+						map[string]any{
+							"type": "text",
+							"text": "Hello world",
+						},
+					},
+				},
+			},
+		}
+
+		assert.Empty(t, warnings)
+		assert.Equal(t, expected, result)
+	})
+
+	t.Run("does not consolidate text nodes with different marks", func(t *testing.T) {
+		t.Parallel()
+
+		// Text with bold followed by text without bold should remain separate
+		converter := goldmark.New()
+		result, warnings := converter.ToADF("**bold**plain")
+
+		require.NotNil(t, result)
+		assert.Empty(t, warnings)
+
+		content, ok := result["content"].([]any)
+		require.True(t, ok)
+		require.Len(t, content, 1)
+
+		paragraph, ok := content[0].(map[string]any)
+		require.True(t, ok)
+
+		paragraphContent, ok := paragraph["content"].([]any)
+		require.True(t, ok)
+		// Should have 2 separate text nodes: "bold" with mark, "plain" without
+		assert.Len(t, paragraphContent, 2)
+	})
+
+	t.Run("produces link mark with nested attrs map", func(t *testing.T) {
+		t.Parallel()
+
+		// Links produce marks with nested attrs maps (href).
+		// This tests the mapEqual code path for nested map comparison.
+		converter := goldmark.New()
+		result, warnings := converter.ToADF("[click here](https://example.com)")
+
+		expected := map[string]any{
+			"type":    "doc",
+			"version": 1,
+			"content": []any{
+				map[string]any{
+					"type": "paragraph",
+					"content": []any{
+						map[string]any{
+							"type": "text",
+							"text": "click here",
+							"marks": []any{
+								map[string]any{
+									"type": "link",
+									"attrs": map[string]any{
+										"href": "https://example.com",
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		}
+
+		assert.Empty(t, warnings)
+		assert.Equal(t, expected, result)
+	})
+
+	t.Run("does not consolidate text nodes with different link hrefs", func(t *testing.T) {
+		t.Parallel()
+
+		// Two adjacent links with different hrefs should remain separate
+		converter := goldmark.New()
+		result, warnings := converter.ToADF("[one](https://one.com)[two](https://two.com)")
+
+		require.NotNil(t, result)
+		assert.Empty(t, warnings)
+
+		content, ok := result["content"].([]any)
+		require.True(t, ok)
+		require.Len(t, content, 1)
+
+		paragraph, ok := content[0].(map[string]any)
+		require.True(t, ok)
+
+		paragraphContent, ok := paragraph["content"].([]any)
+		require.True(t, ok)
+		// Should have 2 separate text nodes with different links
+		assert.Len(t, paragraphContent, 2)
+	})
+
+	t.Run("does not consolidate when one has marks and other does not", func(t *testing.T) {
+		t.Parallel()
+
+		// Text without marks followed by text with marks should remain separate
+		converter := goldmark.New()
+		result, warnings := converter.ToADF("plain**bold**")
+
+		require.NotNil(t, result)
+		assert.Empty(t, warnings)
+
+		content, ok := result["content"].([]any)
+		require.True(t, ok)
+		require.Len(t, content, 1)
+
+		paragraph, ok := content[0].(map[string]any)
+		require.True(t, ok)
+
+		paragraphContent, ok := paragraph["content"].([]any)
+		require.True(t, ok)
+		// Should have 2 separate text nodes: "plain" without mark, "bold" with mark
+		assert.Len(t, paragraphContent, 2)
+	})
+
+	t.Run("does not consolidate when marks have different lengths", func(t *testing.T) {
+		t.Parallel()
+
+		// Bold text vs bold+italic text should remain separate (different mark counts)
+		converter := goldmark.New()
+		result, warnings := converter.ToADF("**just bold*****bold and italic***")
+
+		require.NotNil(t, result)
+		assert.Empty(t, warnings)
+
+		content, ok := result["content"].([]any)
+		require.True(t, ok)
+		require.Len(t, content, 1)
+
+		paragraph, ok := content[0].(map[string]any)
+		require.True(t, ok)
+
+		paragraphContent, ok := paragraph["content"].([]any)
+		require.True(t, ok)
+		// Should have 2 separate text nodes with different mark counts
+		assert.Len(t, paragraphContent, 2)
+	})
 }
