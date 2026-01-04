@@ -61,15 +61,15 @@ func TestPrinter_Issue(t *testing.T) {
 		assert.Contains(t, result, "Code review identified stale TODO comments.")
 		// Subtasks section
 		assert.Contains(t, result, "## Subtasks")
-		assert.Contains(t, result, "- [x] J4C-97: Investigate current subtask behavior")
-		assert.Contains(t, result, "- [x] J4C-98: Fix subtask type name mismatch")
-		assert.Contains(t, result, "- [ ] J4C-99: Display subtasks in parent issue view")
+		assert.Contains(t, result, "- [Done] J4C-97: Investigate current subtask behavior")
+		assert.Contains(t, result, "- [Done] J4C-98: Fix subtask type name mismatch")
+		assert.Contains(t, result, "- [To Do] J4C-99: Display subtasks in parent issue view")
 		// Links section
 		assert.Contains(t, result, "## Linked Issues")
 		assert.Contains(t, result, "**blocks:**")
-		assert.Contains(t, result, "- [ ] J4C-78: Rename adf package")
+		assert.Contains(t, result, "- [To Do] J4C-78: Rename adf package")
 		assert.Contains(t, result, "**is blocked by:**")
-		assert.Contains(t, result, "- [x] J4C-74: Inject Converter into CLI")
+		assert.Contains(t, result, "- [Done] J4C-74: Inject Converter into CLI")
 		// Comments section
 		assert.Contains(t, result, "## Comments")
 		assert.Contains(t, result, "**Filip Wojciechowski** (2026-01-04 10:30):")
@@ -127,7 +127,7 @@ func TestPrinter_Issue(t *testing.T) {
 		result := out.String()
 
 		assert.Contains(t, result, "**Status:** In Progress")
-		assert.Contains(t, result, "- [~] J4C-103: Subtask in progress")
+		assert.Contains(t, result, "- [In Progress] J4C-103: Subtask in progress")
 	})
 }
 
@@ -149,10 +149,10 @@ func TestPrinter_Issues(t *testing.T) {
 		p.Issues(views)
 		result := out.String()
 
-		assert.Contains(t, result, "- [x] [!] **J4C-103** http package cleanup")
-		assert.Contains(t, result, "- [x] [!] **J4C-102** goldmark package test coverage")
-		assert.Contains(t, result, "- [ ] [!] **J4C-95** Investigate epic support")
-		assert.Contains(t, result, "- [~] [!!] **J4C-104** Implement new feature")
+		assert.Contains(t, result, "- **J4C-103** [Done] [P2] http package cleanup")
+		assert.Contains(t, result, "- **J4C-102** [Done] [P2] goldmark package test coverage")
+		assert.Contains(t, result, "- **J4C-95** [To Do] [P2] Investigate epic support")
+		assert.Contains(t, result, "- **J4C-104** [In Progress] [P1] Implement new feature")
 	})
 
 	t.Run("truncates long summaries", func(t *testing.T) {
@@ -193,11 +193,11 @@ func TestPrinter_Issues(t *testing.T) {
 		p.Issues(views)
 		result := out.String()
 
-		assert.Contains(t, result, "- [ ] [!!!] **J4C-1** Highest priority")
-		assert.Contains(t, result, "- [ ] [!!] **J4C-2** High priority")
-		assert.Contains(t, result, "- [ ] [!] **J4C-3** Medium priority")
-		assert.Contains(t, result, "- [ ] [-] **J4C-4** Low priority")
-		assert.Contains(t, result, "- [ ] [--] **J4C-5** Lowest priority")
+		assert.Contains(t, result, "- **J4C-1** [To Do] [P0] Highest priority")
+		assert.Contains(t, result, "- **J4C-2** [To Do] [P1] High priority")
+		assert.Contains(t, result, "- **J4C-3** [To Do] [P2] Medium priority")
+		assert.Contains(t, result, "- **J4C-4** [To Do] [P3] Low priority")
+		assert.Contains(t, result, "- **J4C-5** [To Do] [P4] Lowest priority")
 	})
 
 	t.Run("empty list shows info message", func(t *testing.T) {
@@ -336,10 +336,10 @@ func TestPrinter_Links(t *testing.T) {
 		result := out.String()
 
 		assert.Contains(t, result, "**blocks:**")
-		assert.Contains(t, result, "- [ ] J4C-78: Rename adf package")
-		assert.Contains(t, result, "- [x] J4C-79: Another blocked issue")
+		assert.Contains(t, result, "- [To Do] J4C-78: Rename adf package")
+		assert.Contains(t, result, "- [Done] J4C-79: Another blocked issue")
 		assert.Contains(t, result, "**is blocked by:**")
-		assert.Contains(t, result, "- [x] J4C-74: Inject Converter into CLI")
+		assert.Contains(t, result, "- [Done] J4C-74: Inject Converter into CLI")
 	})
 
 	t.Run("empty links shows info message", func(t *testing.T) {
