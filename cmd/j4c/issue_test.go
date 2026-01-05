@@ -288,7 +288,8 @@ func TestIssueCreateCmd(t *testing.T) {
 		require.NotNil(t, capturedIssue)
 		// Type must be exactly "Sub-task" (with hyphen) for Jira API
 		assert.Equal(t, "Sub-task", capturedIssue.Type)
-		assert.Equal(t, "TEST-1", capturedIssue.Parent)
+		require.NotNil(t, capturedIssue.Parent)
+		assert.Equal(t, "TEST-1", capturedIssue.Parent.Key)
 	})
 }
 

@@ -74,7 +74,7 @@ type Issue struct {
 	Labels      []string
 	Links       []*IssueLink
 	Comments    []*Comment     // Comments on the issue
-	Parent      string         // Parent issue key if this is a subtask; empty otherwise
+	Parent      *LinkedIssue   // Parent issue if this is a subtask; nil otherwise
 	Subtasks    []*LinkedIssue // Subtasks if this is a parent issue; nil otherwise
 	Created     time.Time
 	Updated     time.Time

@@ -55,8 +55,8 @@ func (s *IssueService) Create(ctx context.Context, issue *jira4claude.Issue) (*j
 	if len(issue.Labels) > 0 {
 		reqBody.Fields.Labels = issue.Labels
 	}
-	if issue.Parent != "" {
-		reqBody.Fields.Parent = &parentRef{Key: issue.Parent}
+	if issue.Parent != nil {
+		reqBody.Fields.Parent = &parentRef{Key: issue.Parent.Key}
 	}
 
 	req, err := s.client.NewJSONRequest(ctx, http.MethodPost, "/rest/api/3/issue", reqBody)
@@ -330,7 +330,7 @@ type issueResponse struct {
 		IssueLinks  []issueLinkResponse   `json:"issuelinks"`
 		Subtasks    []linkedIssueResponse `json:"subtasks"`
 		Comment     *commentsResponse     `json:"comment"`
-		Parent      *struct{ Key string } `json:"parent"`
+		Parent      *linkedIssueResponse  `json:"parent"`
 		Created     string                `json:"created"`
 		Updated     string                `json:"updated"`
 	} `json:"fields"`
@@ -440,9 +440,7 @@ func parseIssueResponse(body []byte) (*jira4claude.Issue, error) {
 		Labels:      resp.Fields.Labels,
 	}
 
-	if resp.Fields.Parent != nil {
-		issue.Parent = resp.Fields.Parent.Key
-	}
+	issue.Parent = mapLinkedIssue(resp.Fields.Parent)
 
 	issue.Assignee = mapUser(resp.Fields.Assignee)
 	issue.Reporter = mapUser(resp.Fields.Reporter)

@@ -95,7 +95,7 @@ func ToIssueView(issue *Issue, conv Converter, warn func(string), serverURL stri
 		Links:       links,
 		Subtasks:    subtasks,
 		Comments:    comments,
-		Parent:      issue.Parent,
+		Parent:      parentKey(issue.Parent),
 		Created:     issue.Created.Format(time.RFC3339),
 		Updated:     issue.Updated.Format(time.RFC3339),
 		URL:         url,
@@ -172,4 +172,11 @@ func displayName(user *User) string {
 		return ""
 	}
 	return user.DisplayName
+}
+
+func parentKey(parent *LinkedIssue) string {
+	if parent == nil {
+		return ""
+	}
+	return parent.Key
 }

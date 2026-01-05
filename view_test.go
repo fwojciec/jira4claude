@@ -289,7 +289,7 @@ func TestToIssueView(t *testing.T) {
 			Assignee: &jira4claude.User{DisplayName: "John Doe"},
 			Reporter: &jira4claude.User{DisplayName: "Jane Smith"},
 			Labels:   []string{"bug", "urgent"},
-			Parent:   "TEST-100",
+			Parent:   &jira4claude.LinkedIssue{Key: "TEST-100"},
 			Created:  time.Date(2024, 1, 1, 12, 0, 0, 0, time.UTC),
 			Updated:  time.Date(2024, 1, 2, 12, 0, 0, 0, time.UTC),
 		}
@@ -302,6 +302,30 @@ func TestToIssueView(t *testing.T) {
 		assert.Equal(t, "Jane Smith", view.Reporter)
 		assert.Equal(t, []string{"bug", "urgent"}, view.Labels)
 		assert.Equal(t, "TEST-100", view.Parent)
+	})
+
+	t.Run("returns empty parent when issue has no parent", func(t *testing.T) {
+		t.Parallel()
+
+		conv := &mock.Converter{
+			ToMarkdownFn: func(adf jira4claude.ADF) (string, []string) {
+				return "", nil
+			},
+		}
+
+		issue := &jira4claude.Issue{
+			Key:     "TEST-1",
+			Summary: "Test issue",
+			Status:  "To Do",
+			Type:    "Task",
+			Parent:  nil, // Explicitly nil
+			Created: time.Date(2024, 1, 1, 12, 0, 0, 0, time.UTC),
+			Updated: time.Date(2024, 1, 2, 12, 0, 0, 0, time.UTC),
+		}
+
+		view := jira4claude.ToIssueView(issue, conv, func(w string) {}, "")
+
+		assert.Empty(t, view.Parent)
 	})
 }
 

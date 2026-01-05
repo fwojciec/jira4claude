@@ -206,14 +206,15 @@ func TestIssueService_Create(t *testing.T) {
 			Project: "TEST",
 			Summary: "Subtask issue",
 			Type:    "Sub-task",
-			Parent:  "TEST-1",
+			Parent:  &jira4claude.LinkedIssue{Key: "TEST-1"},
 		}
 
 		result, err := svc.Create(context.Background(), issue)
 
 		require.NoError(t, err)
 		assert.Equal(t, "TEST-3", result.Key)
-		assert.Equal(t, "TEST-1", result.Parent)
+		require.NotNil(t, result.Parent)
+		assert.Equal(t, "TEST-1", result.Parent.Key)
 
 		// Verify parent field is sent in request
 		fields := receivedRequest["fields"].(map[string]any)
@@ -361,7 +362,7 @@ func TestIssueService_Get(t *testing.T) {
 		assert.Equal(t, jira4claude.ENotFound, jira4claude.ErrorCode(err))
 	})
 
-	t.Run("returns subtask with parent", func(t *testing.T) {
+	t.Run("returns subtask with parent as LinkedIssue", func(t *testing.T) {
 		t.Parallel()
 
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -379,7 +380,12 @@ func TestIssueService_Get(t *testing.T) {
 					"status": {"name": "To Do"},
 					"issuetype": {"name": "Sub-task"},
 					"parent": {
-						"key": "TEST-1"
+						"key": "TEST-1",
+						"fields": {
+							"summary": "Parent issue",
+							"status": {"name": "In Progress"},
+							"issuetype": {"name": "Epic"}
+						}
 					}
 				}
 			}`))
@@ -394,7 +400,11 @@ func TestIssueService_Get(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, "TEST-2", issue.Key)
 		assert.Equal(t, "Sub-task", issue.Type)
-		assert.Equal(t, "TEST-1", issue.Parent)
+		require.NotNil(t, issue.Parent)
+		assert.Equal(t, "TEST-1", issue.Parent.Key)
+		assert.Equal(t, "Parent issue", issue.Parent.Summary)
+		assert.Equal(t, "In Progress", issue.Parent.Status)
+		assert.Equal(t, "Epic", issue.Parent.Type)
 	})
 
 	t.Run("returns issue without parent when not a subtask", func(t *testing.T) {
@@ -426,7 +436,7 @@ func TestIssueService_Get(t *testing.T) {
 
 		require.NoError(t, err)
 		assert.Equal(t, "TEST-3", issue.Key)
-		assert.Empty(t, issue.Parent)
+		assert.Nil(t, issue.Parent)
 	})
 
 	t.Run("returns issue with links", func(t *testing.T) {

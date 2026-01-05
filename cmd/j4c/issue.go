@@ -140,6 +140,11 @@ func (c *IssueCreateCmd) Run(ctx *IssueContext) error {
 		}
 	}
 
+	var parent *jira4claude.LinkedIssue
+	if c.Parent != "" {
+		parent = &jira4claude.LinkedIssue{Key: c.Parent}
+	}
+
 	issue := &jira4claude.Issue{
 		Project:     project,
 		Type:        issueType,
@@ -147,7 +152,7 @@ func (c *IssueCreateCmd) Run(ctx *IssueContext) error {
 		Description: description,
 		Priority:    c.Priority,
 		Labels:      c.Labels,
-		Parent:      c.Parent,
+		Parent:      parent,
 	}
 
 	created, err := ctx.Service.Create(context.Background(), issue)
