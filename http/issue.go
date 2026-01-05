@@ -99,7 +99,33 @@ func (s *IssueService) Get(ctx context.Context, key string) (*jira4claude.Issue,
 		return nil, err
 	}
 
-	return parseIssueResponse(body)
+	issue, err := parseIssueResponse(body)
+	if err != nil {
+		return nil, err
+	}
+
+	// Fetch children for epics
+	if issue.Type == "Epic" {
+		children, err := s.List(ctx, jira4claude.IssueFilter{
+			Parent: issue.Key,
+		})
+		if err != nil {
+			return nil, err
+		}
+		if len(children) > 0 {
+			issue.Children = make([]*jira4claude.LinkedIssue, len(children))
+			for i, child := range children {
+				issue.Children[i] = &jira4claude.LinkedIssue{
+					Key:     child.Key,
+					Summary: child.Summary,
+					Status:  child.Status,
+					Type:    child.Type,
+				}
+			}
+		}
+	}
+
+	return issue, nil
 }
 
 // List returns issues matching the filter criteria.
