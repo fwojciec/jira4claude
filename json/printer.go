@@ -64,7 +64,7 @@ func (p *Printer) Transitions(_ string, ts []*jira4claude.Transition) {
 }
 
 // Links prints links as JSON array.
-func (p *Printer) Links(_ string, links []jira4claude.LinkView) {
+func (p *Printer) Links(_ string, links []jira4claude.RelatedIssueView) {
 	p.encode(links)
 }
 

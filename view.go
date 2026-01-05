@@ -4,23 +4,21 @@ import "time"
 
 // IssueView is a display-ready representation of an issue with ADF converted to markdown.
 type IssueView struct {
-	Key         string        `json:"key"`
-	Project     string        `json:"project,omitempty"`
-	Summary     string        `json:"summary"`
-	Description string        `json:"description,omitempty"`
-	Status      string        `json:"status"`
-	Type        string        `json:"type"`
-	Priority    string        `json:"priority,omitempty"`
-	Assignee    string        `json:"assignee,omitempty"`
-	Reporter    string        `json:"reporter,omitempty"`
-	Labels      []string      `json:"labels,omitempty"`
-	Links       []LinkView    `json:"links,omitempty"`
-	Subtasks    []SubtaskView `json:"subtasks,omitempty"`
-	Comments    []CommentView `json:"comments,omitempty"`
-	Parent      string        `json:"parent,omitempty"`
-	Created     string        `json:"created"`
-	Updated     string        `json:"updated"`
-	URL         string        `json:"url,omitempty"`
+	Key           string             `json:"key"`
+	Project       string             `json:"project,omitempty"`
+	Summary       string             `json:"summary"`
+	Description   string             `json:"description,omitempty"`
+	Status        string             `json:"status"`
+	Type          string             `json:"type"`
+	Priority      string             `json:"priority,omitempty"`
+	Assignee      string             `json:"assignee,omitempty"`
+	Reporter      string             `json:"reporter,omitempty"`
+	Labels        []string           `json:"labels,omitempty"`
+	RelatedIssues []RelatedIssueView `json:"relatedIssues,omitempty"`
+	Comments      []CommentView      `json:"comments,omitempty"`
+	Created       string             `json:"created"`
+	Updated       string             `json:"updated"`
+	URL           string             `json:"url,omitempty"`
 }
 
 // CommentView is a display-ready representation of a comment with ADF converted to markdown.
@@ -31,20 +29,14 @@ type CommentView struct {
 	Created string `json:"created"`
 }
 
-// LinkView is a display-ready representation of an issue link.
-type LinkView struct {
-	Type      string `json:"type"`
-	Direction string `json:"direction"`
-	IssueKey  string `json:"issueKey"`
-	Summary   string `json:"summary"`
-	Status    string `json:"status"`
-}
-
-// SubtaskView is a display-ready representation of a subtask.
-type SubtaskView struct {
-	Key     string `json:"key"`
-	Summary string `json:"summary"`
-	Status  string `json:"status"`
+// RelatedIssueView is a unified display-ready representation of a related issue.
+// It consolidates parents, subtasks, and links into a single format.
+type RelatedIssueView struct {
+	Relationship string `json:"relationship"` // "parent", "subtask", or link type (e.g., "blocks", "is blocked by")
+	Key          string `json:"key"`
+	Type         string `json:"type"`   // "Epic", "Task", "Sub-task", etc.
+	Status       string `json:"status"` // "To Do", "In Progress", "Done", etc.
+	Summary      string `json:"summary"`
 }
 
 // ToIssueView converts a domain Issue to a display-ready IssueView.
@@ -73,8 +65,7 @@ func ToIssueView(issue *Issue, conv Converter, warn func(string), serverURL stri
 		})
 	}
 
-	links := ToLinksView(issue.Links)
-	subtasks := ToSubtasksView(issue.Subtasks)
+	relatedIssues := ToRelatedIssuesView(issue)
 
 	var url string
 	if serverURL != "" {
@@ -82,23 +73,21 @@ func ToIssueView(issue *Issue, conv Converter, warn func(string), serverURL stri
 	}
 
 	return IssueView{
-		Key:         issue.Key,
-		Project:     issue.Project,
-		Summary:     issue.Summary,
-		Description: description,
-		Status:      issue.Status,
-		Type:        issue.Type,
-		Priority:    issue.Priority,
-		Assignee:    displayName(issue.Assignee),
-		Reporter:    displayName(issue.Reporter),
-		Labels:      issue.Labels,
-		Links:       links,
-		Subtasks:    subtasks,
-		Comments:    comments,
-		Parent:      parentKey(issue.Parent),
-		Created:     issue.Created.Format(time.RFC3339),
-		Updated:     issue.Updated.Format(time.RFC3339),
-		URL:         url,
+		Key:           issue.Key,
+		Project:       issue.Project,
+		Summary:       issue.Summary,
+		Description:   description,
+		Status:        issue.Status,
+		Type:          issue.Type,
+		Priority:      issue.Priority,
+		Assignee:      displayName(issue.Assignee),
+		Reporter:      displayName(issue.Reporter),
+		Labels:        issue.Labels,
+		RelatedIssues: relatedIssues,
+		Comments:      comments,
+		Created:       issue.Created.Format(time.RFC3339),
+		Updated:       issue.Updated.Format(time.RFC3339),
+		URL:           url,
 	}
 }
 
@@ -125,45 +114,37 @@ func ToCommentView(comment *Comment, conv Converter, warn func(string)) CommentV
 	}
 }
 
-// ToLinksView converts a slice of domain IssueLinks to display-ready LinkViews.
-func ToLinksView(links []*IssueLink) []LinkView {
-	views := make([]LinkView, 0, len(links))
+// ToLinksView converts a slice of domain IssueLinks to RelatedIssueViews.
+// The relationship field uses the link type's outward/inward description.
+func ToLinksView(links []*IssueLink) []RelatedIssueView {
+	var views []RelatedIssueView
+	var outward []RelatedIssueView
+	var inward []RelatedIssueView
+
 	for _, link := range links {
 		if link.OutwardIssue != nil {
-			views = append(views, LinkView{
-				Type:      link.Type.Outward,
-				Direction: "outward",
-				IssueKey:  link.OutwardIssue.Key,
-				Summary:   link.OutwardIssue.Summary,
-				Status:    link.OutwardIssue.Status,
+			outward = append(outward, RelatedIssueView{
+				Relationship: link.Type.Outward,
+				Key:          link.OutwardIssue.Key,
+				Type:         link.OutwardIssue.Type,
+				Status:       link.OutwardIssue.Status,
+				Summary:      link.OutwardIssue.Summary,
 			})
 		}
 		if link.InwardIssue != nil {
-			views = append(views, LinkView{
-				Type:      link.Type.Inward,
-				Direction: "inward",
-				IssueKey:  link.InwardIssue.Key,
-				Summary:   link.InwardIssue.Summary,
-				Status:    link.InwardIssue.Status,
+			inward = append(inward, RelatedIssueView{
+				Relationship: link.Type.Inward,
+				Key:          link.InwardIssue.Key,
+				Type:         link.InwardIssue.Type,
+				Status:       link.InwardIssue.Status,
+				Summary:      link.InwardIssue.Summary,
 			})
 		}
 	}
-	return views
-}
 
-// ToSubtasksView converts a slice of domain LinkedIssues to display-ready SubtaskViews.
-func ToSubtasksView(subtasks []*LinkedIssue) []SubtaskView {
-	if len(subtasks) == 0 {
-		return nil
-	}
-	views := make([]SubtaskView, len(subtasks))
-	for i, subtask := range subtasks {
-		views[i] = SubtaskView{
-			Key:     subtask.Key,
-			Summary: subtask.Summary,
-			Status:  subtask.Status,
-		}
-	}
+	// Order: outward links first, then inward links
+	views = append(views, outward...)
+	views = append(views, inward...)
 	return views
 }
 
@@ -174,9 +155,67 @@ func displayName(user *User) string {
 	return user.DisplayName
 }
 
-func parentKey(parent *LinkedIssue) string {
-	if parent == nil {
-		return ""
+// ToRelatedIssuesView converts all related issues (parent, subtasks, links) into a unified slice.
+// Results are ordered: parent → subtasks → outward links → inward links.
+func ToRelatedIssuesView(issue *Issue) []RelatedIssueView {
+	// Pre-allocate capacity: parent(1) + subtasks + links*2 (outward + inward)
+	parentCount := 0
+	if issue.Parent != nil {
+		parentCount = 1
 	}
-	return parent.Key
+	cap := parentCount + len(issue.Subtasks) + len(issue.Links)*2
+	related := make([]RelatedIssueView, 0, cap)
+
+	// 1. Parent (at most one)
+	if issue.Parent != nil {
+		related = append(related, RelatedIssueView{
+			Relationship: "parent",
+			Key:          issue.Parent.Key,
+			Type:         issue.Parent.Type,
+			Status:       issue.Parent.Status,
+			Summary:      issue.Parent.Summary,
+		})
+	}
+
+	// 2. Subtasks (or epic children)
+	for _, subtask := range issue.Subtasks {
+		related = append(related, RelatedIssueView{
+			Relationship: "subtask",
+			Key:          subtask.Key,
+			Type:         subtask.Type,
+			Status:       subtask.Status,
+			Summary:      subtask.Summary,
+		})
+	}
+
+	// 3. Links - split into outward and inward
+	var outward []RelatedIssueView
+	var inward []RelatedIssueView
+
+	for _, link := range issue.Links {
+		if link.OutwardIssue != nil {
+			outward = append(outward, RelatedIssueView{
+				Relationship: link.Type.Outward,
+				Key:          link.OutwardIssue.Key,
+				Type:         link.OutwardIssue.Type,
+				Status:       link.OutwardIssue.Status,
+				Summary:      link.OutwardIssue.Summary,
+			})
+		}
+		if link.InwardIssue != nil {
+			inward = append(inward, RelatedIssueView{
+				Relationship: link.Type.Inward,
+				Key:          link.InwardIssue.Key,
+				Type:         link.InwardIssue.Type,
+				Status:       link.InwardIssue.Status,
+				Summary:      link.InwardIssue.Summary,
+			})
+		}
+	}
+
+	// Append in order: outward links first, then inward links
+	related = append(related, outward...)
+	related = append(related, inward...)
+
+	return related
 }
