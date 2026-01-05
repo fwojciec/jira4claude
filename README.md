@@ -10,12 +10,13 @@ A minimal Jira CLI designed for AI coding agents.
 
 ## Why?
 
-The official Jira CLI has 417 commands and prompts for optional fields - it hangs in non-interactive contexts like AI agents. This CLI takes a different approach:
+AI coding agents run in non-interactive contexts where prompts hang and complex output is hard to parse. This CLI is designed from first principles for that environment:
 
-- **Minimal scope** - 11 commands covering what agents actually need
-- **Never prompts** - missing required flags produce errors, not prompts
-- **Unix philosophy** - outputs markdown that pipes to `glow`, `fzf`, `grep`
-- **Predictable output** - same input always produces same output structure
+- **Never prompts** - missing required flags produce errors, not interactive prompts
+- **Markdown output** - valid GFM that AI reads directly, humans pipe to `glow`
+- **Minimal scope** - ~11 commands covering what agents actually need
+- **Unix philosophy** - line-oriented output that composes with `fzf`, `grep`, `jq`
+- **Predictable structure** - same input always produces same output format
 
 ## Quick Start
 
