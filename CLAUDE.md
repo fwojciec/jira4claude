@@ -15,6 +15,23 @@ Strategic guidance for LLMs working with this codebase.
 - **Minimal scope** - only commands agents actually need (~8 endpoints, not 417)
 - **Process over polish** - systematic validation results in quality
 
+## Dogfooding
+
+This project uses its own CLI (`j4c`) to manage Jira tasks. When you encounter unexpected behavior, errors, or UX friction while using `j4c`:
+
+1. **Pause** - Don't work around the issue
+2. **Evaluate** - Is this a bug, missing feature, or documentation gap?
+3. **Create an issue** - Use `j4c issue create` to file a task describing the problem
+4. **Continue** - Work around the issue temporarily if needed, but the issue ensures it gets fixed
+
+If `j4c` binary doesn't exist, install it:
+
+```bash
+go install ./cmd/j4c
+```
+
+This feedback loop is essential for improving the tool.
+
 ## Workflows
 
 ### Single-Session Development
@@ -97,21 +114,6 @@ When uncertain about where code belongs, use the `go-standard-package-layout` sk
 - **`superpowers:test-driven-development`** - Write test first, watch it fail, implement
 - **`superpowers:systematic-debugging`** - Understand root cause before fixing
 - **`superpowers:verification-before-completion`** - Evidence before assertions
-
-## Writing Issues
-
-Issues should be easy to complete. Create via Jira API:
-
-```bash
-curl -s -n -X POST -H "Content-Type: application/json" \
-  https://fwojciec.atlassian.net/rest/api/3/issue \
-  -d '{"fields": {"project": {"key": "J4C"}, "summary": "Title", "issuetype": {"name": "Task"}, "description": {"type": "doc", "version": 1, "content": [{"type": "paragraph", "content": [{"type": "text", "text": "Description here"}]}]}}}'
-```
-
-**Principles**:
-- Write **what** needs doing, not **how**
-- One issue = one PR
-- Reference specific files to reduce discovery time
 
 ## Test Philosophy
 
