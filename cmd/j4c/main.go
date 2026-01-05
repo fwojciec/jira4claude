@@ -12,10 +12,19 @@ import (
 	"github.com/fwojciec/jira4claude/yaml"
 )
 
+// Version information set by goreleaser ldflags.
+//
+//nolint:gochecknoglobals // Set at build time via ldflags
+var (
+	version = "dev"
+	commit  = "none"
+)
+
 // CLI defines the command structure for j4c.
 type CLI struct {
-	Config string `help:"Path to config file" type:"path"`
-	JSON   bool   `help:"Output in JSON format" short:"j"`
+	Config  string           `help:"Path to config file" type:"path"`
+	JSON    bool             `help:"Output in JSON format" short:"j"`
+	Version kong.VersionFlag `help:"Show version information"`
 
 	Issue IssueCmd `cmd:"" help:"Issue operations"`
 	Link  LinkCmd  `cmd:"" help:"Link operations"`
@@ -54,6 +63,7 @@ func main() {
 		kong.Name("j4c"),
 		kong.Description("A minimal Jira CLI for AI agents"),
 		kong.UsageOnError(),
+		kong.Vars{"version": version + " (" + commit + ")"},
 	)
 
 	// Build printer (ServerURL set later after config is loaded)
