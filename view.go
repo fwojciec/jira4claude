@@ -1,6 +1,9 @@
 package jira4claude
 
-import "time"
+import (
+	"encoding/json"
+	"time"
+)
 
 // IssueView is a display-ready representation of an issue with ADF converted to markdown.
 type IssueView struct {
@@ -14,11 +17,20 @@ type IssueView struct {
 	Assignee      string             `json:"assignee,omitempty"`
 	Reporter      string             `json:"reporter,omitempty"`
 	Labels        []string           `json:"labels,omitempty"`
-	RelatedIssues []RelatedIssueView `json:"relatedIssues,omitempty"`
+	RelatedIssues []RelatedIssueView `json:"relatedIssues"`
 	Comments      []CommentView      `json:"comments,omitempty"`
 	Created       string             `json:"created"`
 	Updated       string             `json:"updated"`
 	URL           string             `json:"url,omitempty"`
+}
+
+// MarshalJSON ensures RelatedIssues is always an array, never null.
+func (v IssueView) MarshalJSON() ([]byte, error) {
+	type Alias IssueView
+	if v.RelatedIssues == nil {
+		v.RelatedIssues = []RelatedIssueView{}
+	}
+	return json.Marshal(Alias(v))
 }
 
 // CommentView is a display-ready representation of a comment with ADF converted to markdown.
