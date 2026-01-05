@@ -3,12 +3,18 @@ package markdown_test
 import (
 	"bytes"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/fwojciec/jira4claude"
 	"github.com/fwojciec/jira4claude/markdown"
 	"github.com/stretchr/testify/assert"
 )
+
+// indexOfSubstring returns the index of the first occurrence of substr in s, or -1 if not found.
+func indexOfSubstring(s, substr string) int {
+	return strings.Index(s, substr)
+}
 
 func TestPrinter_Issue(t *testing.T) {
 	t.Parallel()
@@ -57,16 +63,16 @@ func TestPrinter_Issue(t *testing.T) {
 		assert.Contains(t, result, "**Labels:** backend, cleanup")
 		// Description
 		assert.Contains(t, result, "Code review identified stale TODO comments.")
-		// Related Issues section - unified display grouped by relationship type
+		// Related Issues section - unified display grouped by relationship type with (Type)
 		assert.Contains(t, result, "## Related Issues")
 		assert.Contains(t, result, "**subtask:**")
-		assert.Contains(t, result, "- **J4C-97** [Done] Investigate current subtask behavior")
-		assert.Contains(t, result, "- **J4C-98** [Done] Fix subtask type name mismatch")
-		assert.Contains(t, result, "- **J4C-99** [To Do] Display subtasks in parent issue view")
+		assert.Contains(t, result, "- **J4C-97** [Done] (Sub-task) Investigate current subtask behavior")
+		assert.Contains(t, result, "- **J4C-98** [Done] (Sub-task) Fix subtask type name mismatch")
+		assert.Contains(t, result, "- **J4C-99** [To Do] (Sub-task) Display subtasks in parent issue view")
 		assert.Contains(t, result, "**blocks:**")
-		assert.Contains(t, result, "- **J4C-78** [To Do] Rename adf package")
+		assert.Contains(t, result, "- **J4C-78** [To Do] (Task) Rename adf package")
 		assert.Contains(t, result, "**is blocked by:**")
-		assert.Contains(t, result, "- **J4C-74** [Done] Inject Converter into CLI")
+		assert.Contains(t, result, "- **J4C-74** [Done] (Task) Inject Converter into CLI")
 		// Comments section
 		assert.Contains(t, result, "## Comments")
 		assert.Contains(t, result, "**Filip Wojciechowski** (2026-01-04 10:30):")
@@ -123,7 +129,37 @@ func TestPrinter_Issue(t *testing.T) {
 		result := out.String()
 
 		assert.Contains(t, result, "**Status:** In Progress")
-		assert.Contains(t, result, "- **J4C-103** [In Progress] Subtask in progress")
+		assert.Contains(t, result, "- **J4C-103** [In Progress] (Sub-task) Subtask in progress")
+	})
+
+	t.Run("renders related issues in fixed order", func(t *testing.T) {
+		t.Parallel()
+		var out bytes.Buffer
+		p := markdown.NewPrinter(&out)
+
+		// Provide issues in scrambled order - output should be in fixed order
+		view := jira4claude.IssueView{
+			Key:     "J4C-200",
+			Summary: "Test fixed ordering",
+			Type:    "Task",
+			Status:  "To Do",
+			RelatedIssues: []jira4claude.RelatedIssueView{
+				{Relationship: "is blocked by", Key: "J4C-201", Type: "Task", Status: "Done", Summary: "Blocker done"},
+				{Relationship: "blocks", Key: "J4C-202", Type: "Task", Status: "To Do", Summary: "Blocked task"},
+				{Relationship: "subtask", Key: "J4C-203", Type: "Sub-task", Status: "To Do", Summary: "Child task"},
+			},
+		}
+
+		p.Issue(view)
+		result := out.String()
+
+		// Fixed order: subtask -> blocks -> is blocked by
+		subtaskIdx := indexOfSubstring(result, "**subtask:**")
+		blocksIdx := indexOfSubstring(result, "**blocks:**")
+		isBlockedByIdx := indexOfSubstring(result, "**is blocked by:**")
+
+		assert.Less(t, subtaskIdx, blocksIdx, "subtask should appear before blocks")
+		assert.Less(t, blocksIdx, isBlockedByIdx, "blocks should appear before is blocked by")
 	})
 }
 
@@ -317,7 +353,7 @@ func TestPrinter_Transitions(t *testing.T) {
 func TestPrinter_Links(t *testing.T) {
 	t.Parallel()
 
-	t.Run("renders links grouped by relationship type", func(t *testing.T) {
+	t.Run("renders links grouped by relationship type with type annotation", func(t *testing.T) {
 		t.Parallel()
 		var out bytes.Buffer
 		p := markdown.NewPrinter(&out)
@@ -332,10 +368,10 @@ func TestPrinter_Links(t *testing.T) {
 		result := out.String()
 
 		assert.Contains(t, result, "**blocks:**")
-		assert.Contains(t, result, "- **J4C-78** [To Do] Rename adf package")
-		assert.Contains(t, result, "- **J4C-79** [Done] Another blocked issue")
+		assert.Contains(t, result, "- **J4C-78** [To Do] (Task) Rename adf package")
+		assert.Contains(t, result, "- **J4C-79** [Done] (Task) Another blocked issue")
 		assert.Contains(t, result, "**is blocked by:**")
-		assert.Contains(t, result, "- **J4C-74** [Done] Inject Converter into CLI")
+		assert.Contains(t, result, "- **J4C-74** [Done] (Task) Inject Converter into CLI")
 	})
 
 	t.Run("empty links shows info message", func(t *testing.T) {

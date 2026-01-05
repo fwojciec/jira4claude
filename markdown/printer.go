@@ -172,26 +172,51 @@ func (p *Printer) renderComment(view jira4claude.CommentView) {
 }
 
 // renderRelatedIssuesGrouped groups related issues by relationship type and renders them.
+// Groups are displayed in a fixed order: subtask -> blocks -> is blocked by.
 func (p *Printer) renderRelatedIssuesGrouped(related []jira4claude.RelatedIssueView) {
-	// Group by relationship type, preserving order
+	// Fixed display order for relationship types (parent is excluded, shown in metadata)
+	relationshipOrder := []string{"subtask", "blocks", "is blocked by"}
+
+	// Group by relationship type
 	grouped := make(map[string][]jira4claude.RelatedIssueView)
-	var order []string
 	for _, rel := range related {
-		if _, exists := grouped[rel.Relationship]; !exists {
-			order = append(order, rel.Relationship)
-		}
 		grouped[rel.Relationship] = append(grouped[rel.Relationship], rel)
 	}
 
-	for i, relType := range order {
-		if i > 0 {
-			fmt.Fprintln(p.out)
-		}
-		fmt.Fprintf(p.out, "**%s:**\n", relType)
-		for _, rel := range grouped[relType] {
-			fmt.Fprintln(p.out, formatIssueListItem(rel.Key, rel.Status, "", rel.Summary))
+	// Render in fixed order, then any remaining types
+	first := true
+	for _, relType := range relationshipOrder {
+		if issues, exists := grouped[relType]; exists {
+			if !first {
+				fmt.Fprintln(p.out)
+			}
+			first = false
+			fmt.Fprintf(p.out, "**%s:**\n", relType)
+			for _, rel := range issues {
+				fmt.Fprintln(p.out, formatRelatedIssueItem(rel.Key, rel.Status, rel.Type, rel.Summary))
+			}
+			delete(grouped, relType)
 		}
 	}
+
+	// Render any remaining relationship types not in the fixed order
+	for relType, issues := range grouped {
+		if !first {
+			fmt.Fprintln(p.out)
+		}
+		first = false
+		fmt.Fprintf(p.out, "**%s:**\n", relType)
+		for _, rel := range issues {
+			fmt.Fprintln(p.out, formatRelatedIssueItem(rel.Key, rel.Status, rel.Type, rel.Summary))
+		}
+	}
+}
+
+// formatRelatedIssueItem formats a related issue item with type annotation.
+// Format: - **KEY** [Status] (Type) Summary
+func formatRelatedIssueItem(key, status, issueType, summary string) string {
+	statusInd := statusIndicator(status)
+	return fmt.Sprintf("- **%s** [%s] (%s) %s", key, statusInd, issueType, summary)
 }
 
 // formatIssueListItem formats an issue list item in the standard format.
