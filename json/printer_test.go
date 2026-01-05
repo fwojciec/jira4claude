@@ -121,6 +121,68 @@ func TestPrinter_Issue_WithRelatedIssues(t *testing.T) {
 	assert.Equal(t, "Task", rel["type"])
 }
 
+func TestPrinter_Issue_EmptyRelatedIssuesIsArray(t *testing.T) {
+	t.Parallel()
+
+	var out bytes.Buffer
+	p := jsonpkg.NewPrinter(&out)
+
+	view := jira4claude.IssueView{
+		Key:           "TEST-123",
+		Summary:       "Test issue",
+		Status:        "Open",
+		Type:          "Task",
+		Created:       "2024-01-01T12:00:00Z",
+		Updated:       "2024-01-02T12:00:00Z",
+		RelatedIssues: []jira4claude.RelatedIssueView{}, // Explicitly empty
+	}
+
+	p.Issue(view)
+
+	var result map[string]any
+	err := json.Unmarshal(out.Bytes(), &result)
+	require.NoError(t, err)
+
+	// relatedIssues should always be present as an array, never omitted
+	related, exists := result["relatedIssues"]
+	require.True(t, exists, "relatedIssues field must always be present")
+
+	arr, ok := related.([]any)
+	require.True(t, ok, "relatedIssues must be an array, not null")
+	assert.Empty(t, arr, "relatedIssues should be an empty array")
+}
+
+func TestPrinter_Issue_NilRelatedIssuesBecomesArray(t *testing.T) {
+	t.Parallel()
+
+	var out bytes.Buffer
+	p := jsonpkg.NewPrinter(&out)
+
+	view := jira4claude.IssueView{
+		Key:     "TEST-123",
+		Summary: "Test issue",
+		Status:  "Open",
+		Type:    "Task",
+		Created: "2024-01-01T12:00:00Z",
+		Updated: "2024-01-02T12:00:00Z",
+		// RelatedIssues intentionally NOT set (nil)
+	}
+
+	p.Issue(view)
+
+	var result map[string]any
+	err := json.Unmarshal(out.Bytes(), &result)
+	require.NoError(t, err)
+
+	// relatedIssues should always be present as an array, even when nil
+	related, exists := result["relatedIssues"]
+	require.True(t, exists, "relatedIssues field must always be present")
+
+	arr, ok := related.([]any)
+	require.True(t, ok, "relatedIssues must be an array, not null")
+	assert.Empty(t, arr, "relatedIssues should be an empty array")
+}
+
 func TestPrinter_Issue_WithComments(t *testing.T) {
 	t.Parallel()
 
