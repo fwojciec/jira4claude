@@ -67,10 +67,16 @@ func (p *Printer) Issue(view jira4claude.IssueView) {
 		fmt.Fprintf(p.out, "\n%s\n", view.Description)
 	}
 
-	// Related Issues section (unified)
-	if len(view.RelatedIssues) > 0 {
+	// Related Issues section (unified), excluding parent (already shown in metadata)
+	nonParentRelated := make([]jira4claude.RelatedIssueView, 0, len(view.RelatedIssues))
+	for _, rel := range view.RelatedIssues {
+		if rel.Relationship != "parent" {
+			nonParentRelated = append(nonParentRelated, rel)
+		}
+	}
+	if len(nonParentRelated) > 0 {
 		fmt.Fprint(p.out, "\n## Related Issues\n\n")
-		p.renderRelatedIssuesGrouped(view.RelatedIssues)
+		p.renderRelatedIssuesGrouped(nonParentRelated)
 	}
 
 	// Comments section

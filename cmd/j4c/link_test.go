@@ -36,6 +36,7 @@ func TestLinkListCmd(t *testing.T) {
 								Key:     "TEST-456",
 								Summary: "Blocked issue",
 								Status:  "To Do",
+								Type:    "Task",
 							},
 						},
 						{
@@ -48,6 +49,7 @@ func TestLinkListCmd(t *testing.T) {
 								Key:     "TEST-789",
 								Summary: "Blocking issue",
 								Status:  "Done",
+								Type:    "Bug",
 							},
 						},
 					},
@@ -69,12 +71,14 @@ func TestLinkListCmd(t *testing.T) {
 		require.Len(t, printer.LinksCalls, 1)
 		assert.Equal(t, "TEST-123", printer.LinksCalls[0].Key)
 		assert.Len(t, printer.LinksCalls[0].Links, 2)
-		// Outward links (blocks) come first
+		// Outward links come first
 		assert.Equal(t, "blocks", printer.LinksCalls[0].Links[0].Relationship)
 		assert.Equal(t, "TEST-456", printer.LinksCalls[0].Links[0].Key)
-		// Inward links (is blocked by) come second
+		assert.Equal(t, "Task", printer.LinksCalls[0].Links[0].Type)
+		// Inward links come second
 		assert.Equal(t, "is blocked by", printer.LinksCalls[0].Links[1].Relationship)
 		assert.Equal(t, "TEST-789", printer.LinksCalls[0].Links[1].Key)
+		assert.Equal(t, "Bug", printer.LinksCalls[0].Links[1].Type)
 	})
 
 	t.Run("handles issue with no links", func(t *testing.T) {

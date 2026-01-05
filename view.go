@@ -30,9 +30,9 @@ type CommentView struct {
 }
 
 // RelatedIssueView is a unified display-ready representation of a related issue.
-// It consolidates parents, children, subtasks, and links into a single format.
+// It consolidates parents, subtasks, and links into a single format.
 type RelatedIssueView struct {
-	Relationship string `json:"relationship"` // "parent", "child", "subtask", "blocks", "is blocked by"
+	Relationship string `json:"relationship"` // "parent", "subtask", or link type (e.g., "blocks", "is blocked by")
 	Key          string `json:"key"`
 	Type         string `json:"type"`   // "Epic", "Task", "Sub-task", etc.
 	Status       string `json:"status"` // "To Do", "In Progress", "Done", etc.
@@ -115,15 +115,15 @@ func ToCommentView(comment *Comment, conv Converter, warn func(string)) CommentV
 }
 
 // ToLinksView converts a slice of domain IssueLinks to RelatedIssueViews.
-// The relationship field uses the link type's outward/inward description (e.g., "blocks", "is blocked by").
+// The relationship field uses the link type's outward/inward description.
 func ToLinksView(links []*IssueLink) []RelatedIssueView {
 	var views []RelatedIssueView
-	var blocks []RelatedIssueView
-	var blockedBy []RelatedIssueView
+	var outward []RelatedIssueView
+	var inward []RelatedIssueView
 
 	for _, link := range links {
 		if link.OutwardIssue != nil {
-			blocks = append(blocks, RelatedIssueView{
+			outward = append(outward, RelatedIssueView{
 				Relationship: link.Type.Outward,
 				Key:          link.OutwardIssue.Key,
 				Type:         link.OutwardIssue.Type,
@@ -132,7 +132,7 @@ func ToLinksView(links []*IssueLink) []RelatedIssueView {
 			})
 		}
 		if link.InwardIssue != nil {
-			blockedBy = append(blockedBy, RelatedIssueView{
+			inward = append(inward, RelatedIssueView{
 				Relationship: link.Type.Inward,
 				Key:          link.InwardIssue.Key,
 				Type:         link.InwardIssue.Type,
@@ -142,9 +142,9 @@ func ToLinksView(links []*IssueLink) []RelatedIssueView {
 		}
 	}
 
-	// Order: blocks (outward) first, then is blocked by (inward)
-	views = append(views, blocks...)
-	views = append(views, blockedBy...)
+	// Order: outward links first, then inward links
+	views = append(views, outward...)
+	views = append(views, inward...)
 	return views
 }
 
@@ -156,7 +156,7 @@ func displayName(user *User) string {
 }
 
 // ToRelatedIssuesView converts all related issues (parent, subtasks, links) into a unified slice.
-// Results are ordered: parent → subtasks → blocks → is blocked by.
+// Results are ordered: parent → subtasks → outward links → inward links.
 func ToRelatedIssuesView(issue *Issue) []RelatedIssueView {
 	// Pre-allocate capacity: parent(1) + subtasks + links*2 (outward + inward)
 	parentCount := 0
@@ -188,13 +188,13 @@ func ToRelatedIssuesView(issue *Issue) []RelatedIssueView {
 		})
 	}
 
-	// 3. Links - split into "blocks" (outward) and "is blocked by" (inward)
-	var blocks []RelatedIssueView
-	var blockedBy []RelatedIssueView
+	// 3. Links - split into outward and inward
+	var outward []RelatedIssueView
+	var inward []RelatedIssueView
 
 	for _, link := range issue.Links {
 		if link.OutwardIssue != nil {
-			blocks = append(blocks, RelatedIssueView{
+			outward = append(outward, RelatedIssueView{
 				Relationship: link.Type.Outward,
 				Key:          link.OutwardIssue.Key,
 				Type:         link.OutwardIssue.Type,
@@ -203,7 +203,7 @@ func ToRelatedIssuesView(issue *Issue) []RelatedIssueView {
 			})
 		}
 		if link.InwardIssue != nil {
-			blockedBy = append(blockedBy, RelatedIssueView{
+			inward = append(inward, RelatedIssueView{
 				Relationship: link.Type.Inward,
 				Key:          link.InwardIssue.Key,
 				Type:         link.InwardIssue.Type,
@@ -213,9 +213,9 @@ func ToRelatedIssuesView(issue *Issue) []RelatedIssueView {
 		}
 	}
 
-	// Append in order: blocks first, then is blocked by
-	related = append(related, blocks...)
-	related = append(related, blockedBy...)
+	// Append in order: outward links first, then inward links
+	related = append(related, outward...)
+	related = append(related, inward...)
 
 	return related
 }
