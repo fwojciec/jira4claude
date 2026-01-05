@@ -24,7 +24,7 @@ AI coding agents run in non-interactive contexts where prompts hang and complex 
 
 ```bash
 # Install
-go install github.com/fwojciec/jira4claude/cmd/j4c@latest
+brew install fwojciec/tap/j4c
 
 # Configure credentials (~/.netrc)
 echo "machine yourcompany.atlassian.net
@@ -218,6 +218,12 @@ Errors include actionable context so AI agents can self-correct without addition
 The error shows which transition was attempted, why it failed, and what transitions are available - enabling immediate retry with the correct value.
 
 ## Installation
+
+### Homebrew (macOS/Linux)
+
+```bash
+brew install fwojciec/tap/j4c
+```
 
 ### From Source
 
