@@ -629,40 +629,6 @@ func TestToRelatedIssuesView(t *testing.T) {
 		assert.Equal(t, "Parent task", related[0].Summary)
 	})
 
-	t.Run("includes children relationships for epics", func(t *testing.T) {
-		t.Parallel()
-
-		issue := &jira4claude.Issue{
-			Key:     "TEST-1",
-			Summary: "Epic issue",
-			Status:  "In Progress",
-			Type:    "Epic",
-			Children: []*jira4claude.LinkedIssue{
-				{
-					Key:     "TEST-2",
-					Summary: "Child task",
-					Status:  "To Do",
-					Type:    "Task",
-				},
-				{
-					Key:     "TEST-3",
-					Summary: "Another child",
-					Status:  "Done",
-					Type:    "Story",
-				},
-			},
-		}
-
-		related := jira4claude.ToRelatedIssuesView(issue)
-
-		assert.Len(t, related, 2)
-		assert.Equal(t, "child", related[0].Relationship)
-		assert.Equal(t, "TEST-2", related[0].Key)
-		assert.Equal(t, "Task", related[0].Type)
-		assert.Equal(t, "child", related[1].Relationship)
-		assert.Equal(t, "TEST-3", related[1].Key)
-	})
-
 	t.Run("includes subtask relationships", func(t *testing.T) {
 		t.Parallel()
 
@@ -761,7 +727,7 @@ func TestToRelatedIssuesView(t *testing.T) {
 		assert.Equal(t, "Blocking issue", related[0].Summary)
 	})
 
-	t.Run("orders relationships: parent, child, subtask, blocks, is blocked by", func(t *testing.T) {
+	t.Run("orders relationships: parent, subtask, blocks, is blocked by", func(t *testing.T) {
 		t.Parallel()
 
 		issue := &jira4claude.Issue{
@@ -774,14 +740,6 @@ func TestToRelatedIssuesView(t *testing.T) {
 				Summary: "Parent",
 				Status:  "In Progress",
 				Type:    "Epic",
-			},
-			Children: []*jira4claude.LinkedIssue{
-				{
-					Key:     "TEST-CHILD",
-					Summary: "Child",
-					Status:  "To Do",
-					Type:    "Task",
-				},
 			},
 			Subtasks: []*jira4claude.LinkedIssue{
 				{
@@ -823,16 +781,14 @@ func TestToRelatedIssuesView(t *testing.T) {
 
 		related := jira4claude.ToRelatedIssuesView(issue)
 
-		assert.Len(t, related, 5)
+		assert.Len(t, related, 4)
 		assert.Equal(t, "parent", related[0].Relationship)
 		assert.Equal(t, "TEST-PARENT", related[0].Key)
-		assert.Equal(t, "child", related[1].Relationship)
-		assert.Equal(t, "TEST-CHILD", related[1].Key)
-		assert.Equal(t, "subtask", related[2].Relationship)
-		assert.Equal(t, "TEST-SUBTASK", related[2].Key)
-		assert.Equal(t, "blocks", related[3].Relationship)
-		assert.Equal(t, "TEST-BLOCKED", related[3].Key)
-		assert.Equal(t, "is blocked by", related[4].Relationship)
-		assert.Equal(t, "TEST-BLOCKER", related[4].Key)
+		assert.Equal(t, "subtask", related[1].Relationship)
+		assert.Equal(t, "TEST-SUBTASK", related[1].Key)
+		assert.Equal(t, "blocks", related[2].Relationship)
+		assert.Equal(t, "TEST-BLOCKED", related[2].Key)
+		assert.Equal(t, "is blocked by", related[3].Relationship)
+		assert.Equal(t, "TEST-BLOCKER", related[3].Key)
 	})
 }

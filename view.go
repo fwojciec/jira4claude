@@ -155,15 +155,15 @@ func displayName(user *User) string {
 	return user.DisplayName
 }
 
-// ToRelatedIssuesView converts all related issues (parent, children, subtasks, links) into a unified slice.
-// Results are ordered: parent → children → subtasks → blocks → is blocked by.
+// ToRelatedIssuesView converts all related issues (parent, subtasks, links) into a unified slice.
+// Results are ordered: parent → subtasks → blocks → is blocked by.
 func ToRelatedIssuesView(issue *Issue) []RelatedIssueView {
-	// Pre-allocate capacity: parent(1) + children + subtasks + links*2 (outward + inward)
+	// Pre-allocate capacity: parent(1) + subtasks + links*2 (outward + inward)
 	parentCount := 0
 	if issue.Parent != nil {
 		parentCount = 1
 	}
-	cap := parentCount + len(issue.Children) + len(issue.Subtasks) + len(issue.Links)*2
+	cap := parentCount + len(issue.Subtasks) + len(issue.Links)*2
 	related := make([]RelatedIssueView, 0, cap)
 
 	// 1. Parent (at most one)
@@ -177,18 +177,7 @@ func ToRelatedIssuesView(issue *Issue) []RelatedIssueView {
 		})
 	}
 
-	// 2. Children (for epics)
-	for _, child := range issue.Children {
-		related = append(related, RelatedIssueView{
-			Relationship: "child",
-			Key:          child.Key,
-			Type:         child.Type,
-			Status:       child.Status,
-			Summary:      child.Summary,
-		})
-	}
-
-	// 3. Subtasks
+	// 2. Subtasks (or epic children)
 	for _, subtask := range issue.Subtasks {
 		related = append(related, RelatedIssueView{
 			Relationship: "subtask",
@@ -199,7 +188,7 @@ func ToRelatedIssuesView(issue *Issue) []RelatedIssueView {
 		})
 	}
 
-	// 4. Links - split into "blocks" (outward) and "is blocked by" (inward)
+	// 3. Links - split into "blocks" (outward) and "is blocked by" (inward)
 	var blocks []RelatedIssueView
 	var blockedBy []RelatedIssueView
 
