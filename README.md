@@ -6,7 +6,7 @@ A minimal Jira CLI designed for AI coding agents.
 [![Go Report Card](https://goreportcard.com/badge/github.com/fwojciec/jira4claude)](https://goreportcard.com/report/github.com/fwojciec/jira4claude)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-![Demo of Claude Code using j4c to list and view Jira tasks](assets/demo.gif)
+![Demo of Claude Code using j4c to list and view Jira tasks](assets/demo.gif?v=2)
 
 ## Why?
 
