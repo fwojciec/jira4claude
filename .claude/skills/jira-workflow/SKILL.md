@@ -1,32 +1,13 @@
 ---
 name: jira-workflow
-description: Manage J4C project tasks via Jira API. Use for ALL Jira project management tasks including creating tasks, checking ready work, linking dependencies, transitioning status, or adding comments.
+description: Manage project tasks via Jira API using j4c. Use for ALL Jira project management tasks including creating tasks, checking ready work, linking dependencies, transitioning status, or adding comments.
 ---
 
 # Jira Workflow Skill
 
-Project-specific skill for managing J4C tasks using the `j4c` CLI.
+Skill for managing Jira tasks using the `j4c` CLI.
 
 **This skill MUST be used for ANY Jira project management work.**
-
-## Dogfooding
-
-This project uses its own CLI (`j4c`) to manage Jira tasks. When you encounter unexpected behavior, errors, or UX friction while using `j4c`:
-
-1. **Pause** - Don't work around the issue
-2. **Evaluate** - Is this a bug, missing feature, or documentation gap?
-3. **Create an issue** - Use `j4c issue create` to file a task describing the problem
-4. **Continue** - Work around the issue temporarily if needed, but the issue ensures it gets fixed
-
-This feedback loop is essential for improving the tool.
-
-## Building the CLI
-
-If `j4c` binary doesn't exist, install it:
-
-```bash
-go install ./cmd/j4c
-```
 
 ## Handling Missing Config
 
@@ -124,7 +105,7 @@ This shows tasks where all blockers are Done (or have no blockers).
 Get full details for a specific task:
 
 ```bash
-j4c issue view J4C-123
+j4c issue view PROJ-123
 ```
 
 ### Create Task
@@ -160,24 +141,24 @@ j4c link create FIRST Blocks SECOND
 
 #### Example
 
-**Goal:** J4C-7 (error handling) must be done before J4C-8 (config loading)
+**Goal:** PROJ-7 (error handling) must be done before PROJ-8 (config loading)
 
 ```bash
-j4c link create J4C-7 Blocks J4C-8
+j4c link create PROJ-7 Blocks PROJ-8
 ```
 
 **After running this command:**
 
 ```bash
-j4c issue view J4C-7
-# Shows: "blocks J4C-8"
+j4c issue view PROJ-7
+# Shows: "blocks PROJ-8"
 
-j4c issue view J4C-8
-# Shows: "is blocked by J4C-7"
+j4c issue view PROJ-8
+# Shows: "is blocked by PROJ-7"
 
 j4c issue ready
-# Shows J4C-7 (the blocker is ready to work on)
-# Does NOT show J4C-8 (blocked until J4C-7 is Done)
+# Shows PROJ-7 (the blocker is ready to work on)
+# Does NOT show PROJ-8 (blocked until PROJ-7 is Done)
 ```
 
 #### MANDATORY Verification
@@ -213,7 +194,7 @@ If the wrong task is blocked, you got the direction backwards. Delete and recrea
 List all links for an issue:
 
 ```bash
-j4c link list J4C-123
+j4c link list PROJ-123
 ```
 
 ### Delete Link
@@ -221,7 +202,7 @@ j4c link list J4C-123
 If you created a link with wrong direction, delete and recreate:
 
 ```bash
-j4c link delete J4C-7 J4C-8
+j4c link delete PROJ-7 PROJ-8
 ```
 
 This removes any link between the two issues (regardless of direction).
@@ -231,19 +212,19 @@ This removes any link between the two issues (regardless of direction).
 List available transitions for a task:
 
 ```bash
-j4c issue transitions J4C-123
+j4c issue transitions PROJ-123
 ```
 
 Execute a transition by status name:
 
 ```bash
-j4c issue transition J4C-123 --status="Done"
+j4c issue transition PROJ-123 --status="Done"
 ```
 
 Or by transition ID:
 
 ```bash
-j4c issue transition J4C-123 --id="21"
+j4c issue transition PROJ-123 --id="21"
 ```
 
 Common transitions (may vary by workflow):
@@ -255,7 +236,7 @@ Common transitions (may vary by workflow):
 Add a comment to a task:
 
 ```bash
-j4c issue comment J4C-123 --body="Comment text here"
+j4c issue comment PROJ-123 --body="Comment text here"
 ```
 
 Comment bodies are always parsed as GitHub-flavored markdown.
@@ -277,9 +258,9 @@ Before creating tasks with dependencies, draw the dependency graph first:
 BLOCKER -> BLOCKED (arrow points to what depends on it)
 
 Example:
-  J4C-6 (domain types) --> J4C-13 (mocks)
-  J4C-7 (error handling) --> J4C-8 (config)
-  J4C-9 (HTTP client) --> J4C-11 (IssueService CRUD)
+  PROJ-6 (domain types) --> PROJ-13 (mocks)
+  PROJ-7 (error handling) --> PROJ-8 (config)
+  PROJ-9 (HTTP client) --> PROJ-11 (IssueService CRUD)
 ```
 
 **Rules:**

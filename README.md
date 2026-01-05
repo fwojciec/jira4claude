@@ -176,6 +176,24 @@ j4c init --server=https://... --project=PROJ
 
 Creates `.jira4claude.yaml` in current directory.
 
+## Claude Code Integration
+
+A Claude Code skill is available for AI-assisted project management with `j4c`. Copy the skill to your project:
+
+```bash
+mkdir -p .claude/skills/jira-workflow
+curl -o .claude/skills/jira-workflow/SKILL.md \
+  https://raw.githubusercontent.com/fwojciec/jira4claude/main/.claude/skills/jira-workflow/SKILL.md
+```
+
+The skill provides:
+- Issue creation templates with consistent structure
+- Dependency management guidance (link direction is tricky)
+- Command reference for common workflows
+- Markdown formatting rules for Jira compatibility
+
+After installing, Claude Code will use the skill for any Jira-related task.
+
 ## Exit Codes
 
 Semantic exit codes for programmatic error handling:
