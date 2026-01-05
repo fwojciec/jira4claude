@@ -209,6 +209,14 @@ Semantic exit codes for programmatic error handling:
 | 6 | Rate limit exceeded |
 | 7 | Internal/unexpected error |
 
+## Error Messages
+
+Errors include actionable context so AI agents can self-correct without additional API calls:
+
+![Claude Code self-correcting after an actionable error message](assets/error-handling.png)
+
+The error shows which transition was attempted, why it failed, and what transitions are available - enabling immediate retry with the correct value.
+
 ## Installation
 
 ### From Source
