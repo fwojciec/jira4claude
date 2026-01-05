@@ -76,6 +76,7 @@ type Issue struct {
 	Comments    []*Comment     // Comments on the issue
 	Parent      *LinkedIssue   // Parent issue if this is a subtask; nil otherwise
 	Subtasks    []*LinkedIssue // Subtasks if this is a parent issue; nil otherwise
+	Children    []*LinkedIssue // Children if this is an epic; nil otherwise
 	Created     time.Time
 	Updated     time.Time
 }

@@ -753,6 +753,157 @@ func TestIssueService_Get(t *testing.T) {
 		require.NoError(t, err)
 		assert.Nil(t, issue.Subtasks)
 	})
+
+	t.Run("fetches children for epic issues", func(t *testing.T) {
+		t.Parallel()
+
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+
+			// Handle the initial Get request for the epic
+			if r.URL.Path == "/rest/api/3/issue/EPIC-1" {
+				_, _ = w.Write([]byte(`{
+					"key": "EPIC-1",
+					"fields": {
+						"project": {"key": "TEST"},
+						"summary": "Epic issue",
+						"status": {"name": "In Progress"},
+						"issuetype": {"name": "Epic"}
+					}
+				}`))
+				return
+			}
+
+			// Handle the search request for children
+			if r.URL.Path == "/rest/api/3/search/jql" {
+				jql := r.URL.Query().Get("jql")
+				if strings.Contains(jql, `parent = "EPIC-1"`) {
+					_, _ = w.Write([]byte(`{
+						"issues": [
+							{
+								"key": "TEST-1",
+								"fields": {
+									"project": {"key": "TEST"},
+									"summary": "First child",
+									"status": {"name": "Done"},
+									"issuetype": {"name": "Story"}
+								}
+							},
+							{
+								"key": "TEST-2",
+								"fields": {
+									"project": {"key": "TEST"},
+									"summary": "Second child",
+									"status": {"name": "To Do"},
+									"issuetype": {"name": "Task"}
+								}
+							}
+						]
+					}`))
+					return
+				}
+			}
+
+			w.WriteHeader(http.StatusNotFound)
+		}))
+		defer server.Close()
+
+		client := newTestClient(t, server.URL, "user@example.com", "api-token")
+		svc := jirahttp.NewIssueService(client)
+
+		issue, err := svc.Get(context.Background(), "EPIC-1")
+
+		require.NoError(t, err)
+		assert.Equal(t, "Epic", issue.Type)
+		require.Len(t, issue.Children, 2)
+
+		// First child
+		assert.Equal(t, "TEST-1", issue.Children[0].Key)
+		assert.Equal(t, "First child", issue.Children[0].Summary)
+		assert.Equal(t, "Done", issue.Children[0].Status)
+		assert.Equal(t, "Story", issue.Children[0].Type)
+
+		// Second child
+		assert.Equal(t, "TEST-2", issue.Children[1].Key)
+		assert.Equal(t, "Second child", issue.Children[1].Summary)
+		assert.Equal(t, "To Do", issue.Children[1].Status)
+		assert.Equal(t, "Task", issue.Children[1].Type)
+	})
+
+	t.Run("does not fetch children for non-epic issues", func(t *testing.T) {
+		t.Parallel()
+
+		requestCount := 0
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			requestCount++
+			w.Header().Set("Content-Type", "application/json")
+
+			// Only expect the Get request, no search
+			if r.URL.Path == "/rest/api/3/issue/TEST-1" {
+				_, _ = w.Write([]byte(`{
+					"key": "TEST-1",
+					"fields": {
+						"project": {"key": "TEST"},
+						"summary": "Regular task",
+						"status": {"name": "To Do"},
+						"issuetype": {"name": "Task"}
+					}
+				}`))
+				return
+			}
+
+			w.WriteHeader(http.StatusNotFound)
+		}))
+		defer server.Close()
+
+		client := newTestClient(t, server.URL, "user@example.com", "api-token")
+		svc := jirahttp.NewIssueService(client)
+
+		issue, err := svc.Get(context.Background(), "TEST-1")
+
+		require.NoError(t, err)
+		assert.Equal(t, "Task", issue.Type)
+		assert.Nil(t, issue.Children)
+		assert.Equal(t, 1, requestCount, "should only make one request for non-epic issues")
+	})
+
+	t.Run("returns nil children for epic with no children", func(t *testing.T) {
+		t.Parallel()
+
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+
+			if r.URL.Path == "/rest/api/3/issue/EPIC-1" {
+				_, _ = w.Write([]byte(`{
+					"key": "EPIC-1",
+					"fields": {
+						"project": {"key": "TEST"},
+						"summary": "Empty epic",
+						"status": {"name": "To Do"},
+						"issuetype": {"name": "Epic"}
+					}
+				}`))
+				return
+			}
+
+			if r.URL.Path == "/rest/api/3/search/jql" {
+				_, _ = w.Write([]byte(`{"issues": []}`))
+				return
+			}
+
+			w.WriteHeader(http.StatusNotFound)
+		}))
+		defer server.Close()
+
+		client := newTestClient(t, server.URL, "user@example.com", "api-token")
+		svc := jirahttp.NewIssueService(client)
+
+		issue, err := svc.Get(context.Background(), "EPIC-1")
+
+		require.NoError(t, err)
+		assert.Equal(t, "Epic", issue.Type)
+		assert.Nil(t, issue.Children, "should be nil, not empty slice")
+	})
 }
 
 func TestIssueService_List(t *testing.T) {
