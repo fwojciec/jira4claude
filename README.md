@@ -13,9 +13,11 @@ A minimal Jira CLI designed for AI coding agents.
 AI coding agents run in non-interactive contexts where prompts hang and complex output is hard to parse. This CLI is designed from first principles for that environment:
 
 - **Never prompts** - missing required flags produce errors, not interactive prompts
-- **Markdown output** - valid GFM that AI reads directly, humans pipe to `glow`
+- **Markdown output** - valid GFM readable by both humans and AI
+- **JSON mode** - `--json` flag for programmatic field extraction
 - **Minimal scope** - ~11 commands covering what agents actually need
-- **Unix philosophy** - line-oriented output that composes with `fzf`, `grep`, `jq`
+- **Unix composable** - line-oriented output works with `fzf`, `grep`, `jq`
+- **Semantic exit codes** - handle errors programmatically without parsing messages
 - **Predictable structure** - same input always produces same output format
 
 ## Quick Start
@@ -128,11 +130,6 @@ j4c issue list --status="In Progress" --json | \
   xargs -I{} j4c issue transition {} --status="Done"
 ```
 
-| Format | Use Case | Pipe to |
-|--------|----------|---------|
-| Markdown | Human/AI reading, interactive selection | `glow`, `fzf`, `grep` |
-| JSON | Programmatic extraction, scripting | `jq`, `xargs`, scripts |
-
 ## Markdown and Jira
 
 Jira stores content in Atlassian Document Format (ADF), not markdown. This CLI handles conversion automatically:
@@ -193,17 +190,6 @@ Semantic exit codes for programmatic error handling:
 | 5 | Conflict (e.g., duplicate) |
 | 6 | Rate limit exceeded |
 | 7 | Internal/unexpected error |
-
-## For AI Agent Developers
-
-Design decisions that make this CLI agent-friendly:
-
-1. **No interactivity** - Commands never prompt. Missing required flags produce errors.
-2. **Predictable output** - Same input always produces same output structure.
-3. **Semantic exit codes** - Handle errors programmatically without parsing messages.
-4. **Markdown by default** - AI can read directly; humans pipe to `glow`.
-5. **JSON for extraction** - `--json` flag for programmatic field access.
-6. **Line-oriented lists** - Works naturally with `fzf`, `grep`, line-based tools.
 
 ## Installation
 
