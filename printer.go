@@ -10,7 +10,7 @@ type IssuePrinter interface {
 
 // LinkPrinter handles link command output.
 type LinkPrinter interface {
-	Links(key string, links []LinkView)
+	Links(key string, links []RelatedIssueView)
 }
 
 // MessagePrinter handles success/error/warning output.

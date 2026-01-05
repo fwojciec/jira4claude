@@ -83,7 +83,7 @@ func TestPrinter_Issue_WithReporter(t *testing.T) {
 	assert.Equal(t, "Jane Smith", result["reporter"])
 }
 
-func TestPrinter_Issue_WithLinks(t *testing.T) {
+func TestPrinter_Issue_WithRelatedIssues(t *testing.T) {
 	t.Parallel()
 
 	var out bytes.Buffer
@@ -95,13 +95,13 @@ func TestPrinter_Issue_WithLinks(t *testing.T) {
 		Status:  "Open",
 		Created: "2024-01-01T12:00:00Z",
 		Updated: "2024-01-02T12:00:00Z",
-		Links: []jira4claude.LinkView{
+		RelatedIssues: []jira4claude.RelatedIssueView{
 			{
-				Type:      "blocks",
-				Direction: "outward",
-				IssueKey:  "TEST-456",
-				Summary:   "Blocked issue",
-				Status:    "To Do",
+				Relationship: "blocks",
+				Key:          "TEST-456",
+				Type:         "Task",
+				Status:       "To Do",
+				Summary:      "Blocked issue",
 			},
 		},
 	}
@@ -111,14 +111,14 @@ func TestPrinter_Issue_WithLinks(t *testing.T) {
 	var result map[string]any
 	err := json.Unmarshal(out.Bytes(), &result)
 	require.NoError(t, err)
-	links, ok := result["links"].([]any)
-	require.True(t, ok, "links should be an array")
-	require.Len(t, links, 1)
+	related, ok := result["relatedIssues"].([]any)
+	require.True(t, ok, "relatedIssues should be an array")
+	require.Len(t, related, 1)
 
-	link := links[0].(map[string]any)
-	assert.Equal(t, "blocks", link["type"])
-	assert.Equal(t, "outward", link["direction"])
-	assert.Equal(t, "TEST-456", link["issueKey"])
+	rel := related[0].(map[string]any)
+	assert.Equal(t, "blocks", rel["relationship"])
+	assert.Equal(t, "TEST-456", rel["key"])
+	assert.Equal(t, "Task", rel["type"])
 }
 
 func TestPrinter_Issue_WithComments(t *testing.T) {
@@ -231,13 +231,13 @@ func TestPrinter_Links(t *testing.T) {
 	var out bytes.Buffer
 	p := jsonpkg.NewPrinter(&out)
 
-	links := []jira4claude.LinkView{
+	links := []jira4claude.RelatedIssueView{
 		{
-			Type:      "blocks",
-			Direction: "outward",
-			IssueKey:  "TEST-456",
-			Summary:   "Blocked issue",
-			Status:    "To Do",
+			Relationship: "blocks",
+			Key:          "TEST-456",
+			Type:         "Task",
+			Status:       "To Do",
+			Summary:      "Blocked issue",
 		},
 	}
 
@@ -247,8 +247,8 @@ func TestPrinter_Links(t *testing.T) {
 	err := json.Unmarshal(out.Bytes(), &result)
 	require.NoError(t, err)
 	assert.Len(t, result, 1)
-	assert.Equal(t, "blocks", result[0]["type"])
-	assert.Equal(t, "TEST-456", result[0]["issueKey"])
+	assert.Equal(t, "blocks", result[0]["relationship"])
+	assert.Equal(t, "TEST-456", result[0]["key"])
 }
 
 func TestPrinter_Links_WithInwardIssue(t *testing.T) {
@@ -257,13 +257,13 @@ func TestPrinter_Links_WithInwardIssue(t *testing.T) {
 	var out bytes.Buffer
 	p := jsonpkg.NewPrinter(&out)
 
-	links := []jira4claude.LinkView{
+	links := []jira4claude.RelatedIssueView{
 		{
-			Type:      "is blocked by",
-			Direction: "inward",
-			IssueKey:  "TEST-789",
-			Summary:   "Blocking issue",
-			Status:    "In Progress",
+			Relationship: "is blocked by",
+			Key:          "TEST-789",
+			Type:         "Bug",
+			Status:       "In Progress",
+			Summary:      "Blocking issue",
 		},
 	}
 
@@ -275,9 +275,9 @@ func TestPrinter_Links_WithInwardIssue(t *testing.T) {
 	require.Len(t, result, 1)
 
 	link := result[0]
-	assert.Equal(t, "is blocked by", link["type"])
-	assert.Equal(t, "inward", link["direction"])
-	assert.Equal(t, "TEST-789", link["issueKey"])
+	assert.Equal(t, "is blocked by", link["relationship"])
+	assert.Equal(t, "TEST-789", link["key"])
+	assert.Equal(t, "Bug", link["type"])
 	assert.Equal(t, "In Progress", link["status"])
 }
 

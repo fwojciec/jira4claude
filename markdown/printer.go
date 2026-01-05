@@ -51,8 +51,12 @@ func (p *Printer) Issue(view jira4claude.IssueView) {
 	if view.Reporter != "" {
 		fmt.Fprintf(p.out, "**Reporter:** %s\n", view.Reporter)
 	}
-	if view.Parent != "" {
-		fmt.Fprintf(p.out, "**Parent:** %s\n", view.Parent)
+	// Parent from RelatedIssues
+	for _, rel := range view.RelatedIssues {
+		if rel.Relationship == "parent" {
+			fmt.Fprintf(p.out, "**Parent:** %s\n", rel.Key)
+			break
+		}
 	}
 	if len(view.Labels) > 0 {
 		fmt.Fprintf(p.out, "**Labels:** %s\n", strings.Join(view.Labels, ", "))
@@ -63,18 +67,10 @@ func (p *Printer) Issue(view jira4claude.IssueView) {
 		fmt.Fprintf(p.out, "\n%s\n", view.Description)
 	}
 
-	// Subtasks section
-	if len(view.Subtasks) > 0 {
-		fmt.Fprint(p.out, "\n## Subtasks\n\n")
-		for _, subtask := range view.Subtasks {
-			fmt.Fprintln(p.out, formatIssueListItem(subtask.Key, subtask.Status, "", subtask.Summary))
-		}
-	}
-
-	// Linked Issues section
-	if len(view.Links) > 0 {
-		fmt.Fprint(p.out, "\n## Linked Issues\n\n")
-		p.renderLinksGrouped(view.Links)
+	// Related Issues section (unified)
+	if len(view.RelatedIssues) > 0 {
+		fmt.Fprint(p.out, "\n## Related Issues\n\n")
+		p.renderRelatedIssuesGrouped(view.RelatedIssues)
 	}
 
 	// Comments section
@@ -121,14 +117,14 @@ func (p *Printer) Transitions(key string, ts []*jira4claude.Transition) {
 	}
 }
 
-// Links prints issue links.
-func (p *Printer) Links(key string, links []jira4claude.LinkView) {
+// Links prints issue links using RelatedIssueView.
+func (p *Printer) Links(key string, links []jira4claude.RelatedIssueView) {
 	if len(links) == 0 {
 		fmt.Fprintf(p.out, "[info] No links for %s\n", key)
 		return
 	}
 
-	p.renderLinksGrouped(links)
+	p.renderRelatedIssuesGrouped(links)
 }
 
 // Success prints a success message to stdout.
@@ -169,25 +165,25 @@ func (p *Printer) renderComment(view jira4claude.CommentView) {
 	fmt.Fprintf(p.out, "**%s** (%s):\n%s\n", author, created, view.Body)
 }
 
-// renderLinksGrouped groups links by type and renders them.
-func (p *Printer) renderLinksGrouped(links []jira4claude.LinkView) {
-	// Group links by type, preserving order
-	grouped := make(map[string][]jira4claude.LinkView)
+// renderRelatedIssuesGrouped groups related issues by relationship type and renders them.
+func (p *Printer) renderRelatedIssuesGrouped(related []jira4claude.RelatedIssueView) {
+	// Group by relationship type, preserving order
+	grouped := make(map[string][]jira4claude.RelatedIssueView)
 	var order []string
-	for _, link := range links {
-		if _, exists := grouped[link.Type]; !exists {
-			order = append(order, link.Type)
+	for _, rel := range related {
+		if _, exists := grouped[rel.Relationship]; !exists {
+			order = append(order, rel.Relationship)
 		}
-		grouped[link.Type] = append(grouped[link.Type], link)
+		grouped[rel.Relationship] = append(grouped[rel.Relationship], rel)
 	}
 
-	for i, linkType := range order {
+	for i, relType := range order {
 		if i > 0 {
 			fmt.Fprintln(p.out)
 		}
-		fmt.Fprintf(p.out, "**%s:**\n", linkType)
-		for _, link := range grouped[linkType] {
-			fmt.Fprintln(p.out, formatIssueListItem(link.IssueKey, link.Status, "", link.Summary))
+		fmt.Fprintf(p.out, "**%s:**\n", relType)
+		for _, rel := range grouped[relType] {
+			fmt.Fprintln(p.out, formatIssueListItem(rel.Key, rel.Status, "", rel.Summary))
 		}
 	}
 }

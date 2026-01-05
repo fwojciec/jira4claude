@@ -26,17 +26,15 @@ func TestPrinter_Issue(t *testing.T) {
 			Priority:    "Medium",
 			Assignee:    "Filip Wojciechowski",
 			Reporter:    "Filip Wojciechowski",
-			Parent:      "J4C-96",
 			Labels:      []string{"backend", "cleanup"},
 			Description: "Code review identified stale TODO comments.",
-			Subtasks: []jira4claude.SubtaskView{
-				{Key: "J4C-97", Summary: "Investigate current subtask behavior", Status: "Done"},
-				{Key: "J4C-98", Summary: "Fix subtask type name mismatch", Status: "Done"},
-				{Key: "J4C-99", Summary: "Display subtasks in parent issue view", Status: "To Do"},
-			},
-			Links: []jira4claude.LinkView{
-				{Type: "blocks", IssueKey: "J4C-78", Summary: "Rename adf package", Status: "To Do"},
-				{Type: "is blocked by", IssueKey: "J4C-74", Summary: "Inject Converter into CLI", Status: "Done"},
+			RelatedIssues: []jira4claude.RelatedIssueView{
+				{Relationship: "parent", Key: "J4C-96", Type: "Epic", Status: "In Progress", Summary: "Parent epic"},
+				{Relationship: "subtask", Key: "J4C-97", Type: "Sub-task", Status: "Done", Summary: "Investigate current subtask behavior"},
+				{Relationship: "subtask", Key: "J4C-98", Type: "Sub-task", Status: "Done", Summary: "Fix subtask type name mismatch"},
+				{Relationship: "subtask", Key: "J4C-99", Type: "Sub-task", Status: "To Do", Summary: "Display subtasks in parent issue view"},
+				{Relationship: "blocks", Key: "J4C-78", Type: "Task", Status: "To Do", Summary: "Rename adf package"},
+				{Relationship: "is blocked by", Key: "J4C-74", Type: "Task", Status: "Done", Summary: "Inject Converter into CLI"},
 			},
 			Comments: []jira4claude.CommentView{
 				{Author: "Filip Wojciechowski", Created: "2026-01-04T10:30:00Z", Body: "Completed the initial investigation."},
@@ -59,13 +57,12 @@ func TestPrinter_Issue(t *testing.T) {
 		assert.Contains(t, result, "**Labels:** backend, cleanup")
 		// Description
 		assert.Contains(t, result, "Code review identified stale TODO comments.")
-		// Subtasks section - standardized format without priority
-		assert.Contains(t, result, "## Subtasks")
+		// Related Issues section - unified display grouped by relationship type
+		assert.Contains(t, result, "## Related Issues")
+		assert.Contains(t, result, "**subtask:**")
 		assert.Contains(t, result, "- **J4C-97** [Done] Investigate current subtask behavior")
 		assert.Contains(t, result, "- **J4C-98** [Done] Fix subtask type name mismatch")
 		assert.Contains(t, result, "- **J4C-99** [To Do] Display subtasks in parent issue view")
-		// Links section - standardized format without priority
-		assert.Contains(t, result, "## Linked Issues")
 		assert.Contains(t, result, "**blocks:**")
 		assert.Contains(t, result, "- **J4C-78** [To Do] Rename adf package")
 		assert.Contains(t, result, "**is blocked by:**")
@@ -102,8 +99,7 @@ func TestPrinter_Issue(t *testing.T) {
 		assert.NotContains(t, result, "**Reporter:**")
 		assert.NotContains(t, result, "**Parent:**")
 		assert.NotContains(t, result, "**Labels:**")
-		assert.NotContains(t, result, "## Subtasks")
-		assert.NotContains(t, result, "## Linked Issues")
+		assert.NotContains(t, result, "## Related Issues")
 		assert.NotContains(t, result, "## Comments")
 		assert.NotContains(t, result, "[View in Jira]")
 	})
@@ -118,8 +114,8 @@ func TestPrinter_Issue(t *testing.T) {
 			Summary: "In progress issue",
 			Type:    "Task",
 			Status:  "In Progress",
-			Subtasks: []jira4claude.SubtaskView{
-				{Key: "J4C-103", Summary: "Subtask in progress", Status: "In Progress"},
+			RelatedIssues: []jira4claude.RelatedIssueView{
+				{Relationship: "subtask", Key: "J4C-103", Type: "Sub-task", Status: "In Progress", Summary: "Subtask in progress"},
 			},
 		}
 
@@ -321,15 +317,15 @@ func TestPrinter_Transitions(t *testing.T) {
 func TestPrinter_Links(t *testing.T) {
 	t.Parallel()
 
-	t.Run("renders links grouped by type", func(t *testing.T) {
+	t.Run("renders links grouped by relationship type", func(t *testing.T) {
 		t.Parallel()
 		var out bytes.Buffer
 		p := markdown.NewPrinter(&out)
 
-		links := []jira4claude.LinkView{
-			{Type: "blocks", IssueKey: "J4C-78", Summary: "Rename adf package", Status: "To Do"},
-			{Type: "blocks", IssueKey: "J4C-79", Summary: "Another blocked issue", Status: "Done"},
-			{Type: "is blocked by", IssueKey: "J4C-74", Summary: "Inject Converter into CLI", Status: "Done"},
+		links := []jira4claude.RelatedIssueView{
+			{Relationship: "blocks", Key: "J4C-78", Type: "Task", Status: "To Do", Summary: "Rename adf package"},
+			{Relationship: "blocks", Key: "J4C-79", Type: "Task", Status: "Done", Summary: "Another blocked issue"},
+			{Relationship: "is blocked by", Key: "J4C-74", Type: "Task", Status: "Done", Summary: "Inject Converter into CLI"},
 		}
 
 		p.Links("J4C-100", links)

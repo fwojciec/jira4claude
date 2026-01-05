@@ -164,7 +164,7 @@ func TestToIssueView(t *testing.T) {
 		assert.Empty(t, view.Description)
 	})
 
-	t.Run("converts links to view models", func(t *testing.T) {
+	t.Run("converts links to RelatedIssues", func(t *testing.T) {
 		t.Parallel()
 
 		conv := &mock.Converter{
@@ -183,22 +183,26 @@ func TestToIssueView(t *testing.T) {
 					Type: jira4claude.IssueLinkType{
 						Name:    "Blocks",
 						Outward: "blocks",
+						Inward:  "is blocked by",
 					},
 					OutwardIssue: &jira4claude.LinkedIssue{
 						Key:     "TEST-2",
 						Summary: "Blocked issue",
 						Status:  "To Do",
+						Type:    "Task",
 					},
 				},
 				{
 					Type: jira4claude.IssueLinkType{
-						Name:   "Blocks",
-						Inward: "is blocked by",
+						Name:    "Blocks",
+						Outward: "blocks",
+						Inward:  "is blocked by",
 					},
 					InwardIssue: &jira4claude.LinkedIssue{
 						Key:     "TEST-3",
 						Summary: "Blocking issue",
 						Status:  "Done",
+						Type:    "Bug",
 					},
 				},
 			},
@@ -209,18 +213,18 @@ func TestToIssueView(t *testing.T) {
 		var warnings []string
 		view := jira4claude.ToIssueView(issue, conv, func(w string) { warnings = append(warnings, w) }, "")
 
-		assert.Len(t, view.Links, 2)
-		// Outward link
-		assert.Equal(t, "blocks", view.Links[0].Type)
-		assert.Equal(t, "outward", view.Links[0].Direction)
-		assert.Equal(t, "TEST-2", view.Links[0].IssueKey)
-		assert.Equal(t, "Blocked issue", view.Links[0].Summary)
-		assert.Equal(t, "To Do", view.Links[0].Status)
-		// Inward link
-		assert.Equal(t, "is blocked by", view.Links[1].Type)
-		assert.Equal(t, "inward", view.Links[1].Direction)
-		assert.Equal(t, "TEST-3", view.Links[1].IssueKey)
-		assert.Equal(t, "Done", view.Links[1].Status)
+		assert.Len(t, view.RelatedIssues, 2)
+		// Outward link (blocks) comes first
+		assert.Equal(t, "blocks", view.RelatedIssues[0].Relationship)
+		assert.Equal(t, "TEST-2", view.RelatedIssues[0].Key)
+		assert.Equal(t, "Task", view.RelatedIssues[0].Type)
+		assert.Equal(t, "Blocked issue", view.RelatedIssues[0].Summary)
+		assert.Equal(t, "To Do", view.RelatedIssues[0].Status)
+		// Inward link (is blocked by) comes second
+		assert.Equal(t, "is blocked by", view.RelatedIssues[1].Relationship)
+		assert.Equal(t, "TEST-3", view.RelatedIssues[1].Key)
+		assert.Equal(t, "Bug", view.RelatedIssues[1].Type)
+		assert.Equal(t, "Done", view.RelatedIssues[1].Status)
 	})
 
 	t.Run("includes URL when server URL is provided", func(t *testing.T) {
@@ -289,9 +293,14 @@ func TestToIssueView(t *testing.T) {
 			Assignee: &jira4claude.User{DisplayName: "John Doe"},
 			Reporter: &jira4claude.User{DisplayName: "Jane Smith"},
 			Labels:   []string{"bug", "urgent"},
-			Parent:   &jira4claude.LinkedIssue{Key: "TEST-100"},
-			Created:  time.Date(2024, 1, 1, 12, 0, 0, 0, time.UTC),
-			Updated:  time.Date(2024, 1, 2, 12, 0, 0, 0, time.UTC),
+			Parent: &jira4claude.LinkedIssue{
+				Key:     "TEST-100",
+				Summary: "Parent issue",
+				Status:  "In Progress",
+				Type:    "Epic",
+			},
+			Created: time.Date(2024, 1, 1, 12, 0, 0, 0, time.UTC),
+			Updated: time.Date(2024, 1, 2, 12, 0, 0, 0, time.UTC),
 		}
 
 		view := jira4claude.ToIssueView(issue, conv, func(w string) {}, "")
@@ -301,10 +310,13 @@ func TestToIssueView(t *testing.T) {
 		assert.Equal(t, "John Doe", view.Assignee)
 		assert.Equal(t, "Jane Smith", view.Reporter)
 		assert.Equal(t, []string{"bug", "urgent"}, view.Labels)
-		assert.Equal(t, "TEST-100", view.Parent)
+		// Parent is now in RelatedIssues
+		assert.Len(t, view.RelatedIssues, 1)
+		assert.Equal(t, "parent", view.RelatedIssues[0].Relationship)
+		assert.Equal(t, "TEST-100", view.RelatedIssues[0].Key)
 	})
 
-	t.Run("returns empty parent when issue has no parent", func(t *testing.T) {
+	t.Run("returns empty RelatedIssues when issue has no parent", func(t *testing.T) {
 		t.Parallel()
 
 		conv := &mock.Converter{
@@ -325,7 +337,7 @@ func TestToIssueView(t *testing.T) {
 
 		view := jira4claude.ToIssueView(issue, conv, func(w string) {}, "")
 
-		assert.Empty(t, view.Parent)
+		assert.Empty(t, view.RelatedIssues)
 	})
 }
 
@@ -445,7 +457,7 @@ func TestToCommentView(t *testing.T) {
 func TestToLinksView(t *testing.T) {
 	t.Parallel()
 
-	t.Run("converts outward and inward links", func(t *testing.T) {
+	t.Run("converts outward and inward links to RelatedIssueView", func(t *testing.T) {
 		t.Parallel()
 
 		links := []*jira4claude.IssueLink{
@@ -453,22 +465,26 @@ func TestToLinksView(t *testing.T) {
 				Type: jira4claude.IssueLinkType{
 					Name:    "Blocks",
 					Outward: "blocks",
+					Inward:  "is blocked by",
 				},
 				OutwardIssue: &jira4claude.LinkedIssue{
 					Key:     "TEST-2",
 					Summary: "Blocked issue",
 					Status:  "To Do",
+					Type:    "Task",
 				},
 			},
 			{
 				Type: jira4claude.IssueLinkType{
-					Name:   "Blocks",
-					Inward: "is blocked by",
+					Name:    "Blocks",
+					Outward: "blocks",
+					Inward:  "is blocked by",
 				},
 				InwardIssue: &jira4claude.LinkedIssue{
 					Key:     "TEST-3",
 					Summary: "Blocking issue",
 					Status:  "Done",
+					Type:    "Bug",
 				},
 			},
 		}
@@ -476,12 +492,16 @@ func TestToLinksView(t *testing.T) {
 		views := jira4claude.ToLinksView(links)
 
 		assert.Len(t, views, 2)
-		assert.Equal(t, "blocks", views[0].Type)
-		assert.Equal(t, "outward", views[0].Direction)
-		assert.Equal(t, "TEST-2", views[0].IssueKey)
-		assert.Equal(t, "is blocked by", views[1].Type)
-		assert.Equal(t, "inward", views[1].Direction)
-		assert.Equal(t, "TEST-3", views[1].IssueKey)
+		// Outward links (blocks) come first
+		assert.Equal(t, "blocks", views[0].Relationship)
+		assert.Equal(t, "TEST-2", views[0].Key)
+		assert.Equal(t, "Task", views[0].Type)
+		assert.Equal(t, "To Do", views[0].Status)
+		// Inward links (is blocked by) come second
+		assert.Equal(t, "is blocked by", views[1].Relationship)
+		assert.Equal(t, "TEST-3", views[1].Key)
+		assert.Equal(t, "Bug", views[1].Type)
+		assert.Equal(t, "Done", views[1].Status)
 	})
 
 	t.Run("handles empty links", func(t *testing.T) {
@@ -493,59 +513,10 @@ func TestToLinksView(t *testing.T) {
 	})
 }
 
-func TestToSubtasksView(t *testing.T) {
-	t.Parallel()
-
-	t.Run("converts subtasks to view models", func(t *testing.T) {
-		t.Parallel()
-
-		subtasks := []*jira4claude.LinkedIssue{
-			{
-				Key:     "TEST-2",
-				Summary: "First subtask",
-				Status:  "Done",
-				Type:    "Sub-task",
-			},
-			{
-				Key:     "TEST-3",
-				Summary: "Second subtask",
-				Status:  "To Do",
-				Type:    "Sub-task",
-			},
-		}
-
-		views := jira4claude.ToSubtasksView(subtasks)
-
-		assert.Len(t, views, 2)
-		assert.Equal(t, "TEST-2", views[0].Key)
-		assert.Equal(t, "First subtask", views[0].Summary)
-		assert.Equal(t, "Done", views[0].Status)
-		assert.Equal(t, "TEST-3", views[1].Key)
-		assert.Equal(t, "Second subtask", views[1].Summary)
-		assert.Equal(t, "To Do", views[1].Status)
-	})
-
-	t.Run("handles empty subtasks", func(t *testing.T) {
-		t.Parallel()
-
-		views := jira4claude.ToSubtasksView([]*jira4claude.LinkedIssue{})
-
-		assert.Empty(t, views)
-	})
-
-	t.Run("handles nil subtasks", func(t *testing.T) {
-		t.Parallel()
-
-		views := jira4claude.ToSubtasksView(nil)
-
-		assert.Empty(t, views)
-	})
-}
-
 func TestToIssueView_Subtasks(t *testing.T) {
 	t.Parallel()
 
-	t.Run("converts subtasks to view models", func(t *testing.T) {
+	t.Run("converts subtasks to RelatedIssues", func(t *testing.T) {
 		t.Parallel()
 
 		conv := &mock.Converter{
@@ -579,13 +550,15 @@ func TestToIssueView_Subtasks(t *testing.T) {
 
 		view := jira4claude.ToIssueView(issue, conv, func(w string) {}, "")
 
-		assert.Len(t, view.Subtasks, 2)
-		assert.Equal(t, "TEST-2", view.Subtasks[0].Key)
-		assert.Equal(t, "First subtask", view.Subtasks[0].Summary)
-		assert.Equal(t, "Done", view.Subtasks[0].Status)
-		assert.Equal(t, "TEST-3", view.Subtasks[1].Key)
-		assert.Equal(t, "Second subtask", view.Subtasks[1].Summary)
-		assert.Equal(t, "To Do", view.Subtasks[1].Status)
+		assert.Len(t, view.RelatedIssues, 2)
+		assert.Equal(t, "subtask", view.RelatedIssues[0].Relationship)
+		assert.Equal(t, "TEST-2", view.RelatedIssues[0].Key)
+		assert.Equal(t, "First subtask", view.RelatedIssues[0].Summary)
+		assert.Equal(t, "Done", view.RelatedIssues[0].Status)
+		assert.Equal(t, "subtask", view.RelatedIssues[1].Relationship)
+		assert.Equal(t, "TEST-3", view.RelatedIssues[1].Key)
+		assert.Equal(t, "Second subtask", view.RelatedIssues[1].Summary)
+		assert.Equal(t, "To Do", view.RelatedIssues[1].Status)
 	})
 
 	t.Run("handles no subtasks", func(t *testing.T) {
@@ -608,6 +581,258 @@ func TestToIssueView_Subtasks(t *testing.T) {
 
 		view := jira4claude.ToIssueView(issue, conv, func(w string) {}, "")
 
-		assert.Empty(t, view.Subtasks)
+		assert.Empty(t, view.RelatedIssues)
+	})
+}
+
+func TestToRelatedIssuesView(t *testing.T) {
+	t.Parallel()
+
+	t.Run("returns empty slice when no relationships exist", func(t *testing.T) {
+		t.Parallel()
+
+		issue := &jira4claude.Issue{
+			Key:     "TEST-1",
+			Summary: "Standalone issue",
+			Status:  "To Do",
+			Type:    "Task",
+		}
+
+		related := jira4claude.ToRelatedIssuesView(issue)
+
+		assert.Empty(t, related)
+	})
+
+	t.Run("includes parent relationship", func(t *testing.T) {
+		t.Parallel()
+
+		issue := &jira4claude.Issue{
+			Key:     "TEST-2",
+			Summary: "Subtask",
+			Status:  "To Do",
+			Type:    "Sub-task",
+			Parent: &jira4claude.LinkedIssue{
+				Key:     "TEST-1",
+				Summary: "Parent task",
+				Status:  "In Progress",
+				Type:    "Task",
+			},
+		}
+
+		related := jira4claude.ToRelatedIssuesView(issue)
+
+		assert.Len(t, related, 1)
+		assert.Equal(t, "parent", related[0].Relationship)
+		assert.Equal(t, "TEST-1", related[0].Key)
+		assert.Equal(t, "Task", related[0].Type)
+		assert.Equal(t, "In Progress", related[0].Status)
+		assert.Equal(t, "Parent task", related[0].Summary)
+	})
+
+	t.Run("includes children relationships for epics", func(t *testing.T) {
+		t.Parallel()
+
+		issue := &jira4claude.Issue{
+			Key:     "TEST-1",
+			Summary: "Epic issue",
+			Status:  "In Progress",
+			Type:    "Epic",
+			Children: []*jira4claude.LinkedIssue{
+				{
+					Key:     "TEST-2",
+					Summary: "Child task",
+					Status:  "To Do",
+					Type:    "Task",
+				},
+				{
+					Key:     "TEST-3",
+					Summary: "Another child",
+					Status:  "Done",
+					Type:    "Story",
+				},
+			},
+		}
+
+		related := jira4claude.ToRelatedIssuesView(issue)
+
+		assert.Len(t, related, 2)
+		assert.Equal(t, "child", related[0].Relationship)
+		assert.Equal(t, "TEST-2", related[0].Key)
+		assert.Equal(t, "Task", related[0].Type)
+		assert.Equal(t, "child", related[1].Relationship)
+		assert.Equal(t, "TEST-3", related[1].Key)
+	})
+
+	t.Run("includes subtask relationships", func(t *testing.T) {
+		t.Parallel()
+
+		issue := &jira4claude.Issue{
+			Key:     "TEST-1",
+			Summary: "Parent task",
+			Status:  "In Progress",
+			Type:    "Task",
+			Subtasks: []*jira4claude.LinkedIssue{
+				{
+					Key:     "TEST-2",
+					Summary: "First subtask",
+					Status:  "Done",
+					Type:    "Sub-task",
+				},
+			},
+		}
+
+		related := jira4claude.ToRelatedIssuesView(issue)
+
+		assert.Len(t, related, 1)
+		assert.Equal(t, "subtask", related[0].Relationship)
+		assert.Equal(t, "TEST-2", related[0].Key)
+		assert.Equal(t, "Sub-task", related[0].Type)
+		assert.Equal(t, "Done", related[0].Status)
+		assert.Equal(t, "First subtask", related[0].Summary)
+	})
+
+	t.Run("includes blocks relationship from outward links", func(t *testing.T) {
+		t.Parallel()
+
+		issue := &jira4claude.Issue{
+			Key:     "TEST-1",
+			Summary: "Blocking issue",
+			Status:  "In Progress",
+			Type:    "Task",
+			Links: []*jira4claude.IssueLink{
+				{
+					Type: jira4claude.IssueLinkType{
+						Name:    "Blocks",
+						Outward: "blocks",
+						Inward:  "is blocked by",
+					},
+					OutwardIssue: &jira4claude.LinkedIssue{
+						Key:     "TEST-2",
+						Summary: "Blocked issue",
+						Status:  "To Do",
+						Type:    "Task",
+					},
+				},
+			},
+		}
+
+		related := jira4claude.ToRelatedIssuesView(issue)
+
+		assert.Len(t, related, 1)
+		assert.Equal(t, "blocks", related[0].Relationship)
+		assert.Equal(t, "TEST-2", related[0].Key)
+		assert.Equal(t, "Task", related[0].Type)
+		assert.Equal(t, "To Do", related[0].Status)
+		assert.Equal(t, "Blocked issue", related[0].Summary)
+	})
+
+	t.Run("includes is blocked by relationship from inward links", func(t *testing.T) {
+		t.Parallel()
+
+		issue := &jira4claude.Issue{
+			Key:     "TEST-1",
+			Summary: "Blocked issue",
+			Status:  "To Do",
+			Type:    "Task",
+			Links: []*jira4claude.IssueLink{
+				{
+					Type: jira4claude.IssueLinkType{
+						Name:    "Blocks",
+						Outward: "blocks",
+						Inward:  "is blocked by",
+					},
+					InwardIssue: &jira4claude.LinkedIssue{
+						Key:     "TEST-2",
+						Summary: "Blocking issue",
+						Status:  "In Progress",
+						Type:    "Bug",
+					},
+				},
+			},
+		}
+
+		related := jira4claude.ToRelatedIssuesView(issue)
+
+		assert.Len(t, related, 1)
+		assert.Equal(t, "is blocked by", related[0].Relationship)
+		assert.Equal(t, "TEST-2", related[0].Key)
+		assert.Equal(t, "Bug", related[0].Type)
+		assert.Equal(t, "In Progress", related[0].Status)
+		assert.Equal(t, "Blocking issue", related[0].Summary)
+	})
+
+	t.Run("orders relationships: parent, child, subtask, blocks, is blocked by", func(t *testing.T) {
+		t.Parallel()
+
+		issue := &jira4claude.Issue{
+			Key:     "TEST-1",
+			Summary: "Complex issue",
+			Status:  "In Progress",
+			Type:    "Task",
+			Parent: &jira4claude.LinkedIssue{
+				Key:     "TEST-PARENT",
+				Summary: "Parent",
+				Status:  "In Progress",
+				Type:    "Epic",
+			},
+			Children: []*jira4claude.LinkedIssue{
+				{
+					Key:     "TEST-CHILD",
+					Summary: "Child",
+					Status:  "To Do",
+					Type:    "Task",
+				},
+			},
+			Subtasks: []*jira4claude.LinkedIssue{
+				{
+					Key:     "TEST-SUBTASK",
+					Summary: "Subtask",
+					Status:  "Done",
+					Type:    "Sub-task",
+				},
+			},
+			Links: []*jira4claude.IssueLink{
+				{
+					Type: jira4claude.IssueLinkType{
+						Name:    "Blocks",
+						Outward: "blocks",
+						Inward:  "is blocked by",
+					},
+					InwardIssue: &jira4claude.LinkedIssue{
+						Key:     "TEST-BLOCKER",
+						Summary: "Blocker",
+						Status:  "In Progress",
+						Type:    "Bug",
+					},
+				},
+				{
+					Type: jira4claude.IssueLinkType{
+						Name:    "Blocks",
+						Outward: "blocks",
+						Inward:  "is blocked by",
+					},
+					OutwardIssue: &jira4claude.LinkedIssue{
+						Key:     "TEST-BLOCKED",
+						Summary: "Blocked",
+						Status:  "To Do",
+						Type:    "Task",
+					},
+				},
+			},
+		}
+
+		related := jira4claude.ToRelatedIssuesView(issue)
+
+		assert.Len(t, related, 5)
+		assert.Equal(t, "parent", related[0].Relationship)
+		assert.Equal(t, "TEST-PARENT", related[0].Key)
+		assert.Equal(t, "child", related[1].Relationship)
+		assert.Equal(t, "TEST-CHILD", related[1].Key)
+		assert.Equal(t, "subtask", related[2].Relationship)
+		assert.Equal(t, "TEST-SUBTASK", related[2].Key)
+		assert.Equal(t, "blocks", related[3].Relationship)
+		assert.Equal(t, "TEST-BLOCKED", related[3].Key)
+		assert.Equal(t, "is blocked by", related[4].Relationship)
+		assert.Equal(t, "TEST-BLOCKER", related[4].Key)
 	})
 }
