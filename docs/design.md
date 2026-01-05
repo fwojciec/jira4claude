@@ -139,7 +139,7 @@ jira4claude issue assign INT-123 --assignee="user@example.com"
 **Default (human-readable):**
 ```
 Created: INT-123
-https://acuitymd.atlassian.net/browse/INT-123
+https://your-domain.atlassian.net/browse/INT-123
 ```
 
 **JSON mode (`--json`):**
@@ -200,7 +200,7 @@ Use netrc, same as jira-cli:
 
 ```
 # ~/.netrc
-machine acuitymd.atlassian.net
+machine your-domain.atlassian.net
   login user@example.com
   password <api-token>
 ```
@@ -212,13 +212,13 @@ Go's `net/http` reads netrc automatically when configured.
 Minimal config file (`~/.jira4claude.yaml` or env vars):
 
 ```yaml
-server: https://acuitymd.atlassian.net
+server: https://your-domain.atlassian.net
 project: INT  # default project
 ```
 
 Or via environment:
 ```bash
-export JIRA_SERVER=https://acuitymd.atlassian.net
+export JIRA_SERVER=https://your-domain.atlassian.net
 export JIRA_PROJECT=INT
 ```
 
