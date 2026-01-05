@@ -1,0 +1,60 @@
+version: 2
+
+project_name: jira4claude
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: j4c
+    binary: j4c
+    main: ./cmd/j4c
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - darwin
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+      - -X main.version={{.Version}}
+      - -X main.commit={{.ShortCommit}}
+
+archives:
+  - id: j4c-archives
+    builds:
+      - j4c
+    format: tar.gz
+    name_template: >-
+      {{ .ProjectName }}_
+      {{- title .Os }}_
+      {{- if eq .Arch "amd64" }}x86_64
+      {{- else }}{{ .Arch }}{{ end }}
+
+checksum:
+  name_template: checksums.txt
+  algorithm: sha256
+
+release:
+  github:
+    owner: fwojciec
+    name: jira4claude
+
+brews:
+  - name: j4c
+    repository:
+      owner: fwojciec
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+    directory: Formula
+    homepage: "https://github.com/fwojciec/jira4claude"
+    description: "Non-interactive Jira CLI for AI agents"
+    license: "MIT"
+    install: |
+      bin.install "j4c"
+    test: |
+      system "#{bin}/j4c", "--version"
+    skip_upload: auto
