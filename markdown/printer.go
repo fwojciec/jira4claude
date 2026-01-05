@@ -3,6 +3,7 @@ package markdown
 import (
 	"fmt"
 	"io"
+	"slices"
 	"strings"
 
 	"github.com/fwojciec/jira4claude"
@@ -199,14 +200,20 @@ func (p *Printer) renderRelatedIssuesGrouped(related []jira4claude.RelatedIssueV
 		}
 	}
 
-	// Render any remaining relationship types not in the fixed order
-	for relType, issues := range grouped {
+	// Render any remaining relationship types not in the fixed order (sorted for deterministic output)
+	remainingTypes := make([]string, 0, len(grouped))
+	for relType := range grouped {
+		remainingTypes = append(remainingTypes, relType)
+	}
+	slices.Sort(remainingTypes)
+
+	for _, relType := range remainingTypes {
 		if !first {
 			fmt.Fprintln(p.out)
 		}
 		first = false
 		fmt.Fprintf(p.out, "**%s:**\n", relType)
-		for _, rel := range issues {
+		for _, rel := range grouped[relType] {
 			fmt.Fprintln(p.out, formatRelatedIssueItem(rel.Key, rel.Status, rel.Type, rel.Summary))
 		}
 	}

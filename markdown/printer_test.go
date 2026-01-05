@@ -11,11 +11,6 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// indexOfSubstring returns the index of the first occurrence of substr in s, or -1 if not found.
-func indexOfSubstring(s, substr string) int {
-	return strings.Index(s, substr)
-}
-
 func TestPrinter_Issue(t *testing.T) {
 	t.Parallel()
 
@@ -154,9 +149,9 @@ func TestPrinter_Issue(t *testing.T) {
 		result := out.String()
 
 		// Fixed order: subtask -> blocks -> is blocked by
-		subtaskIdx := indexOfSubstring(result, "**subtask:**")
-		blocksIdx := indexOfSubstring(result, "**blocks:**")
-		isBlockedByIdx := indexOfSubstring(result, "**is blocked by:**")
+		subtaskIdx := strings.Index(result, "**subtask:**")
+		blocksIdx := strings.Index(result, "**blocks:**")
+		isBlockedByIdx := strings.Index(result, "**is blocked by:**")
 
 		assert.Less(t, subtaskIdx, blocksIdx, "subtask should appear before blocks")
 		assert.Less(t, blocksIdx, isBlockedByIdx, "blocks should appear before is blocked by")
