@@ -160,14 +160,16 @@ func (s *IssueService) List(ctx context.Context, filter jira4claude.IssueFilter)
 
 // buildJQL constructs a JQL query from IssueFilter fields.
 func buildJQL(filter jira4claude.IssueFilter) string {
-	// Pre-allocate for max possible clauses: project, status, assignee, parent, + labels
-	clauses := make([]string, 0, 4+len(filter.Labels))
+	// Pre-allocate for max possible clauses: project, status, excludeStatus, assignee, parent, + labels
+	clauses := make([]string, 0, 5+len(filter.Labels))
 
 	if filter.Project != "" {
 		clauses = append(clauses, fmt.Sprintf("project = %q", filter.Project))
 	}
 	if filter.Status != "" {
 		clauses = append(clauses, fmt.Sprintf("status = %q", filter.Status))
+	} else if filter.ExcludeStatus != "" {
+		clauses = append(clauses, fmt.Sprintf("status != %q", filter.ExcludeStatus))
 	}
 	if filter.Assignee != "" {
 		clauses = append(clauses, fmt.Sprintf("assignee = %q", filter.Assignee))
@@ -179,7 +181,13 @@ func buildJQL(filter jira4claude.IssueFilter) string {
 		clauses = append(clauses, fmt.Sprintf("labels = %q", label))
 	}
 
-	return strings.Join(clauses, " AND ")
+	jql := strings.Join(clauses, " AND ")
+
+	if filter.OrderBy != "" {
+		jql += " ORDER BY " + filter.OrderBy
+	}
+
+	return jql
 }
 
 // Update modifies an existing issue and returns the updated issue.

@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"strings"
 
 	"github.com/fwojciec/jira4claude"
@@ -39,25 +38,29 @@ func (c *IssueViewCmd) Run(ctx *IssueContext) error {
 
 // IssueListCmd lists issues.
 type IssueListCmd struct {
-	Project  string   `help:"Filter by project" short:"p"`
-	Status   string   `help:"Filter by status" short:"s"`
-	Assignee string   `help:"Filter by assignee (use 'me' for current user)" short:"a"`
-	Parent   string   `help:"Filter by parent issue" short:"P"`
-	Labels   []string `help:"Filter by labels" short:"l"`
-	JQL      string   `help:"Raw JQL query (overrides other filters)"`
-	Limit    int      `help:"Maximum number of results" default:"50"`
+	Project       string   `help:"Filter by project" short:"p"`
+	Status        string   `help:"Filter by status" short:"s"`
+	ExcludeStatus string   `help:"Exclude issues with this status" name:"exclude-status"`
+	Assignee      string   `help:"Filter by assignee (use 'me' for current user)" short:"a"`
+	Parent        string   `help:"Filter by parent issue" short:"P"`
+	Labels        []string `help:"Filter by labels" short:"l"`
+	OrderBy       string   `help:"Order results (e.g., 'created DESC')" name:"order-by"`
+	JQL           string   `help:"Raw JQL query (overrides other filters)"`
+	Limit         int      `help:"Maximum number of results" default:"50"`
 }
 
 // Run executes the list command.
 func (c *IssueListCmd) Run(ctx *IssueContext) error {
 	filter := jira4claude.IssueFilter{
-		Project:  c.Project,
-		Status:   c.Status,
-		Assignee: c.Assignee,
-		Parent:   c.Parent,
-		Labels:   c.Labels,
-		JQL:      c.JQL,
-		Limit:    c.Limit,
+		Project:       c.Project,
+		Status:        c.Status,
+		ExcludeStatus: c.ExcludeStatus,
+		Assignee:      c.Assignee,
+		Parent:        c.Parent,
+		Labels:        c.Labels,
+		OrderBy:       c.OrderBy,
+		JQL:           c.JQL,
+		Limit:         c.Limit,
 	}
 	if filter.Project == "" && filter.JQL == "" {
 		filter.Project = ctx.Config.Project
@@ -75,6 +78,7 @@ func (c *IssueListCmd) Run(ctx *IssueContext) error {
 // IssueReadyCmd lists ready issues.
 type IssueReadyCmd struct {
 	Project string `help:"Filter by project" short:"p"`
+	Parent  string `help:"Filter by parent issue" short:"P"`
 	Limit   int    `help:"Maximum number of results" default:"50"`
 }
 
@@ -86,8 +90,11 @@ func (c *IssueReadyCmd) Run(ctx *IssueContext) error {
 	}
 
 	filter := jira4claude.IssueFilter{
-		JQL:   fmt.Sprintf("project = %q AND status != Done ORDER BY created DESC", project),
-		Limit: c.Limit,
+		Project:       project,
+		Parent:        c.Parent,
+		ExcludeStatus: "Done",
+		OrderBy:       "created DESC",
+		Limit:         c.Limit,
 	}
 
 	issues, err := ctx.Service.List(context.Background(), filter)

@@ -559,8 +559,8 @@ func TestIssueReadyCmd(t *testing.T) {
 		err := cmd.Run(ctx)
 
 		require.NoError(t, err)
-		// JQL should contain the config project "TEST"
-		assert.Contains(t, capturedFilter.JQL, `project = "TEST"`)
+		// Project should be set from config
+		assert.Equal(t, "TEST", capturedFilter.Project)
 	})
 
 	t.Run("uses explicit project when specified", func(t *testing.T) {
@@ -585,9 +585,8 @@ func TestIssueReadyCmd(t *testing.T) {
 		err := cmd.Run(ctx)
 
 		require.NoError(t, err)
-		// JQL should contain the explicit project "CUSTOM"
-		assert.Contains(t, capturedFilter.JQL, `project = "CUSTOM"`)
-		assert.NotContains(t, capturedFilter.JQL, `project = "TEST"`)
+		// Project should be set from command flag, not config
+		assert.Equal(t, "CUSTOM", capturedFilter.Project)
 	})
 
 	t.Run("passes limit parameter to filter", func(t *testing.T) {
@@ -770,6 +769,62 @@ func TestIssueReadyCmd(t *testing.T) {
 
 		require.Error(t, err)
 		assert.Equal(t, expectedErr, err)
+	})
+
+	t.Run("passes parent flag to filter", func(t *testing.T) {
+		t.Parallel()
+
+		var capturedFilter jira4claude.IssueFilter
+		svc := &mock.IssueService{
+			ListFn: func(ctx context.Context, filter jira4claude.IssueFilter) ([]*jira4claude.Issue, error) {
+				capturedFilter = filter
+				return []*jira4claude.Issue{}, nil
+			},
+		}
+
+		printer := &mock.Printer{}
+		ctx := &main.IssueContext{
+			Service:   svc,
+			Printer:   printer,
+			Converter: mockConverter(),
+			Config:    &jira4claude.Config{Project: "TEST", Server: "https://test.atlassian.net"},
+		}
+		cmd := main.IssueReadyCmd{Parent: "TEST-1"}
+		err := cmd.Run(ctx)
+
+		require.NoError(t, err)
+		assert.Equal(t, "TEST-1", capturedFilter.Parent)
+	})
+
+	t.Run("uses filter fields instead of raw JQL", func(t *testing.T) {
+		t.Parallel()
+
+		var capturedFilter jira4claude.IssueFilter
+		svc := &mock.IssueService{
+			ListFn: func(ctx context.Context, filter jira4claude.IssueFilter) ([]*jira4claude.Issue, error) {
+				capturedFilter = filter
+				return []*jira4claude.Issue{}, nil
+			},
+		}
+
+		printer := &mock.Printer{}
+		ctx := &main.IssueContext{
+			Service:   svc,
+			Printer:   printer,
+			Converter: mockConverter(),
+			Config:    &jira4claude.Config{Project: "TEST", Server: "https://test.atlassian.net"},
+		}
+		cmd := main.IssueReadyCmd{Project: "CUSTOM", Parent: "CUSTOM-1", Limit: 25}
+		err := cmd.Run(ctx)
+
+		require.NoError(t, err)
+		// Should use filter fields, not raw JQL
+		assert.Empty(t, capturedFilter.JQL)
+		assert.Equal(t, "CUSTOM", capturedFilter.Project)
+		assert.Equal(t, "CUSTOM-1", capturedFilter.Parent)
+		assert.Equal(t, "Done", capturedFilter.ExcludeStatus)
+		assert.Equal(t, "created DESC", capturedFilter.OrderBy)
+		assert.Equal(t, 25, capturedFilter.Limit)
 	})
 }
 
@@ -1117,6 +1172,91 @@ func TestIssueListCmd(t *testing.T) {
 		require.Len(t, views, 2)
 		assert.Equal(t, "TEST-1", views[0].Key)
 		assert.Equal(t, "TEST-2", views[1].Key)
+	})
+
+	t.Run("passes exclude-status flag to filter", func(t *testing.T) {
+		t.Parallel()
+
+		var capturedFilter jira4claude.IssueFilter
+		svc := &mock.IssueService{
+			ListFn: func(ctx context.Context, filter jira4claude.IssueFilter) ([]*jira4claude.Issue, error) {
+				capturedFilter = filter
+				return []*jira4claude.Issue{}, nil
+			},
+		}
+
+		printer := &mock.Printer{}
+		ctx := &main.IssueContext{
+			Service:   svc,
+			Printer:   printer,
+			Converter: mockConverter(),
+			Config:    &jira4claude.Config{Project: "TEST", Server: "https://test.atlassian.net"},
+		}
+		cmd := main.IssueListCmd{ExcludeStatus: "Done"}
+		err := cmd.Run(ctx)
+
+		require.NoError(t, err)
+		assert.Equal(t, "Done", capturedFilter.ExcludeStatus)
+	})
+
+	t.Run("passes order-by flag to filter", func(t *testing.T) {
+		t.Parallel()
+
+		var capturedFilter jira4claude.IssueFilter
+		svc := &mock.IssueService{
+			ListFn: func(ctx context.Context, filter jira4claude.IssueFilter) ([]*jira4claude.Issue, error) {
+				capturedFilter = filter
+				return []*jira4claude.Issue{}, nil
+			},
+		}
+
+		printer := &mock.Printer{}
+		ctx := &main.IssueContext{
+			Service:   svc,
+			Printer:   printer,
+			Converter: mockConverter(),
+			Config:    &jira4claude.Config{Project: "TEST", Server: "https://test.atlassian.net"},
+		}
+		cmd := main.IssueListCmd{OrderBy: "created DESC"}
+		err := cmd.Run(ctx)
+
+		require.NoError(t, err)
+		assert.Equal(t, "created DESC", capturedFilter.OrderBy)
+	})
+
+	t.Run("passes all new filter flags to service", func(t *testing.T) {
+		t.Parallel()
+
+		var capturedFilter jira4claude.IssueFilter
+		svc := &mock.IssueService{
+			ListFn: func(ctx context.Context, filter jira4claude.IssueFilter) ([]*jira4claude.Issue, error) {
+				capturedFilter = filter
+				return []*jira4claude.Issue{}, nil
+			},
+		}
+
+		printer := &mock.Printer{}
+		ctx := &main.IssueContext{
+			Service:   svc,
+			Printer:   printer,
+			Converter: mockConverter(),
+			Config:    &jira4claude.Config{Project: "TEST", Server: "https://test.atlassian.net"},
+		}
+		cmd := main.IssueListCmd{
+			Project:       "MYPROJ",
+			Parent:        "MYPROJ-1",
+			ExcludeStatus: "Done",
+			OrderBy:       "created DESC",
+			Limit:         25,
+		}
+		err := cmd.Run(ctx)
+
+		require.NoError(t, err)
+		assert.Equal(t, "MYPROJ", capturedFilter.Project)
+		assert.Equal(t, "MYPROJ-1", capturedFilter.Parent)
+		assert.Equal(t, "Done", capturedFilter.ExcludeStatus)
+		assert.Equal(t, "created DESC", capturedFilter.OrderBy)
+		assert.Equal(t, 25, capturedFilter.Limit)
 	})
 }
 
