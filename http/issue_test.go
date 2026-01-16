@@ -985,6 +985,108 @@ func TestIssueService_List(t *testing.T) {
 		assert.Empty(t, receivedJQL)
 	})
 
+	t.Run("includes ExcludeStatus in JQL filter", func(t *testing.T) {
+		t.Parallel()
+
+		var receivedJQL string
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			receivedJQL = r.URL.Query().Get("jql")
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"issues": []}`))
+		}))
+		defer server.Close()
+
+		client := newTestClient(t, server.URL, "user@example.com", "api-token")
+		svc := jirahttp.NewIssueService(client)
+
+		_, err := svc.List(context.Background(), jira4claude.IssueFilter{
+			Project:       "TEST",
+			ExcludeStatus: "Done",
+		})
+
+		require.NoError(t, err)
+		assert.Contains(t, receivedJQL, "project = \"TEST\"")
+		assert.Contains(t, receivedJQL, "status != \"Done\"")
+	})
+
+	t.Run("Status takes precedence over ExcludeStatus", func(t *testing.T) {
+		t.Parallel()
+
+		var receivedJQL string
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			receivedJQL = r.URL.Query().Get("jql")
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"issues": []}`))
+		}))
+		defer server.Close()
+
+		client := newTestClient(t, server.URL, "user@example.com", "api-token")
+		svc := jirahttp.NewIssueService(client)
+
+		_, err := svc.List(context.Background(), jira4claude.IssueFilter{
+			Project:       "TEST",
+			Status:        "In Progress",
+			ExcludeStatus: "Done",
+		})
+
+		require.NoError(t, err)
+		assert.Contains(t, receivedJQL, "project = \"TEST\"")
+		assert.Contains(t, receivedJQL, "status = \"In Progress\"")
+		assert.NotContains(t, receivedJQL, "status != \"Done\"")
+	})
+
+	t.Run("includes OrderBy in JQL filter", func(t *testing.T) {
+		t.Parallel()
+
+		var receivedJQL string
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			receivedJQL = r.URL.Query().Get("jql")
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"issues": []}`))
+		}))
+		defer server.Close()
+
+		client := newTestClient(t, server.URL, "user@example.com", "api-token")
+		svc := jirahttp.NewIssueService(client)
+
+		_, err := svc.List(context.Background(), jira4claude.IssueFilter{
+			Project: "TEST",
+			OrderBy: "created DESC",
+		})
+
+		require.NoError(t, err)
+		assert.Contains(t, receivedJQL, "project = \"TEST\"")
+		assert.Contains(t, receivedJQL, "ORDER BY created DESC")
+	})
+
+	t.Run("combines ExcludeStatus and OrderBy with other filters", func(t *testing.T) {
+		t.Parallel()
+
+		var receivedJQL string
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			receivedJQL = r.URL.Query().Get("jql")
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"issues": []}`))
+		}))
+		defer server.Close()
+
+		client := newTestClient(t, server.URL, "user@example.com", "api-token")
+		svc := jirahttp.NewIssueService(client)
+
+		_, err := svc.List(context.Background(), jira4claude.IssueFilter{
+			Project:       "TEST",
+			Parent:        "TEST-1",
+			ExcludeStatus: "Done",
+			OrderBy:       "created DESC",
+		})
+
+		require.NoError(t, err)
+		assert.Contains(t, receivedJQL, "project = \"TEST\"")
+		assert.Contains(t, receivedJQL, "parent = \"TEST-1\"")
+		assert.Contains(t, receivedJQL, "status != \"Done\"")
+		assert.Contains(t, receivedJQL, "ORDER BY created DESC")
+	})
+
 	t.Run("omits maxResults when limit is zero", func(t *testing.T) {
 		t.Parallel()
 

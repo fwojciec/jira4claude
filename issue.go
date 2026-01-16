@@ -84,13 +84,15 @@ type Issue struct {
 // If JQL is set, it is used directly and other fields are ignored.
 // Otherwise, non-empty fields are combined with AND logic.
 type IssueFilter struct {
-	Project  string
-	Status   string
-	Assignee string
-	Parent   string   // Filter by parent issue key (for subtasks)
-	Labels   []string // Issues must have ALL specified labels
-	JQL      string   // Raw JQL query; overrides other fields if set
-	Limit    int      // Maximum number of issues to return
+	Project       string
+	Status        string // Exact match: status = "X"
+	ExcludeStatus string // Exclusion: status != "X" (ignored if Status is set)
+	Assignee      string
+	Parent        string   // Filter by parent issue key (for subtasks)
+	Labels        []string // Issues must have ALL specified labels
+	OrderBy       string   // e.g., "created DESC"
+	JQL           string   // Raw JQL query; overrides other fields if set
+	Limit         int      // Maximum number of issues to return
 }
 
 // IssueUpdate specifies fields to update on an issue.
