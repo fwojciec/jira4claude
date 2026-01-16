@@ -173,8 +173,8 @@ type IssueUpdateCmd struct {
 	Assignee    *string  `help:"New assignee" short:"a"`
 	Labels      []string `help:"New labels" short:"l"`
 	ClearLabels bool     `help:"Clear all labels" name:"clear-labels"`
-	Parent      *string  `help:"Parent issue key" short:"P"`
-	ClearParent bool     `help:"Remove from parent" name:"clear-parent"`
+	Parent      *string  `help:"Parent issue key" short:"P" xor:"parent"`
+	ClearParent bool     `help:"Remove from parent" name:"clear-parent" xor:"parent"`
 }
 
 // Run executes the update command.
