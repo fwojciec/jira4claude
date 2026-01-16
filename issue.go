@@ -97,12 +97,14 @@ type IssueFilter struct {
 // Pointer fields: nil means no change, non-nil means set to that value.
 // For Assignee: empty string means unassign.
 // For Labels: nil means no change, empty slice means clear all labels.
+// For Parent: nil means no change, empty string means clear, non-empty means set.
 type IssueUpdate struct {
 	Summary     *string
 	Description *ADF // ADF document; conversion from markdown happens at CLI boundary
 	Priority    *string
 	Assignee    *string
 	Labels      *[]string
+	Parent      *string // nil = no change, "" = clear parent, "KEY" = set parent
 }
 
 // IssueService defines operations for managing Jira issues.

@@ -380,6 +380,88 @@ func TestIssueUpdateCmd(t *testing.T) {
 		// Empty description is not converted - nil is passed
 		assert.Nil(t, capturedUpdate.Description)
 	})
+
+	t.Run("sets parent when parent flag provided", func(t *testing.T) {
+		t.Parallel()
+
+		var capturedUpdate jira4claude.IssueUpdate
+		svc := &mock.IssueService{
+			UpdateFn: func(ctx context.Context, key string, update jira4claude.IssueUpdate) (*jira4claude.Issue, error) {
+				capturedUpdate = update
+				result := makeIssue(key)
+				result.Parent = &jira4claude.LinkedIssue{Key: "EPIC-1"}
+				return result, nil
+			},
+		}
+
+		printer := &mock.Printer{}
+		ctx := &main.IssueContext{
+			Service:   svc,
+			Printer:   printer,
+			Converter: mockConverter(),
+			Config:    &jira4claude.Config{Project: "TEST", Server: "https://test.atlassian.net"},
+		}
+		parent := "EPIC-1"
+		cmd := main.IssueUpdateCmd{Key: "TEST-5", Parent: &parent}
+		err := cmd.Run(ctx)
+
+		require.NoError(t, err)
+		require.NotNil(t, capturedUpdate.Parent)
+		assert.Equal(t, "EPIC-1", *capturedUpdate.Parent)
+	})
+
+	t.Run("clears parent when clear-parent flag set", func(t *testing.T) {
+		t.Parallel()
+
+		var capturedUpdate jira4claude.IssueUpdate
+		svc := &mock.IssueService{
+			UpdateFn: func(ctx context.Context, key string, update jira4claude.IssueUpdate) (*jira4claude.Issue, error) {
+				capturedUpdate = update
+				return makeIssue(key), nil
+			},
+		}
+
+		printer := &mock.Printer{}
+		ctx := &main.IssueContext{
+			Service:   svc,
+			Printer:   printer,
+			Converter: mockConverter(),
+			Config:    &jira4claude.Config{Project: "TEST", Server: "https://test.atlassian.net"},
+		}
+		cmd := main.IssueUpdateCmd{Key: "TEST-5", ClearParent: true}
+		err := cmd.Run(ctx)
+
+		require.NoError(t, err)
+		require.NotNil(t, capturedUpdate.Parent)
+		assert.Empty(t, *capturedUpdate.Parent)
+	})
+
+	t.Run("does not modify parent when neither flag set", func(t *testing.T) {
+		t.Parallel()
+
+		var capturedUpdate jira4claude.IssueUpdate
+		svc := &mock.IssueService{
+			UpdateFn: func(ctx context.Context, key string, update jira4claude.IssueUpdate) (*jira4claude.Issue, error) {
+				capturedUpdate = update
+				return makeIssue(key), nil
+			},
+		}
+
+		printer := &mock.Printer{}
+		ctx := &main.IssueContext{
+			Service:   svc,
+			Printer:   printer,
+			Converter: mockConverter(),
+			Config:    &jira4claude.Config{Project: "TEST", Server: "https://test.atlassian.net"},
+		}
+		summary := "Updated summary"
+		cmd := main.IssueUpdateCmd{Key: "TEST-5", Summary: &summary}
+		err := cmd.Run(ctx)
+
+		require.NoError(t, err)
+		// Parent should be nil (no change)
+		assert.Nil(t, capturedUpdate.Parent)
+	})
 }
 
 // IssueCommentCmd tests
