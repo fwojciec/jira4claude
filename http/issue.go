@@ -206,6 +206,13 @@ func (s *IssueService) Update(ctx context.Context, key string, update jira4claud
 	if update.Labels != nil {
 		reqBody.Fields.Labels = update.Labels
 	}
+	if update.Parent != nil {
+		if *update.Parent == "" {
+			reqBody.Fields.Parent = &parentField{Key: nil}
+		} else {
+			reqBody.Fields.Parent = &parentField{Key: update.Parent}
+		}
+	}
 
 	req, err := s.client.NewJSONRequest(ctx, http.MethodPut, issuePath(key), reqBody)
 	if err != nil {

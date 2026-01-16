@@ -173,6 +173,8 @@ type IssueUpdateCmd struct {
 	Assignee    *string  `help:"New assignee" short:"a"`
 	Labels      []string `help:"New labels" short:"l"`
 	ClearLabels bool     `help:"Clear all labels" name:"clear-labels"`
+	Parent      *string  `help:"Parent issue key" short:"P"`
+	ClearParent bool     `help:"Remove from parent" name:"clear-parent"`
 }
 
 // Run executes the update command.
@@ -199,6 +201,13 @@ func (c *IssueUpdateCmd) Run(ctx *IssueContext) error {
 	} else if c.ClearLabels {
 		empty := []string{}
 		update.Labels = &empty
+	}
+
+	if c.Parent != nil {
+		update.Parent = c.Parent
+	} else if c.ClearParent {
+		empty := ""
+		update.Parent = &empty
 	}
 
 	updated, err := ctx.Service.Update(context.Background(), c.Key, update)

@@ -51,6 +51,7 @@ type updateFields struct {
 	Priority    *priorityRef   `json:"priority,omitempty"`
 	Assignee    *assigneeField `json:"assignee,omitempty"`
 	Labels      *[]string      `json:"labels,omitempty"`
+	Parent      *parentField   `json:"parent,omitempty"`
 }
 
 // assigneeRef identifies an assignee by account ID.
@@ -71,4 +72,19 @@ func (a assigneeField) MarshalJSON() ([]byte, error) {
 		return []byte("null"), nil
 	}
 	return json.Marshal(assigneeRef{AccountID: *a.AccountID})
+}
+
+// parentField wraps an optional parent value for updates.
+// When Key is nil, it marshals to JSON null (to clear parent).
+// When Key is set, it marshals to {"key": "..."}.
+type parentField struct {
+	Key *string
+}
+
+// MarshalJSON implements json.Marshaler for parentField.
+func (p parentField) MarshalJSON() ([]byte, error) {
+	if p.Key == nil {
+		return []byte("null"), nil
+	}
+	return json.Marshal(parentRef{Key: *p.Key})
 }

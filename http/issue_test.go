@@ -1222,6 +1222,114 @@ func TestIssueService_Update(t *testing.T) {
 		require.Error(t, err)
 		assert.Equal(t, jira4claude.ENotFound, jira4claude.ErrorCode(err))
 	})
+
+	t.Run("sets parent when parent key provided", func(t *testing.T) {
+		t.Parallel()
+
+		var receivedRequest map[string]any
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Method == http.MethodPut {
+				_ = json.NewDecoder(r.Body).Decode(&receivedRequest)
+				w.WriteHeader(http.StatusNoContent)
+				return
+			}
+			if r.Method == http.MethodGet {
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(`{"key": "TEST-5", "fields": {"project": {"key": "TEST"}, "summary": "Test", "status": {"name": "To Do"}, "issuetype": {"name": "Task"}, "parent": {"key": "EPIC-1", "fields": {"summary": "Epic", "status": {"name": "To Do"}, "issuetype": {"name": "Epic"}}}}}`))
+				return
+			}
+			w.WriteHeader(http.StatusNotFound)
+		}))
+		defer server.Close()
+
+		client := newTestClient(t, server.URL, "user@example.com", "api-token")
+		svc := jirahttp.NewIssueService(client)
+
+		parentKey := "EPIC-1"
+		result, err := svc.Update(context.Background(), "TEST-5", jira4claude.IssueUpdate{
+			Parent: &parentKey,
+		})
+
+		require.NoError(t, err)
+		require.NotNil(t, result.Parent)
+		assert.Equal(t, "EPIC-1", result.Parent.Key)
+
+		// Verify parent field is sent in request
+		fields := receivedRequest["fields"].(map[string]any)
+		parent := fields["parent"].(map[string]any)
+		assert.Equal(t, "EPIC-1", parent["key"])
+	})
+
+	t.Run("clears parent when empty string provided", func(t *testing.T) {
+		t.Parallel()
+
+		var receivedRequest map[string]any
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Method == http.MethodPut {
+				_ = json.NewDecoder(r.Body).Decode(&receivedRequest)
+				w.WriteHeader(http.StatusNoContent)
+				return
+			}
+			if r.Method == http.MethodGet {
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(`{"key": "TEST-5", "fields": {"project": {"key": "TEST"}, "summary": "Test", "status": {"name": "To Do"}, "issuetype": {"name": "Task"}}}`))
+				return
+			}
+			w.WriteHeader(http.StatusNotFound)
+		}))
+		defer server.Close()
+
+		client := newTestClient(t, server.URL, "user@example.com", "api-token")
+		svc := jirahttp.NewIssueService(client)
+
+		emptyParent := ""
+		result, err := svc.Update(context.Background(), "TEST-5", jira4claude.IssueUpdate{
+			Parent: &emptyParent,
+		})
+
+		require.NoError(t, err)
+		assert.Nil(t, result.Parent)
+
+		// Verify parent field is sent as null in request
+		fields := receivedRequest["fields"].(map[string]any)
+		assert.Nil(t, fields["parent"])
+	})
+
+	t.Run("does not send parent field when nil", func(t *testing.T) {
+		t.Parallel()
+
+		var receivedRequest map[string]any
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Method == http.MethodPut {
+				_ = json.NewDecoder(r.Body).Decode(&receivedRequest)
+				w.WriteHeader(http.StatusNoContent)
+				return
+			}
+			if r.Method == http.MethodGet {
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(`{"key": "TEST-5", "fields": {"project": {"key": "TEST"}, "summary": "Updated", "status": {"name": "To Do"}, "issuetype": {"name": "Task"}}}`))
+				return
+			}
+			w.WriteHeader(http.StatusNotFound)
+		}))
+		defer server.Close()
+
+		client := newTestClient(t, server.URL, "user@example.com", "api-token")
+		svc := jirahttp.NewIssueService(client)
+
+		newSummary := "Updated"
+		_, err := svc.Update(context.Background(), "TEST-5", jira4claude.IssueUpdate{
+			Summary: &newSummary,
+			Parent:  nil, // explicitly nil - no change
+		})
+
+		require.NoError(t, err)
+
+		// Verify parent field is NOT sent in request
+		fields := receivedRequest["fields"].(map[string]any)
+		_, hasParent := fields["parent"]
+		assert.False(t, hasParent)
+	})
 }
 
 func TestIssueService_AddComment(t *testing.T) {
