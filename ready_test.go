@@ -155,4 +155,24 @@ func TestIsReady(t *testing.T) {
 		}
 		assert.False(t, jira4claude.IsReady(issue))
 	})
+
+	t.Run("issue with Won't Do status is not ready", func(t *testing.T) {
+		t.Parallel()
+		issue := &jira4claude.Issue{
+			Key:    "TEST-8",
+			Status: "Won't Do",
+			Links:  nil,
+		}
+		assert.False(t, jira4claude.IsReady(issue))
+	})
+
+	t.Run("issue with Done status is not ready", func(t *testing.T) {
+		t.Parallel()
+		issue := &jira4claude.Issue{
+			Key:    "TEST-9",
+			Status: "Done",
+			Links:  nil,
+		}
+		assert.False(t, jira4claude.IsReady(issue))
+	})
 }

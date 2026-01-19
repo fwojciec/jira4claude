@@ -127,6 +127,28 @@ func TestPrinter_Issue(t *testing.T) {
 		assert.Contains(t, result, "- **J4C-103** [In Progress] (Sub-task) Subtask in progress")
 	})
 
+	t.Run("handles Won't Do status", func(t *testing.T) {
+		t.Parallel()
+		var out bytes.Buffer
+		p := markdown.NewPrinter(&out)
+
+		view := jira4claude.IssueView{
+			Key:     "J4C-102",
+			Summary: "Won't do issue",
+			Type:    "Task",
+			Status:  "Won't Do",
+			RelatedIssues: []jira4claude.RelatedIssueView{
+				{Relationship: "subtask", Key: "J4C-103", Type: "Sub-task", Status: "Won't Do", Summary: "Subtask won't do"},
+			},
+		}
+
+		p.Issue(view)
+		result := out.String()
+
+		assert.Contains(t, result, "**Status:** Won't Do")
+		assert.Contains(t, result, "- **J4C-103** [Won't Do] (Sub-task) Subtask won't do")
+	})
+
 	t.Run("renders related issues in fixed order", func(t *testing.T) {
 		t.Parallel()
 		var out bytes.Buffer
@@ -236,6 +258,21 @@ func TestPrinter_Issues(t *testing.T) {
 		result := out.String()
 
 		assert.Contains(t, result, "[info] No issues found")
+	})
+
+	t.Run("handles Won't Do status in list", func(t *testing.T) {
+		t.Parallel()
+		var out bytes.Buffer
+		p := markdown.NewPrinter(&out)
+
+		views := []jira4claude.IssueView{
+			{Key: "J4C-100", Summary: "Cancelled issue", Status: "Won't Do", Priority: "Medium"},
+		}
+
+		p.Issues(views)
+		result := out.String()
+
+		assert.Contains(t, result, "- **J4C-100** [Won't Do] [P2] Cancelled issue")
 	})
 }
 

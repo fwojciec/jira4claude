@@ -239,15 +239,9 @@ func formatIssueListItem(key, status, priority, summary string) string {
 }
 
 // statusIndicator returns a human-readable status marker.
+// Passes through the status as-is to preserve custom statuses like "Won't Do".
 func statusIndicator(status string) string {
-	switch status {
-	case "Done":
-		return "Done"
-	case "In Progress":
-		return "In Progress"
-	default: // "To Do" and others
-		return "To Do"
-	}
+	return status
 }
 
 // priorityIndicator returns a P0-P4 priority marker.

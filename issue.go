@@ -10,6 +10,7 @@ const (
 	StatusToDo       = "To Do"
 	StatusInProgress = "In Progress"
 	StatusDone       = "Done"
+	StatusWontDo     = "Won't Do"
 )
 
 // LinkInwardBlockedBy is the inward description for a "Blocks" link type.
