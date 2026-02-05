@@ -64,18 +64,28 @@ func LoadConfig(path string) (*jira4claude.Config, error) {
 	}, nil
 }
 
-// DiscoverConfig searches for config files in standard locations.
-// Returns the path to the first config file found.
-// Search order: workDir/.jira4claude.yaml, homeDir/.jira4claude.yaml
+// DiscoverConfig searches for a config file by walking up the directory tree
+// from workDir toward the filesystem root. First match wins. If the walk finds
+// nothing, homeDir is checked as a final fallback.
+// Both workDir and homeDir must be absolute paths.
 func DiscoverConfig(workDir, homeDir string) (string, error) {
-	localPath := filepath.Join(workDir, configFileName)
-	if _, err := os.Stat(localPath); err == nil {
-		return localPath, nil
+	dir := workDir
+	for {
+		path := filepath.Join(dir, configFileName)
+		if _, err := os.Stat(path); err == nil {
+			return path, nil
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			break
+		}
+		dir = parent
 	}
 
-	globalPath := filepath.Join(homeDir, configFileName)
-	if _, err := os.Stat(globalPath); err == nil {
-		return globalPath, nil
+	// Fallback: home directory (may be redundant if walk already covered it)
+	homePath := filepath.Join(homeDir, configFileName)
+	if _, err := os.Stat(homePath); err == nil {
+		return homePath, nil
 	}
 
 	return "", notFoundErr("no config file found; searched: ./"+configFileName+", ~/"+configFileName+"\nRun: j4c init --server=URL --project=KEY", nil)

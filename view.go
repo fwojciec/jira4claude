@@ -129,7 +129,6 @@ func ToCommentView(comment *Comment, conv Converter, warn func(string)) CommentV
 // ToLinksView converts a slice of domain IssueLinks to RelatedIssueViews.
 // The relationship field uses the link type's outward/inward description.
 func ToLinksView(links []*IssueLink) []RelatedIssueView {
-	var views []RelatedIssueView
 	var outward []RelatedIssueView
 	var inward []RelatedIssueView
 
@@ -155,6 +154,7 @@ func ToLinksView(links []*IssueLink) []RelatedIssueView {
 	}
 
 	// Order: outward links first, then inward links
+	views := make([]RelatedIssueView, 0, len(outward)+len(inward))
 	views = append(views, outward...)
 	views = append(views, inward...)
 	return views

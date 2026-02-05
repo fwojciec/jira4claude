@@ -168,6 +168,87 @@ project: TEST
 		require.NoError(t, err)
 		assert.Equal(t, localPath, path)
 	})
+
+	t.Run("finds config in parent directory", func(t *testing.T) {
+		t.Parallel()
+
+		root := t.TempDir()
+		homeDir := t.TempDir()
+		configPath := filepath.Join(root, ".jira4claude.yaml")
+		require.NoError(t, os.WriteFile(configPath, []byte(validConfig), 0o644))
+
+		workDir := filepath.Join(root, "services", "billing")
+		require.NoError(t, os.MkdirAll(workDir, 0o755))
+
+		path, err := yaml.DiscoverConfig(workDir, homeDir)
+
+		require.NoError(t, err)
+		assert.Equal(t, configPath, path)
+	})
+
+	t.Run("finds config several levels up", func(t *testing.T) {
+		t.Parallel()
+
+		root := t.TempDir()
+		homeDir := t.TempDir()
+		configPath := filepath.Join(root, ".jira4claude.yaml")
+		require.NoError(t, os.WriteFile(configPath, []byte(validConfig), 0o644))
+
+		workDir := filepath.Join(root, "a", "b", "c", "d")
+		require.NoError(t, os.MkdirAll(workDir, 0o755))
+
+		path, err := yaml.DiscoverConfig(workDir, homeDir)
+
+		require.NoError(t, err)
+		assert.Equal(t, configPath, path)
+	})
+
+	t.Run("closer config overrides ancestor config", func(t *testing.T) {
+		t.Parallel()
+
+		root := t.TempDir()
+		homeDir := t.TempDir()
+
+		// Config at root
+		rootConfig := filepath.Join(root, ".jira4claude.yaml")
+		require.NoError(t, os.WriteFile(rootConfig, []byte(validConfig), 0o644))
+
+		// Override config deeper in tree
+		billingDir := filepath.Join(root, "services", "billing")
+		require.NoError(t, os.MkdirAll(billingDir, 0o755))
+		billingConfig := filepath.Join(billingDir, ".jira4claude.yaml")
+		require.NoError(t, os.WriteFile(billingConfig, []byte(validConfig), 0o644))
+
+		// Working directory is inside billing
+		workDir := filepath.Join(billingDir, "src")
+		require.NoError(t, os.MkdirAll(workDir, 0o755))
+
+		path, err := yaml.DiscoverConfig(workDir, homeDir)
+
+		require.NoError(t, err)
+		assert.Equal(t, billingConfig, path)
+	})
+
+	t.Run("falls back to home directory when walk finds nothing", func(t *testing.T) {
+		t.Parallel()
+
+		// workDir is not under homeDir
+		workDir := t.TempDir()
+		homeDir := t.TempDir()
+
+		// No config anywhere in workDir's tree, but config in home
+		homePath := filepath.Join(homeDir, ".jira4claude.yaml")
+		require.NoError(t, os.WriteFile(homePath, []byte(validConfig), 0o644))
+
+		// Create a nested workDir so the walk has directories to traverse
+		nested := filepath.Join(workDir, "some", "deep", "path")
+		require.NoError(t, os.MkdirAll(nested, 0o755))
+
+		path, err := yaml.DiscoverConfig(nested, homeDir)
+
+		require.NoError(t, err)
+		assert.Equal(t, homePath, path)
+	})
 }
 
 func TestInit(t *testing.T) {
