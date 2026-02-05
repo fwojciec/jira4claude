@@ -37,6 +37,12 @@ Discovery walks: `src/` → `billing/` → found (BILLING). Never sees the root 
 
 No merging — the closest config file wins entirely.
 
+## Constraints
+
+- **Absolute paths required**: `DiscoverConfig` expects absolute paths for both `workDir` and `homeDir`. Callers already provide these via `os.Getwd()` and `os.UserHomeDir()`. This is documented, not enforced.
+- **Preserve existing error behavior**: The existing `notFoundErr` function and its message format (including the "Run: j4c init" hint) must be preserved. The pseudo-code below is illustrative; the implementation reuses existing error handling.
+- **No `isSubdir` helper needed**: The home directory fallback always runs after the walk. If CWD is under home, the walk already checked home — the fallback is a redundant (harmless) `stat`. This avoids subtle path-prefix bugs.
+
 ## Implementation
 
 **Files to modify:**
@@ -46,13 +52,14 @@ No merging — the closest config file wins entirely.
 | `yaml/config.go` | Replace two-location check with walk-up loop in `DiscoverConfig` |
 | `yaml/config_test.go` | Add test cases for nested discovery, override, home fallback |
 
-**Updated `DiscoverConfig` logic:**
+**Updated `DiscoverConfig` logic (illustrative pseudo-code):**
 
 ```go
 func DiscoverConfig(workDir, homeDir string) (string, error) {
+    // Walk up from workDir to filesystem root
     dir := workDir
     for {
-        path := filepath.Join(dir, ".jira4claude.yaml")
+        path := filepath.Join(dir, configFileName)
         if fileExists(path) {
             return path, nil
         }
@@ -62,14 +69,12 @@ func DiscoverConfig(workDir, homeDir string) (string, error) {
         }
         dir = parent
     }
-    // Fallback: home directory (if walk didn't already cover it)
-    if !isSubdir(workDir, homeDir) {
-        path := filepath.Join(homeDir, ".jira4claude.yaml")
-        if fileExists(path) {
-            return path, nil
-        }
+    // Always check home as fallback (redundant but harmless if walk covered it)
+    path := filepath.Join(homeDir, configFileName)
+    if fileExists(path) {
+        return path, nil
     }
-    return "", ErrConfigNotFound
+    return "", notFoundErr(workDir, homeDir)
 }
 ```
 
