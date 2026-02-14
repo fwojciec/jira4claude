@@ -291,6 +291,192 @@ func TestIssueCreateCmd(t *testing.T) {
 		require.NotNil(t, capturedIssue.Parent)
 		assert.Equal(t, "TEST-1", capturedIssue.Parent.Key)
 	})
+
+	t.Run("assignee me creates issue then self-assigns", func(t *testing.T) {
+		t.Parallel()
+
+		var assignedKey, assignedID string
+		svc := &mock.IssueService{
+			CreateFn: func(ctx context.Context, issue *jira4claude.Issue) (*jira4claude.Issue, error) {
+				return &jira4claude.Issue{Key: "TEST-1"}, nil
+			},
+			AssignFn: func(ctx context.Context, key, accountID string) error {
+				assignedKey = key
+				assignedID = accountID
+				return nil
+			},
+		}
+		userSvc := &mock.UserService{
+			GetMyselfFn: func(ctx context.Context) (*jira4claude.User, error) {
+				return &jira4claude.User{AccountID: "myself-123"}, nil
+			},
+		}
+
+		printer := &mock.Printer{}
+		ctx := &main.IssueContext{
+			Service:     svc,
+			UserService: userSvc,
+			Printer:     printer,
+			Converter:   mockConverter(),
+			Config:      &jira4claude.Config{Project: "TEST", Server: "https://test.atlassian.net"},
+		}
+		cmd := main.IssueCreateCmd{
+			Summary:  "Test issue",
+			Assignee: "me",
+		}
+		err := cmd.Run(ctx)
+
+		require.NoError(t, err)
+		assert.Equal(t, "TEST-1", assignedKey)
+		assert.Equal(t, "myself-123", assignedID)
+		require.Len(t, printer.SuccessCalls, 1)
+		assert.Equal(t, "Created:", printer.SuccessCalls[0].Msg)
+	})
+
+	t.Run("assignee email creates issue then assigns by email", func(t *testing.T) {
+		t.Parallel()
+
+		var assignedKey, assignedID string
+		svc := &mock.IssueService{
+			CreateFn: func(ctx context.Context, issue *jira4claude.Issue) (*jira4claude.Issue, error) {
+				return &jira4claude.Issue{Key: "TEST-1"}, nil
+			},
+			AssignFn: func(ctx context.Context, key, accountID string) error {
+				assignedKey = key
+				assignedID = accountID
+				return nil
+			},
+		}
+		userSvc := &mock.UserService{
+			FindUsersFn: func(ctx context.Context, query string) ([]*jira4claude.User, error) {
+				return []*jira4claude.User{{AccountID: "user-456"}}, nil
+			},
+		}
+
+		printer := &mock.Printer{}
+		ctx := &main.IssueContext{
+			Service:     svc,
+			UserService: userSvc,
+			Printer:     printer,
+			Converter:   mockConverter(),
+			Config:      &jira4claude.Config{Project: "TEST", Server: "https://test.atlassian.net"},
+		}
+		cmd := main.IssueCreateCmd{
+			Summary:  "Test issue",
+			Assignee: "user@example.com",
+		}
+		err := cmd.Run(ctx)
+
+		require.NoError(t, err)
+		assert.Equal(t, "TEST-1", assignedKey)
+		assert.Equal(t, "user-456", assignedID)
+		require.Len(t, printer.SuccessCalls, 1)
+		assert.Equal(t, "Created:", printer.SuccessCalls[0].Msg)
+	})
+
+	t.Run("omitting assignee creates without assignment", func(t *testing.T) {
+		t.Parallel()
+
+		assignCalled := false
+		svc := &mock.IssueService{
+			CreateFn: func(ctx context.Context, issue *jira4claude.Issue) (*jira4claude.Issue, error) {
+				return &jira4claude.Issue{Key: "TEST-1"}, nil
+			},
+			AssignFn: func(ctx context.Context, key, accountID string) error {
+				assignCalled = true
+				return nil
+			},
+		}
+
+		printer := &mock.Printer{}
+		ctx := &main.IssueContext{
+			Service:   svc,
+			Printer:   printer,
+			Converter: mockConverter(),
+			Config:    &jira4claude.Config{Project: "TEST", Server: "https://test.atlassian.net"},
+		}
+		cmd := main.IssueCreateCmd{
+			Summary: "Test issue",
+		}
+		err := cmd.Run(ctx)
+
+		require.NoError(t, err)
+		assert.False(t, assignCalled, "Assign should not be called when assignee is empty")
+		require.Len(t, printer.SuccessCalls, 1)
+		assert.Equal(t, "Created:", printer.SuccessCalls[0].Msg)
+	})
+
+	t.Run("assignment failure returns error but creation success is printed", func(t *testing.T) {
+		t.Parallel()
+
+		svc := &mock.IssueService{
+			CreateFn: func(ctx context.Context, issue *jira4claude.Issue) (*jira4claude.Issue, error) {
+				return &jira4claude.Issue{Key: "TEST-1"}, nil
+			},
+			AssignFn: func(ctx context.Context, key, accountID string) error {
+				return &jira4claude.Error{Code: jira4claude.EInternal, Message: "assign failed"}
+			},
+		}
+		userSvc := &mock.UserService{
+			GetMyselfFn: func(ctx context.Context) (*jira4claude.User, error) {
+				return &jira4claude.User{AccountID: "myself-123"}, nil
+			},
+		}
+
+		printer := &mock.Printer{}
+		ctx := &main.IssueContext{
+			Service:     svc,
+			UserService: userSvc,
+			Printer:     printer,
+			Converter:   mockConverter(),
+			Config:      &jira4claude.Config{Project: "TEST", Server: "https://test.atlassian.net"},
+		}
+		cmd := main.IssueCreateCmd{
+			Summary:  "Test issue",
+			Assignee: "me",
+		}
+		err := cmd.Run(ctx)
+
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "assign failed")
+		// Creation success should still be printed before the assignment error
+		require.Len(t, printer.SuccessCalls, 1)
+		assert.Equal(t, "Created:", printer.SuccessCalls[0].Msg)
+	})
+
+	t.Run("resolve failure returns error but creation success is printed", func(t *testing.T) {
+		t.Parallel()
+
+		svc := &mock.IssueService{
+			CreateFn: func(ctx context.Context, issue *jira4claude.Issue) (*jira4claude.Issue, error) {
+				return &jira4claude.Issue{Key: "TEST-1"}, nil
+			},
+		}
+		userSvc := &mock.UserService{
+			GetMyselfFn: func(ctx context.Context) (*jira4claude.User, error) {
+				return nil, &jira4claude.Error{Code: jira4claude.EInternal, Message: "auth failed"}
+			},
+		}
+
+		printer := &mock.Printer{}
+		ctx := &main.IssueContext{
+			Service:     svc,
+			UserService: userSvc,
+			Printer:     printer,
+			Converter:   mockConverter(),
+			Config:      &jira4claude.Config{Project: "TEST", Server: "https://test.atlassian.net"},
+		}
+		cmd := main.IssueCreateCmd{
+			Summary:  "Test issue",
+			Assignee: "me",
+		}
+		err := cmd.Run(ctx)
+
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "auth failed")
+		require.Len(t, printer.SuccessCalls, 1)
+		assert.Equal(t, "Created:", printer.SuccessCalls[0].Msg)
+	})
 }
 
 // IssueUpdateCmd tests
