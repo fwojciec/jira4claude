@@ -189,7 +189,7 @@ type IssueUpdateCmd struct {
 	Summary     *string  `help:"New summary" short:"s"`
 	Description *string  `help:"New description" short:"d"`
 	Priority    *string  `help:"New priority"`
-	Assignee    *string  `help:"New assignee" short:"a"`
+	Assignee    *string  `help:"Assignee: 'me', email, or account ID" short:"a"`
 	Labels      []string `help:"New labels" short:"l"`
 	ClearLabels bool     `help:"Clear all labels" name:"clear-labels"`
 	Parent      *string  `help:"Parent issue key" short:"P" xor:"parent"`
@@ -198,6 +198,15 @@ type IssueUpdateCmd struct {
 
 // Run executes the update command.
 func (c *IssueUpdateCmd) Run(ctx *IssueContext) error {
+	// Resolve assignee if provided
+	if c.Assignee != nil {
+		accountID, err := ResolveAssignee(context.Background(), *c.Assignee, ctx.UserService)
+		if err != nil {
+			return err
+		}
+		c.Assignee = &accountID
+	}
+
 	// Convert description to ADF (plain text is valid GFM)
 	var description *jira4claude.ADF
 	if c.Description != nil && *c.Description != "" {

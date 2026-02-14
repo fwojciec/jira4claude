@@ -648,6 +648,125 @@ func TestIssueUpdateCmd(t *testing.T) {
 		// Parent should be nil (no change)
 		assert.Nil(t, capturedUpdate.Parent)
 	})
+
+	t.Run("assignee me resolves to current user", func(t *testing.T) {
+		t.Parallel()
+
+		var capturedUpdate jira4claude.IssueUpdate
+		svc := &mock.IssueService{
+			UpdateFn: func(ctx context.Context, key string, update jira4claude.IssueUpdate) (*jira4claude.Issue, error) {
+				capturedUpdate = update
+				return makeIssue(key), nil
+			},
+		}
+		userSvc := &mock.UserService{
+			GetMyselfFn: func(ctx context.Context) (*jira4claude.User, error) {
+				return &jira4claude.User{AccountID: "myself-123"}, nil
+			},
+		}
+
+		printer := &mock.Printer{}
+		ctx := &main.IssueContext{
+			Service:     svc,
+			UserService: userSvc,
+			Printer:     printer,
+			Converter:   mockConverter(),
+			Config:      &jira4claude.Config{Project: "TEST", Server: "https://test.atlassian.net"},
+		}
+		assignee := "me"
+		cmd := main.IssueUpdateCmd{Key: "TEST-1", Assignee: &assignee}
+		err := cmd.Run(ctx)
+
+		require.NoError(t, err)
+		require.NotNil(t, capturedUpdate.Assignee)
+		assert.Equal(t, "myself-123", *capturedUpdate.Assignee)
+	})
+
+	t.Run("assignee email resolves by email", func(t *testing.T) {
+		t.Parallel()
+
+		var capturedUpdate jira4claude.IssueUpdate
+		svc := &mock.IssueService{
+			UpdateFn: func(ctx context.Context, key string, update jira4claude.IssueUpdate) (*jira4claude.Issue, error) {
+				capturedUpdate = update
+				return makeIssue(key), nil
+			},
+		}
+		userSvc := &mock.UserService{
+			FindUsersFn: func(ctx context.Context, query string) ([]*jira4claude.User, error) {
+				return []*jira4claude.User{{AccountID: "user-456"}}, nil
+			},
+		}
+
+		printer := &mock.Printer{}
+		ctx := &main.IssueContext{
+			Service:     svc,
+			UserService: userSvc,
+			Printer:     printer,
+			Converter:   mockConverter(),
+			Config:      &jira4claude.Config{Project: "TEST", Server: "https://test.atlassian.net"},
+		}
+		assignee := "user@example.com"
+		cmd := main.IssueUpdateCmd{Key: "TEST-1", Assignee: &assignee}
+		err := cmd.Run(ctx)
+
+		require.NoError(t, err)
+		require.NotNil(t, capturedUpdate.Assignee)
+		assert.Equal(t, "user-456", *capturedUpdate.Assignee)
+	})
+
+	t.Run("assignee account ID passes through", func(t *testing.T) {
+		t.Parallel()
+
+		var capturedUpdate jira4claude.IssueUpdate
+		svc := &mock.IssueService{
+			UpdateFn: func(ctx context.Context, key string, update jira4claude.IssueUpdate) (*jira4claude.Issue, error) {
+				capturedUpdate = update
+				return makeIssue(key), nil
+			},
+		}
+
+		printer := &mock.Printer{}
+		ctx := &main.IssueContext{
+			Service:   svc,
+			Printer:   printer,
+			Converter: mockConverter(),
+			Config:    &jira4claude.Config{Project: "TEST", Server: "https://test.atlassian.net"},
+		}
+		assignee := "abc123"
+		cmd := main.IssueUpdateCmd{Key: "TEST-1", Assignee: &assignee}
+		err := cmd.Run(ctx)
+
+		require.NoError(t, err)
+		require.NotNil(t, capturedUpdate.Assignee)
+		assert.Equal(t, "abc123", *capturedUpdate.Assignee)
+	})
+
+	t.Run("assignee resolve failure returns error", func(t *testing.T) {
+		t.Parallel()
+
+		svc := &mock.IssueService{}
+		userSvc := &mock.UserService{
+			GetMyselfFn: func(ctx context.Context) (*jira4claude.User, error) {
+				return nil, &jira4claude.Error{Code: jira4claude.EInternal, Message: "auth failed"}
+			},
+		}
+
+		printer := &mock.Printer{}
+		ctx := &main.IssueContext{
+			Service:     svc,
+			UserService: userSvc,
+			Printer:     printer,
+			Converter:   mockConverter(),
+			Config:      &jira4claude.Config{Project: "TEST", Server: "https://test.atlassian.net"},
+		}
+		assignee := "me"
+		cmd := main.IssueUpdateCmd{Key: "TEST-1", Assignee: &assignee}
+		err := cmd.Run(ctx)
+
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "auth failed")
+	})
 }
 
 // IssueCommentCmd tests
