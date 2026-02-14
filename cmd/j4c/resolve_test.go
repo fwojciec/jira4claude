@@ -102,6 +102,21 @@ func TestResolveAssignee(t *testing.T) {
 		assert.Equal(t, jira4claude.EUnauthorized, jira4claude.ErrorCode(err))
 	})
 
+	t.Run("returns error when FindUsers returns empty slice", func(t *testing.T) {
+		t.Parallel()
+
+		userSvc := &mock.UserService{
+			FindUsersFn: func(ctx context.Context, query string) ([]*jira4claude.User, error) {
+				return []*jira4claude.User{}, nil
+			},
+		}
+
+		_, err := main.ResolveAssignee(context.Background(), "nobody@example.com", userSvc)
+
+		require.Error(t, err)
+		assert.Equal(t, jira4claude.ENotFound, jira4claude.ErrorCode(err))
+	})
+
 	t.Run("returns error when FindUsers fails", func(t *testing.T) {
 		t.Parallel()
 

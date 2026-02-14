@@ -27,6 +27,12 @@ func ResolveAssignee(ctx context.Context, value string, userSvc jira4claude.User
 		if err != nil {
 			return "", err
 		}
+		if len(users) == 0 {
+			return "", &jira4claude.Error{
+				Code:    jira4claude.ENotFound,
+				Message: "no users found matching " + value,
+			}
+		}
 		return users[0].AccountID, nil
 	}
 
