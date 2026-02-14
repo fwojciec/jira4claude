@@ -123,6 +123,7 @@ type IssueCreateCmd struct {
 	Priority    string   `help:"Issue priority"`
 	Labels      []string `help:"Issue labels" short:"l"`
 	Parent      string   `help:"Parent issue key (creates a Subtask)" short:"P"`
+	Assignee    string   `help:"Assignee: 'me', email, or account ID" short:"A"`
 }
 
 // Run executes the create command.
@@ -168,6 +169,17 @@ func (c *IssueCreateCmd) Run(ctx *IssueContext) error {
 	}
 
 	ctx.Printer.Success("Created:", created.Key)
+
+	if c.Assignee != "" {
+		accountID, err := ResolveAssignee(context.Background(), c.Assignee, ctx.UserService)
+		if err != nil {
+			return err
+		}
+		if err := ctx.Service.Assign(context.Background(), created.Key, accountID); err != nil {
+			return err
+		}
+	}
+
 	return nil
 }
 
