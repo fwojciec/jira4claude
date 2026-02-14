@@ -742,6 +742,33 @@ func TestIssueUpdateCmd(t *testing.T) {
 		assert.Equal(t, "abc123", *capturedUpdate.Assignee)
 	})
 
+	t.Run("assignee empty string unassigns", func(t *testing.T) {
+		t.Parallel()
+
+		var capturedUpdate jira4claude.IssueUpdate
+		svc := &mock.IssueService{
+			UpdateFn: func(ctx context.Context, key string, update jira4claude.IssueUpdate) (*jira4claude.Issue, error) {
+				capturedUpdate = update
+				return makeIssue(key), nil
+			},
+		}
+
+		printer := &mock.Printer{}
+		ctx := &main.IssueContext{
+			Service:   svc,
+			Printer:   printer,
+			Converter: mockConverter(),
+			Config:    &jira4claude.Config{Project: "TEST", Server: "https://test.atlassian.net"},
+		}
+		assignee := ""
+		cmd := main.IssueUpdateCmd{Key: "TEST-1", Assignee: &assignee}
+		err := cmd.Run(ctx)
+
+		require.NoError(t, err)
+		require.NotNil(t, capturedUpdate.Assignee)
+		assert.Empty(t, *capturedUpdate.Assignee)
+	})
+
 	t.Run("assignee resolve failure returns error", func(t *testing.T) {
 		t.Parallel()
 
