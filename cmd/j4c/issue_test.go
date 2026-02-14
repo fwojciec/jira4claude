@@ -1271,6 +1271,7 @@ func TestIssueAssignCmd(t *testing.T) {
 		var assignedID string
 		svc := &mock.IssueService{
 			AssignFn: func(ctx context.Context, key, accountID string) error {
+				require.Equal(t, "TEST-1", key)
 				assignedID = accountID
 				return nil
 			},
@@ -1296,6 +1297,7 @@ func TestIssueAssignCmd(t *testing.T) {
 		assert.Equal(t, "myself-123", assignedID)
 		require.Len(t, printer.SuccessCalls, 1)
 		assert.Equal(t, "Assigned:", printer.SuccessCalls[0].Msg)
+		assert.Equal(t, []string{"TEST-1"}, printer.SuccessCalls[0].Keys)
 	})
 
 	t.Run("resolves email via FindUsers and assigns", func(t *testing.T) {
@@ -1304,12 +1306,14 @@ func TestIssueAssignCmd(t *testing.T) {
 		var assignedID string
 		svc := &mock.IssueService{
 			AssignFn: func(ctx context.Context, key, accountID string) error {
+				require.Equal(t, "TEST-1", key)
 				assignedID = accountID
 				return nil
 			},
 		}
 		userSvc := &mock.UserService{
 			FindUsersFn: func(ctx context.Context, query string) ([]*jira4claude.User, error) {
+				require.Equal(t, "user@example.com", query)
 				return []*jira4claude.User{{AccountID: "found-456"}}, nil
 			},
 		}
@@ -1329,6 +1333,7 @@ func TestIssueAssignCmd(t *testing.T) {
 		assert.Equal(t, "found-456", assignedID)
 		require.Len(t, printer.SuccessCalls, 1)
 		assert.Equal(t, "Assigned:", printer.SuccessCalls[0].Msg)
+		assert.Equal(t, []string{"TEST-1"}, printer.SuccessCalls[0].Keys)
 	})
 
 	t.Run("passes raw account ID through directly", func(t *testing.T) {
@@ -1337,6 +1342,7 @@ func TestIssueAssignCmd(t *testing.T) {
 		var assignedID string
 		svc := &mock.IssueService{
 			AssignFn: func(ctx context.Context, key, accountID string) error {
+				require.Equal(t, "TEST-1", key)
 				assignedID = accountID
 				return nil
 			},
@@ -1357,6 +1363,7 @@ func TestIssueAssignCmd(t *testing.T) {
 		assert.Equal(t, "abc123", assignedID)
 		require.Len(t, printer.SuccessCalls, 1)
 		assert.Equal(t, "Assigned:", printer.SuccessCalls[0].Msg)
+		assert.Equal(t, []string{"TEST-1"}, printer.SuccessCalls[0].Keys)
 	})
 
 	t.Run("unassigns when assignee flag is omitted", func(t *testing.T) {
@@ -1365,6 +1372,7 @@ func TestIssueAssignCmd(t *testing.T) {
 		var assignedID string
 		svc := &mock.IssueService{
 			AssignFn: func(ctx context.Context, key, accountID string) error {
+				require.Equal(t, "TEST-1", key)
 				assignedID = accountID
 				return nil
 			},
@@ -1385,6 +1393,7 @@ func TestIssueAssignCmd(t *testing.T) {
 		assert.Empty(t, assignedID)
 		require.Len(t, printer.SuccessCalls, 1)
 		assert.Equal(t, "Unassigned:", printer.SuccessCalls[0].Msg)
+		assert.Equal(t, []string{"TEST-1"}, printer.SuccessCalls[0].Keys)
 	})
 
 	t.Run("returns error when email resolves to no user", func(t *testing.T) {
@@ -1393,6 +1402,7 @@ func TestIssueAssignCmd(t *testing.T) {
 		svc := &mock.IssueService{}
 		userSvc := &mock.UserService{
 			FindUsersFn: func(ctx context.Context, query string) ([]*jira4claude.User, error) {
+				require.Equal(t, "nobody@example.com", query)
 				return []*jira4claude.User{}, nil
 			},
 		}
