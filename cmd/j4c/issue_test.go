@@ -1265,57 +1265,154 @@ func TestIssueListCmd(t *testing.T) {
 func TestIssueAssignCmd(t *testing.T) {
 	t.Parallel()
 
-	t.Run("prints success message when assigning to user", func(t *testing.T) {
+	t.Run("resolves me to authenticated user and assigns", func(t *testing.T) {
 		t.Parallel()
 
+		var assignedID string
 		svc := &mock.IssueService{
 			AssignFn: func(ctx context.Context, key, accountID string) error {
+				assignedID = accountID
 				return nil
+			},
+		}
+		userSvc := &mock.UserService{
+			GetMyselfFn: func(ctx context.Context) (*jira4claude.User, error) {
+				return &jira4claude.User{AccountID: "myself-123"}, nil
 			},
 		}
 
 		printer := &mock.Printer{}
 		ctx := &main.IssueContext{
-			Service:   svc,
-			Printer:   printer,
-			Converter: mockConverter(),
-			Config:    &jira4claude.Config{Project: "TEST", Server: "https://test.atlassian.net"},
+			Service:     svc,
+			UserService: userSvc,
+			Printer:     printer,
+			Converter:   mockConverter(),
+			Config:      &jira4claude.Config{Project: "TEST", Server: "https://test.atlassian.net"},
 		}
-		cmd := main.IssueAssignCmd{Key: "TEST-1", AccountID: "abc123"}
+		cmd := main.IssueAssignCmd{Key: "TEST-1", Assignee: "me"}
 		err := cmd.Run(ctx)
 
 		require.NoError(t, err)
+		assert.Equal(t, "myself-123", assignedID)
 		require.Len(t, printer.SuccessCalls, 1)
 		assert.Equal(t, "Assigned:", printer.SuccessCalls[0].Msg)
-		assert.Equal(t, []string{"TEST-1"}, printer.SuccessCalls[0].Keys)
 	})
 
-	t.Run("prints unassign message when account ID is empty", func(t *testing.T) {
+	t.Run("resolves email via FindUsers and assigns", func(t *testing.T) {
 		t.Parallel()
 
+		var assignedID string
 		svc := &mock.IssueService{
 			AssignFn: func(ctx context.Context, key, accountID string) error {
+				assignedID = accountID
+				return nil
+			},
+		}
+		userSvc := &mock.UserService{
+			FindUsersFn: func(ctx context.Context, query string) ([]*jira4claude.User, error) {
+				return []*jira4claude.User{{AccountID: "found-456"}}, nil
+			},
+		}
+
+		printer := &mock.Printer{}
+		ctx := &main.IssueContext{
+			Service:     svc,
+			UserService: userSvc,
+			Printer:     printer,
+			Converter:   mockConverter(),
+			Config:      &jira4claude.Config{Project: "TEST", Server: "https://test.atlassian.net"},
+		}
+		cmd := main.IssueAssignCmd{Key: "TEST-1", Assignee: "user@example.com"}
+		err := cmd.Run(ctx)
+
+		require.NoError(t, err)
+		assert.Equal(t, "found-456", assignedID)
+		require.Len(t, printer.SuccessCalls, 1)
+		assert.Equal(t, "Assigned:", printer.SuccessCalls[0].Msg)
+	})
+
+	t.Run("passes raw account ID through directly", func(t *testing.T) {
+		t.Parallel()
+
+		var assignedID string
+		svc := &mock.IssueService{
+			AssignFn: func(ctx context.Context, key, accountID string) error {
+				assignedID = accountID
 				return nil
 			},
 		}
 
 		printer := &mock.Printer{}
 		ctx := &main.IssueContext{
-			Service:   svc,
-			Printer:   printer,
-			Converter: mockConverter(),
-			Config:    &jira4claude.Config{Project: "TEST", Server: "https://test.atlassian.net"},
+			Service:     svc,
+			UserService: &mock.UserService{},
+			Printer:     printer,
+			Converter:   mockConverter(),
+			Config:      &jira4claude.Config{Project: "TEST", Server: "https://test.atlassian.net"},
 		}
-		cmd := main.IssueAssignCmd{Key: "TEST-1", AccountID: ""}
+		cmd := main.IssueAssignCmd{Key: "TEST-1", Assignee: "abc123"}
 		err := cmd.Run(ctx)
 
 		require.NoError(t, err)
+		assert.Equal(t, "abc123", assignedID)
 		require.Len(t, printer.SuccessCalls, 1)
-		assert.Equal(t, "Unassigned:", printer.SuccessCalls[0].Msg)
-		assert.Equal(t, []string{"TEST-1"}, printer.SuccessCalls[0].Keys)
+		assert.Equal(t, "Assigned:", printer.SuccessCalls[0].Msg)
 	})
 
-	t.Run("returns error when service fails", func(t *testing.T) {
+	t.Run("unassigns when assignee flag is omitted", func(t *testing.T) {
+		t.Parallel()
+
+		var assignedID string
+		svc := &mock.IssueService{
+			AssignFn: func(ctx context.Context, key, accountID string) error {
+				assignedID = accountID
+				return nil
+			},
+		}
+
+		printer := &mock.Printer{}
+		ctx := &main.IssueContext{
+			Service:     svc,
+			UserService: &mock.UserService{},
+			Printer:     printer,
+			Converter:   mockConverter(),
+			Config:      &jira4claude.Config{Project: "TEST", Server: "https://test.atlassian.net"},
+		}
+		cmd := main.IssueAssignCmd{Key: "TEST-1", Assignee: ""}
+		err := cmd.Run(ctx)
+
+		require.NoError(t, err)
+		assert.Empty(t, assignedID)
+		require.Len(t, printer.SuccessCalls, 1)
+		assert.Equal(t, "Unassigned:", printer.SuccessCalls[0].Msg)
+	})
+
+	t.Run("returns error when email resolves to no user", func(t *testing.T) {
+		t.Parallel()
+
+		svc := &mock.IssueService{}
+		userSvc := &mock.UserService{
+			FindUsersFn: func(ctx context.Context, query string) ([]*jira4claude.User, error) {
+				return []*jira4claude.User{}, nil
+			},
+		}
+
+		printer := &mock.Printer{}
+		ctx := &main.IssueContext{
+			Service:     svc,
+			UserService: userSvc,
+			Printer:     printer,
+			Converter:   mockConverter(),
+			Config:      &jira4claude.Config{Project: "TEST", Server: "https://test.atlassian.net"},
+		}
+		cmd := main.IssueAssignCmd{Key: "TEST-1", Assignee: "nobody@example.com"}
+		err := cmd.Run(ctx)
+
+		require.Error(t, err)
+		assert.Equal(t, jira4claude.ENotFound, jira4claude.ErrorCode(err))
+	})
+
+	t.Run("returns error when assign service fails", func(t *testing.T) {
 		t.Parallel()
 
 		svc := &mock.IssueService{
@@ -1326,12 +1423,13 @@ func TestIssueAssignCmd(t *testing.T) {
 
 		printer := &mock.Printer{}
 		ctx := &main.IssueContext{
-			Service:   svc,
-			Printer:   printer,
-			Converter: mockConverter(),
-			Config:    &jira4claude.Config{Project: "TEST", Server: "https://test.atlassian.net"},
+			Service:     svc,
+			UserService: &mock.UserService{},
+			Printer:     printer,
+			Converter:   mockConverter(),
+			Config:      &jira4claude.Config{Project: "TEST", Server: "https://test.atlassian.net"},
 		}
-		cmd := main.IssueAssignCmd{Key: "NOTFOUND-1", AccountID: "abc123"}
+		cmd := main.IssueAssignCmd{Key: "NOTFOUND-1", Assignee: "abc123"}
 		err := cmd.Run(ctx)
 
 		require.Error(t, err)

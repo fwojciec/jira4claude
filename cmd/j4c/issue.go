@@ -294,17 +294,22 @@ func (c *IssueTransitionCmd) Run(ctx *IssueContext) error {
 
 // IssueAssignCmd assigns an issue.
 type IssueAssignCmd struct {
-	Key       string `arg:"" help:"Issue key"`
-	AccountID string `help:"User account ID (omit to unassign)" short:"a"`
+	Key      string `arg:"" help:"Issue key"`
+	Assignee string `help:"Assignee: 'me', email, or account ID (omit to unassign)" short:"a"`
 }
 
 // Run executes the assign command.
 func (c *IssueAssignCmd) Run(ctx *IssueContext) error {
-	if err := ctx.Service.Assign(context.Background(), c.Key, c.AccountID); err != nil {
+	accountID, err := ResolveAssignee(context.Background(), c.Assignee, ctx.UserService)
+	if err != nil {
 		return err
 	}
 
-	if c.AccountID == "" {
+	if err := ctx.Service.Assign(context.Background(), c.Key, accountID); err != nil {
+		return err
+	}
+
+	if accountID == "" {
 		ctx.Printer.Success("Unassigned:", c.Key)
 	} else {
 		ctx.Printer.Success("Assigned:", c.Key)
