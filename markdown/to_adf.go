@@ -49,6 +49,8 @@ func (s *skippedCollector) warnings() []string {
 // The result can be used directly in Jira API requests for description and comment fields.
 // Returns warnings for any elements that were skipped during conversion.
 func toADF(markdown string) (map[string]any, []string) {
+	markdown = NormalizeUnicode(markdown)
+
 	md := goldmark.New(
 		goldmark.WithExtensions(extension.GFM),
 		goldmark.WithParserOptions(
@@ -393,6 +395,16 @@ func convertInlineNode(node ast.Node, source []byte, marks []map[string]any) []a
 			},
 		}
 		return convertChildren(n, source, append(marks, newMark))
+
+	case *ast.AutoLink:
+		url := string(n.URL(source))
+		newMark := map[string]any{
+			"type": "link",
+			"attrs": map[string]any{
+				"href": url,
+			},
+		}
+		return []any{textNodeWithMarks(url, append(marks, newMark))}
 
 	default:
 		return convertChildren(node, source, marks)

@@ -661,4 +661,114 @@ func TestConverter_ToADF(t *testing.T) {
 		// Should have 2 separate text nodes with different mark counts
 		assert.Len(t, paragraphContent, 2)
 	})
+
+	t.Run("converts bare URL autolink to link mark", func(t *testing.T) {
+		t.Parallel()
+
+		converter := markdown.New()
+		result, warnings := converter.ToADF("Visit https://example.com for details.")
+
+		expected := map[string]any{
+			"type":    "doc",
+			"version": 1,
+			"content": []any{
+				map[string]any{
+					"type": "paragraph",
+					"content": []any{
+						map[string]any{
+							"type": "text",
+							"text": "Visit ",
+						},
+						map[string]any{
+							"type": "text",
+							"text": "https://example.com",
+							"marks": []any{
+								map[string]any{
+									"type": "link",
+									"attrs": map[string]any{
+										"href": "https://example.com",
+									},
+								},
+							},
+						},
+						map[string]any{
+							"type": "text",
+							"text": " for details.",
+						},
+					},
+				},
+			},
+		}
+
+		assert.Empty(t, warnings)
+		assert.Equal(t, expected, result)
+	})
+
+	t.Run("converts angle bracket autolink to link mark", func(t *testing.T) {
+		t.Parallel()
+
+		converter := markdown.New()
+		result, warnings := converter.ToADF("Check <https://example.com> now.")
+
+		expected := map[string]any{
+			"type":    "doc",
+			"version": 1,
+			"content": []any{
+				map[string]any{
+					"type": "paragraph",
+					"content": []any{
+						map[string]any{
+							"type": "text",
+							"text": "Check ",
+						},
+						map[string]any{
+							"type": "text",
+							"text": "https://example.com",
+							"marks": []any{
+								map[string]any{
+									"type": "link",
+									"attrs": map[string]any{
+										"href": "https://example.com",
+									},
+								},
+							},
+						},
+						map[string]any{
+							"type": "text",
+							"text": " now.",
+						},
+					},
+				},
+			},
+		}
+
+		assert.Empty(t, warnings)
+		assert.Equal(t, expected, result)
+	})
+
+	t.Run("normalizes Unicode symbols to spaces in ADF output", func(t *testing.T) {
+		t.Parallel()
+
+		converter := markdown.New()
+		result, warnings := converter.ToADF("Use this → see results — important")
+
+		expected := map[string]any{
+			"type":    "doc",
+			"version": 1,
+			"content": []any{
+				map[string]any{
+					"type": "paragraph",
+					"content": []any{
+						map[string]any{
+							"type": "text",
+							"text": "Use this   see results   important",
+						},
+					},
+				},
+			},
+		}
+
+		assert.Empty(t, warnings)
+		assert.Equal(t, expected, result)
+	})
 }

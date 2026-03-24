@@ -205,6 +205,38 @@ func TestParseErrorResponse(t *testing.T) {
 		assert.Contains(t, err.Error(), "Field error")
 	})
 
+	t.Run("includes field name in errors map messages", func(t *testing.T) {
+		t.Parallel()
+
+		body := `{"errorMessages": [], "errors": {"body": "INVALID_INPUT"}}`
+		err := jirahttp.ParseErrorResponse(http.StatusBadRequest, []byte(body))
+
+		require.Error(t, err)
+		assert.Equal(t, "body: INVALID_INPUT", err.Error())
+	})
+
+	t.Run("preserves both general and field-specific errors with same message", func(t *testing.T) {
+		t.Parallel()
+
+		body := `{"errorMessages": ["INVALID_INPUT"], "errors": {"body": "INVALID_INPUT"}}`
+		err := jirahttp.ParseErrorResponse(http.StatusBadRequest, []byte(body))
+
+		require.Error(t, err)
+		// Both messages preserved - field name distinguishes them
+		assert.Equal(t, "INVALID_INPUT; body: INVALID_INPUT", err.Error())
+	})
+
+	t.Run("produces deterministic output for multiple field errors", func(t *testing.T) {
+		t.Parallel()
+
+		body := `{"errorMessages": [], "errors": {"summary": "Required", "body": "Too long"}}`
+		err := jirahttp.ParseErrorResponse(http.StatusBadRequest, []byte(body))
+
+		require.Error(t, err)
+		// Field errors should be sorted alphabetically by field name
+		assert.Equal(t, "body: Too long; summary: Required", err.Error())
+	})
+
 	t.Run("returns nil for empty error response", func(t *testing.T) {
 		t.Parallel()
 

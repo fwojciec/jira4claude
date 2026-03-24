@@ -271,7 +271,11 @@ func applyMarks(text string, marks []any) string {
 		}
 	}
 	if linkHref != "" {
-		result = "[" + result + "](" + linkHref + ")"
+		if result == linkHref {
+			// Bare URL autolink: output just the URL (GFM will auto-link it)
+		} else {
+			result = "[" + result + "](" + linkHref + ")"
+		}
 	}
 
 	return result
