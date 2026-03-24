@@ -270,7 +270,7 @@ func applyMarks(text string, marks []any) string {
 			}
 		}
 	}
-	if linkHref != "" {
+	if linkHref != "" && result != linkHref {
 		result = "[" + result + "](" + linkHref + ")"
 	}
 

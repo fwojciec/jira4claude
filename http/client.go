@@ -14,6 +14,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -296,12 +297,18 @@ func ParseErrorResponse(statusCode int, body []byte) error {
 		}
 	}
 
-	// Collect all error messages
+	// Collect general error messages first.
 	messages := make([]string, 0, len(errResp.ErrorMessages)+len(errResp.Errors))
 	messages = append(messages, errResp.ErrorMessages...)
-	for _, msg := range errResp.Errors {
-		messages = append(messages, msg)
+
+	// Add field-specific errors with field name prefix and sort for
+	// deterministic output (Go map iteration order is random).
+	fieldMessages := make([]string, 0, len(errResp.Errors))
+	for field, msg := range errResp.Errors {
+		fieldMessages = append(fieldMessages, field+": "+msg)
 	}
+	sort.Strings(fieldMessages)
+	messages = append(messages, fieldMessages...)
 
 	if len(messages) == 0 {
 		return nil

@@ -41,6 +41,7 @@ This is a paragraph with **bold** and *italic* text.
 > A blockquote
 
 ` + "```go\nfunc main() {}\n```"},
+		{"bare URL autolink", "Visit https://example.com for details."},
 	}
 
 	for _, tc := range testCases {
