@@ -901,7 +901,12 @@ func TestConverter_ToMarkdown(t *testing.T) {
 								"state": "TODO",
 							},
 							"content": []any{
-								map[string]any{"type": "text", "text": "Buy milk"},
+								map[string]any{
+									"type": "paragraph",
+									"content": []any{
+										map[string]any{"type": "text", "text": "Buy milk"},
+									},
+								},
 							},
 						},
 						map[string]any{
@@ -910,7 +915,12 @@ func TestConverter_ToMarkdown(t *testing.T) {
 								"state": "DONE",
 							},
 							"content": []any{
-								map[string]any{"type": "text", "text": "Write code"},
+								map[string]any{
+									"type": "paragraph",
+									"content": []any{
+										map[string]any{"type": "text", "text": "Write code"},
+									},
+								},
 							},
 						},
 					},
@@ -922,6 +932,135 @@ func TestConverter_ToMarkdown(t *testing.T) {
 
 		assert.Empty(t, warnings)
 		assert.Equal(t, "- [ ] Buy milk\n- [x] Write code", result)
+	})
+
+	t.Run("converts taskItem with paragraph content", func(t *testing.T) {
+		t.Parallel()
+
+		// Real Jira ADF wraps taskItem text in a paragraph node.
+		converter := markdown.New()
+		adfDoc := map[string]any{
+			"type":    "doc",
+			"version": 1,
+			"content": []any{
+				map[string]any{
+					"type": "taskList",
+					"content": []any{
+						map[string]any{
+							"type": "taskItem",
+							"attrs": map[string]any{
+								"state": "TODO",
+							},
+							"content": []any{
+								map[string]any{
+									"type": "paragraph",
+									"content": []any{
+										map[string]any{"type": "text", "text": "Task in paragraph"},
+									},
+								},
+							},
+						},
+						map[string]any{
+							"type": "taskItem",
+							"attrs": map[string]any{
+								"state": "DONE",
+							},
+							"content": []any{
+								map[string]any{
+									"type": "paragraph",
+									"content": []any{
+										map[string]any{"type": "text", "text": "Done task"},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		}
+
+		result, warnings := converter.ToMarkdown(adfDoc)
+
+		assert.Empty(t, warnings)
+		assert.Equal(t, "- [ ] Task in paragraph\n- [x] Done task", result)
+	})
+
+	t.Run("normalizes newlines in table cells", func(t *testing.T) {
+		t.Parallel()
+
+		converter := markdown.New()
+		adfDoc := map[string]any{
+			"type":    "doc",
+			"version": 1,
+			"content": []any{
+				map[string]any{
+					"type": "table",
+					"content": []any{
+						map[string]any{
+							"type": "tableRow",
+							"content": []any{
+								map[string]any{
+									"type": "tableHeader",
+									"content": []any{
+										map[string]any{
+											"type": "paragraph",
+											"content": []any{
+												map[string]any{"type": "text", "text": "Col"},
+											},
+										},
+									},
+								},
+							},
+						},
+						map[string]any{
+							"type": "tableRow",
+							"content": []any{
+								map[string]any{
+									"type": "tableCell",
+									"content": []any{
+										map[string]any{
+											"type": "paragraph",
+											"content": []any{
+												map[string]any{"type": "text", "text": "line1"},
+												map[string]any{"type": "hardBreak"},
+												map[string]any{"type": "text", "text": "line2"},
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		}
+
+		result, warnings := converter.ToMarkdown(adfDoc)
+
+		assert.Empty(t, warnings)
+		// Newlines in cell content should be replaced with spaces to preserve table structure
+		assert.Equal(t, "| Col |\n| --- |\n| line1 line2 |", result)
+	})
+
+	t.Run("handles table with empty content gracefully", func(t *testing.T) {
+		t.Parallel()
+
+		converter := markdown.New()
+		adfDoc := map[string]any{
+			"type":    "doc",
+			"version": 1,
+			"content": []any{
+				map[string]any{
+					"type":    "table",
+					"content": []any{},
+				},
+			},
+		}
+
+		result, warnings := converter.ToMarkdown(adfDoc)
+
+		assert.Empty(t, warnings)
+		assert.Empty(t, result)
 	})
 
 	t.Run("defaults taskItem without attrs to unchecked", func(t *testing.T) {
@@ -939,7 +1078,12 @@ func TestConverter_ToMarkdown(t *testing.T) {
 							"type": "taskItem",
 							// No attrs at all
 							"content": []any{
-								map[string]any{"type": "text", "text": "No state"},
+								map[string]any{
+									"type": "paragraph",
+									"content": []any{
+										map[string]any{"type": "text", "text": "No state"},
+									},
+								},
 							},
 						},
 					},
