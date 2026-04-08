@@ -70,8 +70,8 @@ func (c *IssueListCmd) Run(ctx *IssueContext) error {
 	if err != nil {
 		return err
 	}
-	views := jira4claude.ToIssuesView(issues, ctx.Converter, ctx.Printer.Warning, ctx.Config.Server)
-	ctx.Printer.Issues(views)
+	items := jira4claude.ToIssueListItems(issues)
+	ctx.Printer.Issues(items)
 	return nil
 }
 
@@ -109,8 +109,8 @@ func (c *IssueReadyCmd) Run(ctx *IssueContext) error {
 		}
 	}
 
-	views := jira4claude.ToIssuesView(ready, ctx.Converter, ctx.Printer.Warning, ctx.Config.Server)
-	ctx.Printer.Issues(views)
+	items := jira4claude.ToIssueListItems(ready)
+	ctx.Printer.Issues(items)
 	return nil
 }
 

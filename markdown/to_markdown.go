@@ -25,7 +25,7 @@ func toMarkdown(adfDoc map[string]any) (string, []string) {
 		if !ok {
 			continue
 		}
-		part := adfNodeToGFM(node, "", skipped)
+		part := adfNodeToGFM(node, skipped)
 		if part != "" {
 			parts = append(parts, part)
 		}
@@ -35,13 +35,12 @@ func toMarkdown(adfDoc map[string]any) (string, []string) {
 }
 
 // adfNodeToGFM converts a single ADF node to markdown.
-// The prefix is used for nested contexts like blockquotes.
-func adfNodeToGFM(node map[string]any, prefix string, skipped *skippedCollector) string {
+func adfNodeToGFM(node map[string]any, skipped *skippedCollector) string {
 	nodeType, _ := node["type"].(string)
 
 	switch nodeType {
 	case "paragraph":
-		return prefix + adfInlineToGFM(node)
+		return adfInlineToGFM(node)
 	case "heading":
 		return adfHeadingToGFM(node)
 	case "codeBlock":
@@ -52,6 +51,12 @@ func adfNodeToGFM(node map[string]any, prefix string, skipped *skippedCollector)
 		return adfOrderedListToGFM(node, skipped)
 	case "blockquote":
 		return adfBlockquoteToGFM(node, skipped)
+	case "rule":
+		return "---"
+	case "table":
+		return adfTableToGFM(node, skipped)
+	case "taskList":
+		return adfTaskListToGFM(node)
 	case "hardBreak":
 		return "\n"
 	default:
@@ -155,7 +160,7 @@ func adfListItemToGFM(node map[string]any, skipped *skippedCollector) string {
 		if !ok {
 			continue
 		}
-		part := adfNodeToGFM(child, "", skipped)
+		part := adfNodeToGFM(child, skipped)
 		if part != "" {
 			parts = append(parts, part)
 		}
@@ -177,7 +182,7 @@ func adfBlockquoteToGFM(node map[string]any, skipped *skippedCollector) string {
 		if !ok {
 			continue
 		}
-		text := adfNodeToGFM(child, "", skipped)
+		text := adfNodeToGFM(child, skipped)
 		// Prefix each line with >
 		for _, line := range strings.Split(text, "\n") {
 			lines = append(lines, "> "+line)
@@ -185,6 +190,129 @@ func adfBlockquoteToGFM(node map[string]any, skipped *skippedCollector) string {
 	}
 
 	return strings.Join(lines, "\n")
+}
+
+// adfTableToGFM converts an ADF table to a GFM pipe table.
+func adfTableToGFM(node map[string]any, skipped *skippedCollector) string {
+	rows, ok := node["content"].([]any)
+	if !ok || len(rows) == 0 {
+		return ""
+	}
+
+	var lines []string
+	hasHeader := false
+
+	for i, row := range rows {
+		rowNode, ok := row.(map[string]any)
+		if !ok || rowNode["type"] != "tableRow" {
+			continue
+		}
+
+		cells, ok := rowNode["content"].([]any)
+		if !ok {
+			continue
+		}
+
+		// Check if this row contains header cells
+		isHeaderRow := false
+		if i == 0 && len(cells) > 0 {
+			if first, ok := cells[0].(map[string]any); ok {
+				isHeaderRow = first["type"] == "tableHeader"
+			}
+		}
+
+		var cellTexts []string
+		for _, cell := range cells {
+			cellNode, ok := cell.(map[string]any)
+			if !ok {
+				cellTexts = append(cellTexts, "")
+				continue
+			}
+			cellTexts = append(cellTexts, adfTableCellToGFM(cellNode, skipped))
+		}
+
+		lines = append(lines, "| "+strings.Join(cellTexts, " | ")+" |")
+
+		if isHeaderRow {
+			hasHeader = true
+			seps := make([]string, len(cellTexts))
+			for j := range seps {
+				seps[j] = "---"
+			}
+			lines = append(lines, "| "+strings.Join(seps, " | ")+" |")
+		}
+	}
+
+	// If no header row, synthesize an empty header + separator
+	if !hasHeader && len(lines) > 0 {
+		// Count columns from first data row
+		firstRow, _ := rows[0].(map[string]any)
+		firstCells, _ := firstRow["content"].([]any)
+		colCount := len(firstCells)
+
+		empties := make([]string, colCount)
+		seps := make([]string, colCount)
+		for j := range seps {
+			seps[j] = "---"
+		}
+		headerLine := "| " + strings.Join(empties, " | ") + " |"
+		sepLine := "| " + strings.Join(seps, " | ") + " |"
+		lines = append([]string{headerLine, sepLine}, lines...)
+	}
+
+	return strings.Join(lines, "\n")
+}
+
+// adfTableCellToGFM extracts text from a table cell (tableHeader or tableCell).
+func adfTableCellToGFM(node map[string]any, skipped *skippedCollector) string {
+	content, ok := node["content"].([]any)
+	if !ok {
+		return ""
+	}
+
+	var parts []string
+	for _, item := range content {
+		child, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		part := adfNodeToGFM(child, skipped)
+		if part != "" {
+			parts = append(parts, part)
+		}
+	}
+
+	text := strings.Join(parts, " ")
+	// Escape pipe characters to prevent breaking GFM table column alignment.
+	return strings.ReplaceAll(text, "|", "\\|")
+}
+
+// adfTaskListToGFM converts an ADF taskList to GFM task list items.
+func adfTaskListToGFM(node map[string]any) string {
+	content, ok := node["content"].([]any)
+	if !ok {
+		return ""
+	}
+
+	var items []string
+	for _, item := range content {
+		taskItem, ok := item.(map[string]any)
+		if !ok || taskItem["type"] != "taskItem" {
+			continue
+		}
+
+		checkbox := "[ ]"
+		if attrs, ok := taskItem["attrs"].(map[string]any); ok {
+			if state, ok := attrs["state"].(string); ok && state == "DONE" {
+				checkbox = "[x]"
+			}
+		}
+
+		text := adfInlineToGFM(taskItem)
+		items = append(items, "- "+checkbox+" "+text)
+	}
+
+	return strings.Join(items, "\n")
 }
 
 // adfInlineToGFM converts inline content to markdown.

@@ -188,7 +188,7 @@ func TestPrinter_Issues(t *testing.T) {
 		var out bytes.Buffer
 		p := markdown.NewPrinter(&out)
 
-		views := []jira4claude.IssueView{
+		views := []jira4claude.IssueListItem{
 			{Key: "J4C-103", Summary: "http package cleanup", Status: "Done", Priority: "Medium"},
 			{Key: "J4C-102", Summary: "goldmark package test coverage", Status: "Done", Priority: "Medium"},
 			{Key: "J4C-95", Summary: "Investigate epic support", Status: "To Do", Priority: "Medium"},
@@ -209,7 +209,7 @@ func TestPrinter_Issues(t *testing.T) {
 		var out bytes.Buffer
 		p := markdown.NewPrinter(&out)
 
-		views := []jira4claude.IssueView{
+		views := []jira4claude.IssueListItem{
 			{
 				Key:      "J4C-100",
 				Summary:  "This is a very long summary that exceeds sixty characters and should be truncated",
@@ -231,7 +231,7 @@ func TestPrinter_Issues(t *testing.T) {
 		var out bytes.Buffer
 		p := markdown.NewPrinter(&out)
 
-		views := []jira4claude.IssueView{
+		views := []jira4claude.IssueListItem{
 			{Key: "J4C-1", Summary: "Highest priority", Status: "To Do", Priority: "Highest"},
 			{Key: "J4C-2", Summary: "High priority", Status: "To Do", Priority: "High"},
 			{Key: "J4C-3", Summary: "Medium priority", Status: "To Do", Priority: "Medium"},
@@ -265,7 +265,7 @@ func TestPrinter_Issues(t *testing.T) {
 		var out bytes.Buffer
 		p := markdown.NewPrinter(&out)
 
-		views := []jira4claude.IssueView{
+		views := []jira4claude.IssueListItem{
 			{Key: "J4C-100", Summary: "Cancelled issue", Status: "Won't Do", Priority: "Medium"},
 		}
 

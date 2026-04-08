@@ -492,7 +492,7 @@ func TestConverter_ToMarkdown(t *testing.T) {
 		t.Parallel()
 
 		converter := markdown.New()
-		// ADF with an unsupported node type (e.g., "table")
+		// ADF with an unsupported node type (e.g., "panel")
 		adfDoc := map[string]any{
 			"type":    "doc",
 			"version": 1,
@@ -507,10 +507,8 @@ func TestConverter_ToMarkdown(t *testing.T) {
 					},
 				},
 				map[string]any{
-					"type": "table",
-					"content": []any{
-						map[string]any{"type": "tableRow"},
-					},
+					"type":    "panel",
+					"content": []any{},
 				},
 				map[string]any{
 					"type": "paragraph",
@@ -531,7 +529,7 @@ func TestConverter_ToMarkdown(t *testing.T) {
 
 		// Should return warning listing skipped content
 		require.Len(t, warnings, 1)
-		assert.Contains(t, warnings[0], "table")
+		assert.Contains(t, warnings[0], "panel")
 	})
 
 	t.Run("accumulates multiple warnings for different skipped node types", func(t *testing.T) {
@@ -553,17 +551,12 @@ func TestConverter_ToMarkdown(t *testing.T) {
 					},
 				},
 				map[string]any{
-					"type": "table",
-					"content": []any{
-						map[string]any{"type": "tableRow"},
-					},
-				},
-				map[string]any{
 					"type":    "panel",
 					"content": []any{},
 				},
 				map[string]any{
-					"type": "rule",
+					"type":    "expand",
+					"content": []any{},
 				},
 				map[string]any{
 					"type": "paragraph",
@@ -583,10 +576,9 @@ func TestConverter_ToMarkdown(t *testing.T) {
 		assert.Equal(t, "Start\n\nEnd", result)
 
 		// Should return individual warnings for each skipped node type, sorted alphabetically
-		require.Len(t, warnings, 3)
-		assert.Contains(t, warnings[0], "panel")
-		assert.Contains(t, warnings[1], "rule")
-		assert.Contains(t, warnings[2], "table")
+		require.Len(t, warnings, 2)
+		assert.Contains(t, warnings[0], "expand")
+		assert.Contains(t, warnings[1], "panel")
 	})
 
 	t.Run("returns empty warnings slice when no content is skipped", func(t *testing.T) {
@@ -672,6 +664,293 @@ func TestConverter_ToMarkdown(t *testing.T) {
 
 		assert.Empty(t, warnings)
 		assert.Equal(t, "# Default Heading", result)
+	})
+
+	t.Run("converts rule to horizontal rule", func(t *testing.T) {
+		t.Parallel()
+
+		converter := markdown.New()
+		adfDoc := map[string]any{
+			"type":    "doc",
+			"version": 1,
+			"content": []any{
+				map[string]any{
+					"type": "paragraph",
+					"content": []any{
+						map[string]any{
+							"type": "text",
+							"text": "Above",
+						},
+					},
+				},
+				map[string]any{
+					"type": "rule",
+				},
+				map[string]any{
+					"type": "paragraph",
+					"content": []any{
+						map[string]any{
+							"type": "text",
+							"text": "Below",
+						},
+					},
+				},
+			},
+		}
+
+		result, warnings := converter.ToMarkdown(adfDoc)
+
+		assert.Empty(t, warnings)
+		assert.Equal(t, "Above\n\n---\n\nBelow", result)
+	})
+
+	t.Run("converts table to GFM table", func(t *testing.T) {
+		t.Parallel()
+
+		converter := markdown.New()
+		adfDoc := map[string]any{
+			"type":    "doc",
+			"version": 1,
+			"content": []any{
+				map[string]any{
+					"type": "table",
+					"content": []any{
+						map[string]any{
+							"type": "tableRow",
+							"content": []any{
+								map[string]any{
+									"type": "tableHeader",
+									"content": []any{
+										map[string]any{
+											"type": "paragraph",
+											"content": []any{
+												map[string]any{"type": "text", "text": "Name"},
+											},
+										},
+									},
+								},
+								map[string]any{
+									"type": "tableHeader",
+									"content": []any{
+										map[string]any{
+											"type": "paragraph",
+											"content": []any{
+												map[string]any{"type": "text", "text": "Value"},
+											},
+										},
+									},
+								},
+							},
+						},
+						map[string]any{
+							"type": "tableRow",
+							"content": []any{
+								map[string]any{
+									"type": "tableCell",
+									"content": []any{
+										map[string]any{
+											"type": "paragraph",
+											"content": []any{
+												map[string]any{"type": "text", "text": "foo"},
+											},
+										},
+									},
+								},
+								map[string]any{
+									"type": "tableCell",
+									"content": []any{
+										map[string]any{
+											"type": "paragraph",
+											"content": []any{
+												map[string]any{"type": "text", "text": "bar"},
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		}
+
+		result, warnings := converter.ToMarkdown(adfDoc)
+
+		assert.Empty(t, warnings)
+		assert.Equal(t, "| Name | Value |\n| --- | --- |\n| foo | bar |", result)
+	})
+
+	t.Run("converts table without headers", func(t *testing.T) {
+		t.Parallel()
+
+		converter := markdown.New()
+		adfDoc := map[string]any{
+			"type":    "doc",
+			"version": 1,
+			"content": []any{
+				map[string]any{
+					"type": "table",
+					"content": []any{
+						map[string]any{
+							"type": "tableRow",
+							"content": []any{
+								map[string]any{
+									"type": "tableCell",
+									"content": []any{
+										map[string]any{
+											"type": "paragraph",
+											"content": []any{
+												map[string]any{"type": "text", "text": "a"},
+											},
+										},
+									},
+								},
+								map[string]any{
+									"type": "tableCell",
+									"content": []any{
+										map[string]any{
+											"type": "paragraph",
+											"content": []any{
+												map[string]any{"type": "text", "text": "b"},
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		}
+
+		result, warnings := converter.ToMarkdown(adfDoc)
+
+		assert.Empty(t, warnings)
+		// Should synthesize empty header row + separator for valid GFM
+		assert.Equal(t, "|  |  |\n| --- | --- |\n| a | b |", result)
+	})
+
+	t.Run("escapes pipe characters in table cells", func(t *testing.T) {
+		t.Parallel()
+
+		converter := markdown.New()
+		adfDoc := map[string]any{
+			"type":    "doc",
+			"version": 1,
+			"content": []any{
+				map[string]any{
+					"type": "table",
+					"content": []any{
+						map[string]any{
+							"type": "tableRow",
+							"content": []any{
+								map[string]any{
+									"type": "tableHeader",
+									"content": []any{
+										map[string]any{
+											"type": "paragraph",
+											"content": []any{
+												map[string]any{"type": "text", "text": "Col"},
+											},
+										},
+									},
+								},
+							},
+						},
+						map[string]any{
+							"type": "tableRow",
+							"content": []any{
+								map[string]any{
+									"type": "tableCell",
+									"content": []any{
+										map[string]any{
+											"type": "paragraph",
+											"content": []any{
+												map[string]any{"type": "text", "text": "foo | bar"},
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		}
+
+		result, warnings := converter.ToMarkdown(adfDoc)
+
+		assert.Empty(t, warnings)
+		assert.Equal(t, "| Col |\n| --- |\n| foo \\| bar |", result)
+	})
+
+	t.Run("converts taskList to GFM task list", func(t *testing.T) {
+		t.Parallel()
+
+		converter := markdown.New()
+		adfDoc := map[string]any{
+			"type":    "doc",
+			"version": 1,
+			"content": []any{
+				map[string]any{
+					"type": "taskList",
+					"content": []any{
+						map[string]any{
+							"type": "taskItem",
+							"attrs": map[string]any{
+								"state": "TODO",
+							},
+							"content": []any{
+								map[string]any{"type": "text", "text": "Buy milk"},
+							},
+						},
+						map[string]any{
+							"type": "taskItem",
+							"attrs": map[string]any{
+								"state": "DONE",
+							},
+							"content": []any{
+								map[string]any{"type": "text", "text": "Write code"},
+							},
+						},
+					},
+				},
+			},
+		}
+
+		result, warnings := converter.ToMarkdown(adfDoc)
+
+		assert.Empty(t, warnings)
+		assert.Equal(t, "- [ ] Buy milk\n- [x] Write code", result)
+	})
+
+	t.Run("defaults taskItem without attrs to unchecked", func(t *testing.T) {
+		t.Parallel()
+
+		converter := markdown.New()
+		adfDoc := map[string]any{
+			"type":    "doc",
+			"version": 1,
+			"content": []any{
+				map[string]any{
+					"type": "taskList",
+					"content": []any{
+						map[string]any{
+							"type": "taskItem",
+							// No attrs at all
+							"content": []any{
+								map[string]any{"type": "text", "text": "No state"},
+							},
+						},
+					},
+				},
+			},
+		}
+
+		result, warnings := converter.ToMarkdown(adfDoc)
+
+		assert.Empty(t, warnings)
+		assert.Equal(t, "- [ ] No state", result)
 	})
 
 	t.Run("defaults heading level to 1 when level attr missing", func(t *testing.T) {
