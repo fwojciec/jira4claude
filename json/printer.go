@@ -45,8 +45,8 @@ func (p *Printer) Issue(view jira4claude.IssueView) {
 }
 
 // Issues prints multiple issues as JSON array.
-func (p *Printer) Issues(views []jira4claude.IssueView) {
-	p.encode(views)
+func (p *Printer) Issues(items []jira4claude.IssueListItem) {
+	p.encode(items)
 }
 
 // Comment prints a single comment as JSON.

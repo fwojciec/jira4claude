@@ -95,15 +95,15 @@ func (p *Printer) Issue(view jira4claude.IssueView) {
 }
 
 // Issues prints multiple issues as a markdown list.
-func (p *Printer) Issues(views []jira4claude.IssueView) {
-	if len(views) == 0 {
+func (p *Printer) Issues(items []jira4claude.IssueListItem) {
+	if len(items) == 0 {
 		fmt.Fprintln(p.out, "[info] No issues found")
 		return
 	}
 
-	for _, view := range views {
-		summary := truncate(view.Summary, maxSummaryLength)
-		fmt.Fprintln(p.out, formatIssueListItem(view.Key, view.Status, view.Priority, summary))
+	for _, item := range items {
+		summary := truncate(item.Summary, maxSummaryLength)
+		fmt.Fprintln(p.out, formatIssueListItem(item.Key, item.Status, item.Priority, summary))
 	}
 }
 

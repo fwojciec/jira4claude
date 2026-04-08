@@ -237,12 +237,12 @@ func TestPrinter_Issues(t *testing.T) {
 	var out bytes.Buffer
 	p := jsonpkg.NewPrinter(&out)
 
-	views := []jira4claude.IssueView{
-		{Key: "TEST-1", Summary: "First", Status: "Open", Created: "2024-01-01T12:00:00Z", Updated: "2024-01-02T12:00:00Z"},
-		{Key: "TEST-2", Summary: "Second", Status: "Done", Created: "2024-01-01T12:00:00Z", Updated: "2024-01-02T12:00:00Z"},
+	items := []jira4claude.IssueListItem{
+		{Key: "TEST-1", Summary: "First", Status: "Open"},
+		{Key: "TEST-2", Summary: "Second", Status: "Done"},
 	}
 
-	p.Issues(views)
+	p.Issues(items)
 
 	var result []map[string]any
 	err := json.Unmarshal(out.Bytes(), &result)
@@ -258,7 +258,7 @@ func TestPrinter_Issues_Empty(t *testing.T) {
 	var out bytes.Buffer
 	p := jsonpkg.NewPrinter(&out)
 
-	p.Issues([]jira4claude.IssueView{})
+	p.Issues([]jira4claude.IssueListItem{})
 
 	var result []map[string]any
 	err := json.Unmarshal(out.Bytes(), &result)

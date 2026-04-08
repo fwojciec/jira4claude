@@ -103,13 +103,29 @@ func ToIssueView(issue *Issue, conv Converter, warn func(string), serverURL stri
 	}
 }
 
-// ToIssuesView converts a slice of domain Issues to display-ready IssueViews.
-func ToIssuesView(issues []*Issue, conv Converter, warn func(string), serverURL string) []IssueView {
-	views := make([]IssueView, len(issues))
+// IssueListItem is a minimal representation for list display.
+// It contains only the fields needed for issue lists, avoiding
+// expensive ADF-to-markdown conversion.
+type IssueListItem struct {
+	Key      string `json:"key"`
+	Status   string `json:"status"`
+	Priority string `json:"priority,omitempty"`
+	Summary  string `json:"summary"`
+}
+
+// ToIssueListItems converts domain issues to list items.
+// No ADF conversion is performed — this is a direct field copy.
+func ToIssueListItems(issues []*Issue) []IssueListItem {
+	items := make([]IssueListItem, len(issues))
 	for i, issue := range issues {
-		views[i] = ToIssueView(issue, conv, warn, serverURL)
+		items[i] = IssueListItem{
+			Key:      issue.Key,
+			Status:   issue.Status,
+			Priority: issue.Priority,
+			Summary:  issue.Summary,
+		}
 	}
-	return views
+	return items
 }
 
 // ToCommentView converts a domain Comment to a display-ready CommentView.

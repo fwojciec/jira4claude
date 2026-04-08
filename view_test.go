@@ -341,43 +341,58 @@ func TestToIssueView(t *testing.T) {
 	})
 }
 
-func TestToIssuesView(t *testing.T) {
+func TestToIssueListItems(t *testing.T) {
 	t.Parallel()
 
-	t.Run("converts multiple issues", func(t *testing.T) {
+	t.Run("extracts only list-relevant fields", func(t *testing.T) {
 		t.Parallel()
 
-		conv := &mock.Converter{
-			ToMarkdownFn: func(adf jira4claude.ADF) (string, []string) {
-				return "", nil
+		issues := []*jira4claude.Issue{
+			{
+				Key:      "TEST-1",
+				Summary:  "First issue",
+				Status:   "To Do",
+				Priority: "High",
+				Type:     "Task",
+			},
+			{
+				Key:      "TEST-2",
+				Summary:  "Second issue",
+				Status:   "Done",
+				Priority: "Low",
+				Type:     "Bug",
 			},
 		}
+
+		items := jira4claude.ToIssueListItems(issues)
+
+		assert.Len(t, items, 2)
+		assert.Equal(t, jira4claude.IssueListItem{Key: "TEST-1", Status: "To Do", Priority: "High", Summary: "First issue"}, items[0])
+		assert.Equal(t, jira4claude.IssueListItem{Key: "TEST-2", Status: "Done", Priority: "Low", Summary: "Second issue"}, items[1])
+	})
+
+	t.Run("handles empty slice", func(t *testing.T) {
+		t.Parallel()
+
+		items := jira4claude.ToIssueListItems([]*jira4claude.Issue{})
+
+		assert.Empty(t, items)
+	})
+
+	t.Run("omits empty priority", func(t *testing.T) {
+		t.Parallel()
 
 		issues := []*jira4claude.Issue{
 			{
 				Key:     "TEST-1",
-				Summary: "First issue",
+				Summary: "No priority",
 				Status:  "To Do",
-				Type:    "Task",
-				Created: time.Date(2024, 1, 1, 12, 0, 0, 0, time.UTC),
-				Updated: time.Date(2024, 1, 2, 12, 0, 0, 0, time.UTC),
-			},
-			{
-				Key:     "TEST-2",
-				Summary: "Second issue",
-				Status:  "Done",
-				Type:    "Bug",
-				Created: time.Date(2024, 1, 1, 12, 0, 0, 0, time.UTC),
-				Updated: time.Date(2024, 1, 2, 12, 0, 0, 0, time.UTC),
 			},
 		}
 
-		var warnings []string
-		views := jira4claude.ToIssuesView(issues, conv, func(w string) { warnings = append(warnings, w) }, "")
+		items := jira4claude.ToIssueListItems(issues)
 
-		assert.Len(t, views, 2)
-		assert.Equal(t, "TEST-1", views[0].Key)
-		assert.Equal(t, "TEST-2", views[1].Key)
+		assert.Empty(t, items[0].Priority)
 	})
 }
 
