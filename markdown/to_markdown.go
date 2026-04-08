@@ -201,9 +201,10 @@ func adfTableToGFM(node map[string]any, skipped *skippedCollector) string {
 
 	var lines []string
 	hasHeader := false
+	firstRendered := true
 	maxCols := 0
 
-	for i, row := range rows {
+	for _, row := range rows {
 		rowNode, ok := row.(map[string]any)
 		if !ok || rowNode["type"] != "tableRow" {
 			continue
@@ -214,9 +215,10 @@ func adfTableToGFM(node map[string]any, skipped *skippedCollector) string {
 			continue
 		}
 
-		// Check if this row contains header cells
+		// Check if the first rendered row contains header cells
 		isHeaderRow := false
-		if i == 0 && len(cells) > 0 {
+		if firstRendered && len(cells) > 0 {
+			firstRendered = false
 			if first, ok := cells[0].(map[string]any); ok {
 				isHeaderRow = first["type"] == "tableHeader"
 			}
@@ -310,35 +312,11 @@ func adfTaskListToGFM(node map[string]any, skipped *skippedCollector) string {
 			}
 		}
 
-		// Walk child nodes like adfListItemToGFM — taskItem content
-		// commonly contains paragraph nodes, not just inline text.
-		text := adfTaskItemToGFM(taskItem, skipped)
+		text := adfListItemToGFM(taskItem, skipped)
 		items = append(items, "- "+checkbox+" "+text)
 	}
 
 	return strings.Join(items, "\n")
-}
-
-// adfTaskItemToGFM extracts text from a taskItem's child nodes.
-func adfTaskItemToGFM(node map[string]any, skipped *skippedCollector) string {
-	content, ok := node["content"].([]any)
-	if !ok || len(content) == 0 {
-		return ""
-	}
-
-	var parts []string
-	for _, item := range content {
-		child, ok := item.(map[string]any)
-		if !ok {
-			continue
-		}
-		part := adfNodeToGFM(child, skipped)
-		if part != "" {
-			parts = append(parts, part)
-		}
-	}
-
-	return strings.Join(parts, " ")
 }
 
 // adfInlineToGFM converts inline content to markdown.

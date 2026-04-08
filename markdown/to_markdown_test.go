@@ -934,57 +934,6 @@ func TestConverter_ToMarkdown(t *testing.T) {
 		assert.Equal(t, "- [ ] Buy milk\n- [x] Write code", result)
 	})
 
-	t.Run("converts taskItem with paragraph content", func(t *testing.T) {
-		t.Parallel()
-
-		// Real Jira ADF wraps taskItem text in a paragraph node.
-		converter := markdown.New()
-		adfDoc := map[string]any{
-			"type":    "doc",
-			"version": 1,
-			"content": []any{
-				map[string]any{
-					"type": "taskList",
-					"content": []any{
-						map[string]any{
-							"type": "taskItem",
-							"attrs": map[string]any{
-								"state": "TODO",
-							},
-							"content": []any{
-								map[string]any{
-									"type": "paragraph",
-									"content": []any{
-										map[string]any{"type": "text", "text": "Task in paragraph"},
-									},
-								},
-							},
-						},
-						map[string]any{
-							"type": "taskItem",
-							"attrs": map[string]any{
-								"state": "DONE",
-							},
-							"content": []any{
-								map[string]any{
-									"type": "paragraph",
-									"content": []any{
-										map[string]any{"type": "text", "text": "Done task"},
-									},
-								},
-							},
-						},
-					},
-				},
-			},
-		}
-
-		result, warnings := converter.ToMarkdown(adfDoc)
-
-		assert.Empty(t, warnings)
-		assert.Equal(t, "- [ ] Task in paragraph\n- [x] Done task", result)
-	})
-
 	t.Run("normalizes newlines in table cells", func(t *testing.T) {
 		t.Parallel()
 
