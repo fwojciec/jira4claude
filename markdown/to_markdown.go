@@ -56,7 +56,7 @@ func adfNodeToGFM(node map[string]any, skipped *skippedCollector) string {
 	case "table":
 		return adfTableToGFM(node, skipped)
 	case "taskList":
-		return adfTaskListToGFM(node)
+		return adfTaskListToGFM(node, skipped)
 	case "hardBreak":
 		return "\n"
 	default:
@@ -201,8 +201,10 @@ func adfTableToGFM(node map[string]any, skipped *skippedCollector) string {
 
 	var lines []string
 	hasHeader := false
+	firstRendered := true
+	maxCols := 0
 
-	for i, row := range rows {
+	for _, row := range rows {
 		rowNode, ok := row.(map[string]any)
 		if !ok || rowNode["type"] != "tableRow" {
 			continue
@@ -213,9 +215,10 @@ func adfTableToGFM(node map[string]any, skipped *skippedCollector) string {
 			continue
 		}
 
-		// Check if this row contains header cells
+		// Check if the first rendered row contains header cells
 		isHeaderRow := false
-		if i == 0 && len(cells) > 0 {
+		if firstRendered && len(cells) > 0 {
+			firstRendered = false
 			if first, ok := cells[0].(map[string]any); ok {
 				isHeaderRow = first["type"] == "tableHeader"
 			}
@@ -231,6 +234,10 @@ func adfTableToGFM(node map[string]any, skipped *skippedCollector) string {
 			cellTexts = append(cellTexts, adfTableCellToGFM(cellNode, skipped))
 		}
 
+		if len(cellTexts) > maxCols {
+			maxCols = len(cellTexts)
+		}
+
 		lines = append(lines, "| "+strings.Join(cellTexts, " | ")+" |")
 
 		if isHeaderRow {
@@ -244,14 +251,9 @@ func adfTableToGFM(node map[string]any, skipped *skippedCollector) string {
 	}
 
 	// If no header row, synthesize an empty header + separator
-	if !hasHeader && len(lines) > 0 {
-		// Count columns from first data row
-		firstRow, _ := rows[0].(map[string]any)
-		firstCells, _ := firstRow["content"].([]any)
-		colCount := len(firstCells)
-
-		empties := make([]string, colCount)
-		seps := make([]string, colCount)
+	if !hasHeader && maxCols > 0 {
+		empties := make([]string, maxCols)
+		seps := make([]string, maxCols)
 		for j := range seps {
 			seps[j] = "---"
 		}
@@ -283,12 +285,14 @@ func adfTableCellToGFM(node map[string]any, skipped *skippedCollector) string {
 	}
 
 	text := strings.Join(parts, " ")
+	// Normalize newlines to spaces so cell content cannot break GFM table rows.
+	text = strings.ReplaceAll(text, "\n", " ")
 	// Escape pipe characters to prevent breaking GFM table column alignment.
 	return strings.ReplaceAll(text, "|", "\\|")
 }
 
 // adfTaskListToGFM converts an ADF taskList to GFM task list items.
-func adfTaskListToGFM(node map[string]any) string {
+func adfTaskListToGFM(node map[string]any, skipped *skippedCollector) string {
 	content, ok := node["content"].([]any)
 	if !ok {
 		return ""
@@ -308,7 +312,7 @@ func adfTaskListToGFM(node map[string]any) string {
 			}
 		}
 
-		text := adfInlineToGFM(taskItem)
+		text := adfListItemToGFM(taskItem, skipped)
 		items = append(items, "- "+checkbox+" "+text)
 	}
 
