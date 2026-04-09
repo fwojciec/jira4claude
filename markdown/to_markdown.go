@@ -61,9 +61,11 @@ func adfNodeToGFM(node map[string]any, skipped *skippedCollector) string {
 		return "\n"
 	case "text":
 		// Jira sometimes places bare "text" nodes at block level (e.g., inside listItem
-		// without a wrapping paragraph). Render as a paragraph to avoid losing content.
-		text, _ := node["text"].(string)
-		return text
+		// without a wrapping paragraph). Reuse the inline rendering path so any marks
+		// on the text node (strong/em/code/link) are preserved.
+		return adfInlineToGFM(map[string]any{
+			"content": []any{node},
+		})
 	default:
 		// Record the skipped node type
 		skipped.add(nodeType)
