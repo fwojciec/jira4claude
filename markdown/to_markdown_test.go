@@ -1075,4 +1075,38 @@ func TestConverter_ToMarkdown(t *testing.T) {
 		assert.Empty(t, warnings)
 		assert.Equal(t, "# Default Heading", result)
 	})
+
+	t.Run("handles text node at block level without warning", func(t *testing.T) {
+		t.Parallel()
+
+		converter := markdown.New()
+		// Jira sometimes returns bare "text" nodes at the block level
+		// (e.g., inside a listItem without a wrapping paragraph).
+		// These should be rendered as paragraphs, not skipped with a warning.
+		adfDoc := map[string]any{
+			"type":    "doc",
+			"version": 1,
+			"content": []any{
+				map[string]any{
+					"type": "bulletList",
+					"content": []any{
+						map[string]any{
+							"type": "listItem",
+							"content": []any{
+								map[string]any{
+									"type": "text",
+									"text": "bare text node",
+								},
+							},
+						},
+					},
+				},
+			},
+		}
+
+		result, warnings := converter.ToMarkdown(adfDoc)
+
+		assert.Empty(t, warnings)
+		assert.Equal(t, "- bare text node", result)
+	})
 }

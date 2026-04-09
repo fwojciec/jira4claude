@@ -59,6 +59,11 @@ func adfNodeToGFM(node map[string]any, skipped *skippedCollector) string {
 		return adfTaskListToGFM(node, skipped)
 	case "hardBreak":
 		return "\n"
+	case "text":
+		// Jira sometimes places bare "text" nodes at block level (e.g., inside listItem
+		// without a wrapping paragraph). Render as a paragraph to avoid losing content.
+		text, _ := node["text"].(string)
+		return text
 	default:
 		// Record the skipped node type
 		skipped.add(nodeType)
