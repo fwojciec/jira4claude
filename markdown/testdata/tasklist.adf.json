@@ -1,0 +1,47 @@
+{
+  "type": "doc",
+  "version": 1,
+  "content": [
+    {
+      "type": "taskList",
+      "content": [
+        {
+          "type": "taskItem",
+          "attrs": {"localId": "*", "state": "TODO"},
+          "content": [
+            {
+              "type": "paragraph",
+              "content": [
+                {"type": "text", "text": "Buy milk"}
+              ]
+            }
+          ]
+        },
+        {
+          "type": "taskItem",
+          "attrs": {"localId": "*", "state": "DONE"},
+          "content": [
+            {
+              "type": "paragraph",
+              "content": [
+                {"type": "text", "text": "Walk dog"}
+              ]
+            }
+          ]
+        },
+        {
+          "type": "taskItem",
+          "attrs": {"localId": "*", "state": "TODO"},
+          "content": [
+            {
+              "type": "paragraph",
+              "content": [
+                {"type": "text", "text": "Write code"}
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

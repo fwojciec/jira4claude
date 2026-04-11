@@ -820,4 +820,239 @@ func TestConverter_ToADF(t *testing.T) {
 		assert.Empty(t, warnings)
 		assert.Equal(t, expected, result)
 	})
+
+	t.Run("converts GFM table to ADF table", func(t *testing.T) {
+		t.Parallel()
+
+		converter := markdown.New()
+		result, warnings := converter.ToADF("| Name | Age |\n| --- | --- |\n| Alice | 30 |")
+
+		expected := &jira4claude.ADFNode{
+			Type:    "doc",
+			Version: 1,
+			Content: []jira4claude.ADFNode{
+				{
+					Type: "table",
+					Content: []jira4claude.ADFNode{
+						{
+							Type: "tableRow",
+							Content: []jira4claude.ADFNode{
+								{
+									Type: "tableHeader",
+									Content: []jira4claude.ADFNode{
+										{
+											Type: "paragraph",
+											Content: []jira4claude.ADFNode{
+												{Type: "text", Text: "Name"},
+											},
+										},
+									},
+								},
+								{
+									Type: "tableHeader",
+									Content: []jira4claude.ADFNode{
+										{
+											Type: "paragraph",
+											Content: []jira4claude.ADFNode{
+												{Type: "text", Text: "Age"},
+											},
+										},
+									},
+								},
+							},
+						},
+						{
+							Type: "tableRow",
+							Content: []jira4claude.ADFNode{
+								{
+									Type: "tableCell",
+									Content: []jira4claude.ADFNode{
+										{
+											Type: "paragraph",
+											Content: []jira4claude.ADFNode{
+												{Type: "text", Text: "Alice"},
+											},
+										},
+									},
+								},
+								{
+									Type: "tableCell",
+									Content: []jira4claude.ADFNode{
+										{
+											Type: "paragraph",
+											Content: []jira4claude.ADFNode{
+												{Type: "text", Text: "30"},
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		}
+
+		assert.Empty(t, warnings)
+		assert.Equal(t, expected, result)
+	})
+
+	t.Run("converts GFM table with multiple data rows", func(t *testing.T) {
+		t.Parallel()
+
+		converter := markdown.New()
+		result, warnings := converter.ToADF("| H1 | H2 |\n| --- | --- |\n| a | b |\n| c | d |")
+
+		require.NotNil(t, result)
+		assert.Empty(t, warnings)
+		require.Len(t, result.Content, 1)
+
+		table := result.Content[0]
+		assert.Equal(t, "table", table.Type)
+		// 1 header row + 2 data rows = 3 tableRow nodes
+		require.Len(t, table.Content, 3)
+
+		// Header row
+		assert.Equal(t, "tableRow", table.Content[0].Type)
+		assert.Equal(t, "tableHeader", table.Content[0].Content[0].Type)
+
+		// Data rows
+		assert.Equal(t, "tableRow", table.Content[1].Type)
+		assert.Equal(t, "tableCell", table.Content[1].Content[0].Type)
+		assert.Equal(t, "tableRow", table.Content[2].Type)
+		assert.Equal(t, "tableCell", table.Content[2].Content[0].Type)
+	})
+
+	t.Run("converts table with inline formatting in cells", func(t *testing.T) {
+		t.Parallel()
+
+		converter := markdown.New()
+		result, warnings := converter.ToADF("| Feature | Status |\n| --- | --- |\n| **Bold** | *done* |")
+
+		require.NotNil(t, result)
+		assert.Empty(t, warnings)
+
+		table := result.Content[0]
+		// Data row, first cell should have bold text
+		dataRow := table.Content[1]
+		cell := dataRow.Content[0]
+		assert.Equal(t, "tableCell", cell.Type)
+		require.Len(t, cell.Content, 1)
+		para := cell.Content[0]
+		require.Len(t, para.Content, 1)
+		assert.Equal(t, "Bold", para.Content[0].Text)
+		require.Len(t, para.Content[0].Marks, 1)
+		assert.Equal(t, "strong", para.Content[0].Marks[0].Type)
+	})
+
+	t.Run("converts table alongside other blocks", func(t *testing.T) {
+		t.Parallel()
+
+		converter := markdown.New()
+		result, warnings := converter.ToADF("Before\n\n| A | B |\n| --- | --- |\n| 1 | 2 |\n\nAfter")
+
+		require.NotNil(t, result)
+		assert.Empty(t, warnings)
+		// paragraph, table, paragraph
+		require.Len(t, result.Content, 3)
+		assert.Equal(t, "paragraph", result.Content[0].Type)
+		assert.Equal(t, "table", result.Content[1].Type)
+		assert.Equal(t, "paragraph", result.Content[2].Type)
+	})
+
+	t.Run("converts task list with unchecked items to taskList", func(t *testing.T) {
+		t.Parallel()
+
+		converter := markdown.New()
+		result, warnings := converter.ToADF("- [ ] Buy milk\n- [ ] Walk dog")
+
+		require.NotNil(t, result)
+		assert.Empty(t, warnings)
+		require.Len(t, result.Content, 1)
+
+		taskList := result.Content[0]
+		assert.Equal(t, "taskList", taskList.Type)
+		require.Len(t, taskList.Content, 2)
+
+		// First task item
+		item0 := taskList.Content[0]
+		assert.Equal(t, "taskItem", item0.Type)
+		require.NotNil(t, item0.Attrs)
+		var attrs0 map[string]any
+		require.NoError(t, json.Unmarshal(item0.Attrs, &attrs0))
+		assert.Equal(t, "TODO", attrs0["state"])
+		assert.NotEmpty(t, attrs0["localId"])
+		// Content should be paragraph with text
+		require.Len(t, item0.Content, 1)
+		assert.Equal(t, "paragraph", item0.Content[0].Type)
+		require.Len(t, item0.Content[0].Content, 1)
+		assert.Equal(t, "Buy milk", item0.Content[0].Content[0].Text)
+
+		// Second task item
+		item1 := taskList.Content[1]
+		assert.Equal(t, "taskItem", item1.Type)
+		var attrs1 map[string]any
+		require.NoError(t, json.Unmarshal(item1.Attrs, &attrs1))
+		assert.Equal(t, "TODO", attrs1["state"])
+	})
+
+	t.Run("converts task list with checked items to DONE state", func(t *testing.T) {
+		t.Parallel()
+
+		converter := markdown.New()
+		result, warnings := converter.ToADF("- [x] Done task\n- [ ] Pending task")
+
+		require.NotNil(t, result)
+		assert.Empty(t, warnings)
+		require.Len(t, result.Content, 1)
+
+		taskList := result.Content[0]
+		assert.Equal(t, "taskList", taskList.Type)
+		require.Len(t, taskList.Content, 2)
+
+		// First item - checked
+		var attrs0 map[string]any
+		require.NoError(t, json.Unmarshal(taskList.Content[0].Attrs, &attrs0))
+		assert.Equal(t, "DONE", attrs0["state"])
+
+		// Second item - unchecked
+		var attrs1 map[string]any
+		require.NoError(t, json.Unmarshal(taskList.Content[1].Attrs, &attrs1))
+		assert.Equal(t, "TODO", attrs1["state"])
+	})
+
+	t.Run("generates unique localIds for each task item", func(t *testing.T) {
+		t.Parallel()
+
+		converter := markdown.New()
+		result, _ := converter.ToADF("- [ ] One\n- [ ] Two\n- [ ] Three")
+
+		require.Len(t, result.Content, 1)
+		taskList := result.Content[0]
+		require.Len(t, taskList.Content, 3)
+
+		ids := make(map[string]struct{})
+		for _, item := range taskList.Content {
+			var attrs map[string]any
+			require.NoError(t, json.Unmarshal(item.Attrs, &attrs))
+			id, ok := attrs["localId"].(string)
+			require.True(t, ok)
+			assert.NotEmpty(t, id)
+			ids[id] = struct{}{}
+		}
+		// All IDs should be unique
+		assert.Len(t, ids, 3)
+	})
+
+	t.Run("regular list without checkboxes stays as bulletList", func(t *testing.T) {
+		t.Parallel()
+
+		converter := markdown.New()
+		result, warnings := converter.ToADF("- Regular item\n- Another item")
+
+		require.NotNil(t, result)
+		assert.Empty(t, warnings)
+		require.Len(t, result.Content, 1)
+		assert.Equal(t, "bulletList", result.Content[0].Type)
+	})
 }

@@ -1,6 +1,7 @@
 package markdown
 
 import (
+	"crypto/rand"
 	"encoding/json"
 	"fmt"
 	"reflect"
@@ -109,6 +110,8 @@ func nodeToADF(node ast.Node, source []byte, skipped *skippedCollector) (jira4cl
 		return convertBlockquote(n, source, skipped), true
 	case *ast.ThematicBreak:
 		return jira4claude.ADFNode{Type: "rule"}, true
+	case *extast.Table:
+		return convertTable(n, source, skipped), true
 	default:
 		// Record the skipped node type
 		typeName := reflect.TypeOf(node).Elem().Name()
@@ -187,8 +190,13 @@ func convertFencedCodeBlock(node *ast.FencedCodeBlock, source []byte) jira4claud
 	return result
 }
 
-// convertList converts a goldmark list to an ADF bulletList or orderedList.
+// convertList converts a goldmark list to an ADF bulletList, orderedList, or taskList.
+// Task lists are detected by checking if any list item contains a TaskCheckBox.
 func convertList(node *ast.List, source []byte, skipped *skippedCollector) jira4claude.ADFNode {
+	if isTaskList(node) {
+		return convertTaskList(node, source, skipped)
+	}
+
 	listType := "bulletList"
 	if node.IsOrdered() {
 		listType = "orderedList"
@@ -361,6 +369,155 @@ func convertInlineNode(node ast.Node, source []byte, marks []jira4claude.ADFMark
 
 	default:
 		return convertChildren(node, source, marks)
+	}
+}
+
+// isTaskList checks if a list contains task checkboxes.
+func isTaskList(node *ast.List) bool {
+	for child := node.FirstChild(); child != nil; child = child.NextSibling() {
+		if listItem, ok := child.(*ast.ListItem); ok {
+			for block := listItem.FirstChild(); block != nil; block = block.NextSibling() {
+				for inline := block.FirstChild(); inline != nil; inline = inline.NextSibling() {
+					if _, ok := inline.(*extast.TaskCheckBox); ok {
+						return true
+					}
+				}
+			}
+		}
+	}
+	return false
+}
+
+// convertTaskList converts a goldmark list with task checkboxes to an ADF taskList.
+func convertTaskList(node *ast.List, source []byte, _ *skippedCollector) jira4claude.ADFNode {
+	var items []jira4claude.ADFNode
+	for child := node.FirstChild(); child != nil; child = child.NextSibling() {
+		listItem, ok := child.(*ast.ListItem)
+		if !ok {
+			continue
+		}
+		items = append(items, convertTaskItem(listItem, source))
+	}
+	return jira4claude.ADFNode{
+		Type:    "taskList",
+		Content: items,
+	}
+}
+
+// convertTaskItem converts a goldmark list item with a TaskCheckBox to an ADF taskItem.
+func convertTaskItem(node *ast.ListItem, source []byte) jira4claude.ADFNode {
+	state := "TODO"
+	// Look for TaskCheckBox in the list item's children
+	for block := node.FirstChild(); block != nil; block = block.NextSibling() {
+		for inline := block.FirstChild(); inline != nil; inline = inline.NextSibling() {
+			if cb, ok := inline.(*extast.TaskCheckBox); ok {
+				if cb.IsChecked {
+					state = "DONE"
+				}
+				break
+			}
+		}
+	}
+
+	attrs, _ := json.Marshal(map[string]any{
+		"localId": generateLocalID(),
+		"state":   state,
+	})
+
+	// Convert content, skipping the TaskCheckBox node itself
+	content := convertTaskItemContent(node, source)
+
+	return jira4claude.ADFNode{
+		Type:    "taskItem",
+		Attrs:   attrs,
+		Content: content,
+	}
+}
+
+// convertTaskItemContent converts the content of a task list item, skipping the checkbox.
+func convertTaskItemContent(node *ast.ListItem, source []byte) []jira4claude.ADFNode {
+	var content []jira4claude.ADFNode
+	for block := node.FirstChild(); block != nil; block = block.NextSibling() {
+		// Convert inline content, skipping TaskCheckBox nodes
+		var inlineContent []jira4claude.ADFNode
+		for child := block.FirstChild(); child != nil; child = child.NextSibling() {
+			if _, ok := child.(*extast.TaskCheckBox); ok {
+				continue
+			}
+			inlineContent = append(inlineContent, convertInlineNode(child, source, nil)...)
+		}
+		inlineContent = consolidateTextNodes(inlineContent)
+		if len(inlineContent) > 0 {
+			content = append(content, jira4claude.ADFNode{
+				Type:    "paragraph",
+				Content: inlineContent,
+			})
+		}
+	}
+	return content
+}
+
+// generateLocalID creates a random UUID-like identifier for ADF nodes that require localId.
+func generateLocalID() string {
+	b := make([]byte, 16)
+	_, _ = rand.Read(b)
+	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:16])
+}
+
+// convertTable converts a goldmark GFM table to an ADF table node.
+// The goldmark AST has Table → TableHeader (first child) → TableCell,
+// then TableRow children → TableCell. ADF uses tableRow for both,
+// with tableHeader vs tableCell for cell types.
+func convertTable(node *extast.Table, source []byte, _ *skippedCollector) jira4claude.ADFNode {
+	var rows []jira4claude.ADFNode
+
+	for child := node.FirstChild(); child != nil; child = child.NextSibling() {
+		switch row := child.(type) {
+		case *extast.TableHeader:
+			rows = append(rows, convertTableRow(row, source, true))
+		case *extast.TableRow:
+			rows = append(rows, convertTableRow(row, source, false))
+		}
+	}
+
+	return jira4claude.ADFNode{
+		Type:    "table",
+		Content: rows,
+	}
+}
+
+// convertTableRow converts a goldmark table header or row to an ADF tableRow.
+// Each child TableCell becomes either an ADF tableHeader or tableCell node
+// depending on whether the row is a header row.
+func convertTableRow(node ast.Node, source []byte, isHeader bool) jira4claude.ADFNode {
+	var cells []jira4claude.ADFNode
+
+	for child := node.FirstChild(); child != nil; child = child.NextSibling() {
+		if cell, ok := child.(*extast.TableCell); ok {
+			cellType := "tableCell"
+			if isHeader {
+				cellType = "tableHeader"
+			}
+			content := convertInlineContent(cell, source)
+			var cellContent []jira4claude.ADFNode
+			if len(content) > 0 {
+				cellContent = []jira4claude.ADFNode{
+					{
+						Type:    "paragraph",
+						Content: content,
+					},
+				}
+			}
+			cells = append(cells, jira4claude.ADFNode{
+				Type:    cellType,
+				Content: cellContent,
+			})
+		}
+	}
+
+	return jira4claude.ADFNode{
+		Type:    "tableRow",
+		Content: cells,
 	}
 }
 
