@@ -15,54 +15,12 @@ Strategic guidance for LLMs working with this codebase.
 - **Minimal scope** - only commands agents actually need (~8 endpoints, not 417)
 - **Process over polish** - systematic validation results in quality
 
-## Dogfooding
-
-This project uses its own CLI (`j4c`) to manage Jira tasks. When you encounter unexpected behavior, errors, or UX friction while using `j4c`:
-
-1. **Pause** - Don't work around the issue
-2. **Evaluate** - Is this a bug, missing feature, or documentation gap?
-3. **Create an issue** - Use `j4c issue create` to file a task describing the problem
-4. **Continue** - Work around the issue temporarily if needed, but the issue ensures it gets fixed
-
-If `j4c` binary doesn't exist, install it:
-
-```bash
-go install ./cmd/j4c
-```
-
-This feedback loop is essential for improving the tool.
-
 ## Workflows
-
-### Single-Session Development
 
 | Command | Purpose |
 |---------|---------|
-| `/start-task` | Pick a Jira task, create branch, implement with TDD |
-| `/finish-task` | Validate, transition Jira issue to Done, create PR |
+| `/work` | Pick a GitHub issue, implement with TDD, review, create PR |
 | `/address-pr-comments` | Fetch, evaluate, and respond to PR feedback |
-
-### Parallel Development (Multiple Sessions)
-
-Run multiple Claude Code sessions on different tasks using git worktrees:
-
-| Command | Run from | Purpose |
-|---------|----------|---------|
-| `/create-worktree J4C-XX` | Main repo | Create worktree, transition Jira to In Progress |
-| `/worktree-task` | Worktree | Start work (infers task from branch name) |
-| `/worktree-finish` | Worktree | Validate, push, create PR, transition to Done |
-| `/cleanup-worktrees` | Main repo | Remove worktrees for merged PRs |
-
-**Workflow:**
-```
-[main repo]   /create-worktree J4C-42
-[terminal]    cd .worktrees/J4C-42 && claude
-[worktree]    /worktree-task → work → /worktree-finish
-[terminal]    close session
-[main repo]   /cleanup-worktrees
-```
-
-Worktrees are stored in `.worktrees/` (gitignored). Each worktree builds its own binary for dogfooding.
 
 **Quick reference**:
 ```bash
@@ -73,8 +31,8 @@ make validate     # Quality gate - run before completing any task
 1. Research the problem
 2. Use `/brainstorm` to refine into design
 3. Write design doc to `docs/plans/`
-4. Use `jira-workflow` skill to create tasks with dependencies
-5. Use `ready` command to find unblocked work
+4. Use `gh-workflow` skill to create issues with dependencies
+5. Use dependency-filtered issue listing to find ready (unblocked) work
 
 ## Architecture Patterns
 
@@ -95,11 +53,11 @@ When uncertain about where code belongs, use the `go-standard-package-layout` sk
 
 ### Task Management
 
-**`jira-workflow`** - Use when:
-- Creating new tasks or subtasks
+**`gh-workflow`** - Use when:
+- Creating new issues or subtasks
 - Checking what work is ready (unblocked)
-- Linking tasks with dependencies
-- Transitioning task status
+- Linking issues with dependencies
+- Managing milestones
 
 ### Architecture
 
@@ -109,7 +67,7 @@ When uncertain about where code belongs, use the `go-standard-package-layout` sk
 - Naming packages or files
 - Writing mocks in `mock/`
 
-### Development (invoked automatically by `/start-task`)
+### Development (invoked automatically by `/work`)
 
 - **`superpowers:test-driven-development`** - Write test first, watch it fail, implement
 - **`superpowers:systematic-debugging`** - Understand root cause before fixing
