@@ -439,40 +439,50 @@ func TestConverter_ToADF(t *testing.T) {
 		assert.Equal(t, expected, result)
 	})
 
-	t.Run("returns warning when content is skipped", func(t *testing.T) {
+	t.Run("converts thematic break to rule node", func(t *testing.T) {
 		t.Parallel()
 
 		converter := markdown.New()
-		// Horizontal rules (thematic breaks) are not supported
 		result, warnings := converter.ToADF("Before\n\n---\n\nAfter")
 
-		// Should still return converted content (best effort)
-		require.NotNil(t, result)
-		assert.Equal(t, "doc", result.Type)
+		expected := &jira4claude.ADFNode{
+			Type:    "doc",
+			Version: 1,
+			Content: []jira4claude.ADFNode{
+				{
+					Type: "paragraph",
+					Content: []jira4claude.ADFNode{
+						{Type: "text", Text: "Before"},
+					},
+				},
+				{Type: "rule"},
+				{
+					Type: "paragraph",
+					Content: []jira4claude.ADFNode{
+						{Type: "text", Text: "After"},
+					},
+				},
+			},
+		}
 
-		// Content should have the paragraphs that were converted
-		assert.Len(t, result.Content, 2) // "Before" and "After" paragraphs
-
-		// Should return warning listing skipped content
-		require.Len(t, warnings, 1)
-		assert.Contains(t, warnings[0], "ThematicBreak")
+		assert.Empty(t, warnings)
+		assert.Equal(t, expected, result)
 	})
 
 	t.Run("accumulates multiple warnings for different skipped node types", func(t *testing.T) {
 		t.Parallel()
 
 		converter := markdown.New()
-		// Multiple unsupported block elements: horizontal rule and raw HTML block
-		result, warnings := converter.ToADF("Start\n\n---\n\n<div>html block</div>\n\nEnd")
+		// Multiple unsupported block elements: raw HTML blocks
+		result, warnings := converter.ToADF("Start\n\n<div>html block one</div>\n\n<section>html block two</section>\n\nEnd")
 
 		// Should still return converted content (best effort)
 		require.NotNil(t, result)
 		assert.Equal(t, "doc", result.Type)
 
-		// Should return warnings for each skipped type, sorted alphabetically
-		require.Len(t, warnings, 2)
+		// Both HTML blocks produce the same skipped type, so only one warning
+		require.Len(t, warnings, 1)
 		assert.Contains(t, warnings[0], "HTMLBlock")
-		assert.Contains(t, warnings[1], "ThematicBreak")
 	})
 
 	t.Run("returns empty warnings slice when no content is skipped", func(t *testing.T) {
@@ -714,6 +724,93 @@ func TestConverter_ToADF(t *testing.T) {
 						{
 							Type: "text",
 							Text: "Use this   see results   important",
+						},
+					},
+				},
+			},
+		}
+
+		assert.Empty(t, warnings)
+		assert.Equal(t, expected, result)
+	})
+
+	t.Run("converts hard line break to hardBreak node", func(t *testing.T) {
+		t.Parallel()
+
+		converter := markdown.New()
+		// Two trailing spaces before newline create a hard line break in markdown
+		result, warnings := converter.ToADF("Line one  \nLine two")
+
+		expected := &jira4claude.ADFNode{
+			Type:    "doc",
+			Version: 1,
+			Content: []jira4claude.ADFNode{
+				{
+					Type: "paragraph",
+					Content: []jira4claude.ADFNode{
+						{Type: "text", Text: "Line one"},
+						{Type: "hardBreak"},
+						{Type: "text", Text: "Line two"},
+					},
+				},
+			},
+		}
+
+		assert.Empty(t, warnings)
+		assert.Equal(t, expected, result)
+	})
+
+	t.Run("converts strikethrough to strike mark", func(t *testing.T) {
+		t.Parallel()
+
+		converter := markdown.New()
+		result, warnings := converter.ToADF("This is ~~deleted~~ text.")
+
+		expected := &jira4claude.ADFNode{
+			Type:    "doc",
+			Version: 1,
+			Content: []jira4claude.ADFNode{
+				{
+					Type: "paragraph",
+					Content: []jira4claude.ADFNode{
+						{Type: "text", Text: "This is "},
+						{
+							Type: "text",
+							Text: "deleted",
+							Marks: []jira4claude.ADFMark{
+								{Type: "strike"},
+							},
+						},
+						{Type: "text", Text: " text."},
+					},
+				},
+			},
+		}
+
+		assert.Empty(t, warnings)
+		assert.Equal(t, expected, result)
+	})
+
+	t.Run("converts strikethrough with other marks", func(t *testing.T) {
+		t.Parallel()
+
+		converter := markdown.New()
+		result, warnings := converter.ToADF("**~~bold and deleted~~**")
+
+		expected := &jira4claude.ADFNode{
+			Type:    "doc",
+			Version: 1,
+			Content: []jira4claude.ADFNode{
+				{
+					Type: "paragraph",
+					Content: []jira4claude.ADFNode{
+						{
+							Type: "text",
+							Text: "bold and deleted",
+							Marks: []jira4claude.ADFMark{
+								{Type: "strong"},
+								{Type: "strike"},
+							},
 						},
 					},
 				},

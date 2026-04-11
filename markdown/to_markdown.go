@@ -310,7 +310,7 @@ func adfInlineToGFM(node *jira4claude.ADFNode) string {
 
 // applyMarks wraps text with the appropriate markdown syntax for its marks.
 func applyMarks(text string, marks []jira4claude.ADFMark) string {
-	var hasStrong, hasEm, hasCode bool
+	var hasStrong, hasEm, hasCode, hasStrike bool
 	var linkHref string
 
 	for _, mark := range marks {
@@ -321,6 +321,8 @@ func applyMarks(text string, marks []jira4claude.ADFMark) string {
 			hasEm = true
 		case "code":
 			hasCode = true
+		case "strike":
+			hasStrike = true
 		case "link":
 			if mark.Attrs != nil {
 				var attrs map[string]any
@@ -334,7 +336,7 @@ func applyMarks(text string, marks []jira4claude.ADFMark) string {
 	}
 
 	// Apply marks in specific order.
-	// If code is present, skip em/strong since markdown doesn't support emphasis inside backticks.
+	// If code is present, skip em/strong/strike since markdown doesn't support emphasis inside backticks.
 	result := text
 
 	if hasCode {
@@ -349,6 +351,9 @@ func applyMarks(text string, marks []jira4claude.ADFMark) string {
 			if hasStrong {
 				result = "**" + result + "**"
 			}
+		}
+		if hasStrike {
+			result = "~~" + result + "~~"
 		}
 	}
 	if linkHref != "" && result != linkHref {

@@ -10,6 +10,7 @@ import (
 	"github.com/yuin/goldmark"
 	"github.com/yuin/goldmark/ast"
 	"github.com/yuin/goldmark/extension"
+	extast "github.com/yuin/goldmark/extension/ast"
 	"github.com/yuin/goldmark/parser"
 	"github.com/yuin/goldmark/text"
 )
@@ -106,6 +107,8 @@ func nodeToADF(node ast.Node, source []byte, skipped *skippedCollector) (jira4cl
 		return convertList(n, source, skipped), true
 	case *ast.Blockquote:
 		return convertBlockquote(n, source, skipped), true
+	case *ast.ThematicBreak:
+		return jira4claude.ADFNode{Type: "rule"}, true
 	default:
 		// Record the skipped node type
 		typeName := reflect.TypeOf(node).Elem().Name()
@@ -311,7 +314,11 @@ func convertInlineNode(node ast.Node, source []byte, marks []jira4claude.ADFMark
 		if text == "" {
 			return nil
 		}
-		return []jira4claude.ADFNode{textNodeWithMarks(text, marks)}
+		nodes := []jira4claude.ADFNode{textNodeWithMarks(text, marks)}
+		if n.HardLineBreak() {
+			nodes = append(nodes, jira4claude.ADFNode{Type: "hardBreak"})
+		}
+		return nodes
 
 	case *ast.Emphasis:
 		markType := "em"
@@ -347,6 +354,10 @@ func convertInlineNode(node ast.Node, source []byte, marks []jira4claude.ADFMark
 			Attrs: attrs,
 		}
 		return []jira4claude.ADFNode{textNodeWithMarks(url, append(cloneMarks(marks), newMark))}
+
+	case *extast.Strikethrough:
+		newMarks := append(cloneMarks(marks), jira4claude.ADFMark{Type: "strike"})
+		return convertChildren(n, source, newMarks)
 
 	default:
 		return convertChildren(node, source, marks)

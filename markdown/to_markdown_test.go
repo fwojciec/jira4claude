@@ -1110,4 +1110,79 @@ func TestConverter_ToMarkdown(t *testing.T) {
 		assert.Empty(t, warnings)
 		assert.Equal(t, "- **bold text**", result)
 	})
+
+	t.Run("converts strike mark to strikethrough", func(t *testing.T) {
+		t.Parallel()
+
+		converter := markdown.New()
+		adfDoc := &jira4claude.ADFNode{
+			Type:    "doc",
+			Version: 1,
+			Content: []jira4claude.ADFNode{
+				{
+					Type: "paragraph",
+					Content: []jira4claude.ADFNode{
+						{Type: "text", Text: "This is "},
+						{
+							Type: "text",
+							Text: "deleted",
+							Marks: []jira4claude.ADFMark{
+								{Type: "strike"},
+							},
+						},
+						{Type: "text", Text: " text."},
+					},
+				},
+			},
+		}
+
+		result, warnings := converter.ToMarkdown(adfDoc)
+
+		assert.Empty(t, warnings)
+		assert.Equal(t, "This is ~~deleted~~ text.", result)
+	})
+
+	t.Run("converts strike with strong to combined markdown", func(t *testing.T) {
+		t.Parallel()
+
+		converter := markdown.New()
+		adfDoc := &jira4claude.ADFNode{
+			Type:    "doc",
+			Version: 1,
+			Content: []jira4claude.ADFNode{
+				{
+					Type: "paragraph",
+					Content: []jira4claude.ADFNode{
+						{
+							Type: "text",
+							Text: "bold deleted",
+							Marks: []jira4claude.ADFMark{
+								{Type: "strong"},
+								{Type: "strike"},
+							},
+						},
+					},
+				},
+			},
+		}
+
+		result, warnings := converter.ToMarkdown(adfDoc)
+
+		assert.Empty(t, warnings)
+		assert.Equal(t, "~~**bold deleted**~~", result)
+	})
+
+	t.Run("round trips strikethrough through MD to ADF to MD", func(t *testing.T) {
+		t.Parallel()
+
+		converter := markdown.New()
+		original := "This is ~~strikethrough~~ text."
+
+		adf, w1 := converter.ToADF(original)
+		result, w2 := converter.ToMarkdown(adf)
+
+		assert.Empty(t, w1)
+		assert.Empty(t, w2)
+		assert.Equal(t, original, result)
+	})
 }
