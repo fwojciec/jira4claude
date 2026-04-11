@@ -68,7 +68,13 @@ Before anything else, check if already on a feature branch:
 
 - Pre-flight: must be on `main` with clean working tree
 - If argument provided, use that issue number directly
-- Otherwise list open issues: `gh issue list --state open --json number,title,labels --limit 20`
+- Otherwise list open issues and filter to ready (unblocked) work:
+  1. `gh issue list --state open --json number,title,labels --limit 50`
+  2. For each issue, check blockers:
+     `gh api repos/{owner}/{repo}/issues/<number>/dependencies/blocked_by --jq 'length'`
+  3. An issue is "ready" if it has zero open blockers (all blockers are closed
+     or no blockers exist). Filter out blocked issues before presenting.
+  4. Present only ready issues to the user.
 - User picks an issue
 - View issue details + comments: `gh issue view <number> --comments`
 - Create branch: `git checkout -b <number>-<short-description>`
@@ -156,10 +162,15 @@ Ported from quiver with adjustments for this project.
   - Scope Constraints: what's NOT in scope
   - Validation Requirements: testable acceptance criteria
 - **Dependencies**: GitHub dependency API as single source of truth.
-  Use `gh api repos/{owner}/{repo}/issues/N/dependencies/blocked_by` to check
-  blockers, and `.../dependencies/blocking` to find downstream issues.
-  "Depends on #N" text in issue body is optional documentation for humans,
-  not used for programmatic dependency resolution.
+  - Check blockers: `gh api repos/{owner}/{repo}/issues/N/dependencies/blocked_by`
+  - Find downstream: `gh api repos/{owner}/{repo}/issues/N/dependencies/blocking`
+  - Create dependency: first fetch the blocker's REST id via
+    `gh api repos/{owner}/{repo}/issues/<blocker-number> --jq '.id'`
+    (note: this is the numeric REST id, NOT the GraphQL node_id string),
+    then POST: `gh api repos/{owner}/{repo}/issues/<blocked-number>/dependencies/blocked_by -f issue_id=<REST-id>`
+  - Delete dependency: `gh api -X DELETE repos/{owner}/{repo}/issues/<number>/dependencies/blocked_by/<REST-id>`
+  - "Depends on #N" text in issue body is optional human documentation,
+    not used for programmatic dependency resolution.
 - **Milestones**: `gh api` for creating/listing, `--milestone` flag on issues
 - **PR comment replies**: inline reply syntax with
   `gh api repos/{owner}/{repo}/pulls/<pr>/comments`
@@ -180,7 +191,8 @@ Ported from quiver with adjustments for this project.
 - **Update "Skills"** section: replace `jira-workflow` reference with
   `gh-workflow`
 - **Update "Planning workflow"**: reference `gh-workflow` skill, use
-  `gh issue list` for finding ready work
+  dependency-filtered issue listing for finding ready work (see Phase 1
+  of `/work` for the concrete algorithm)
 - **Keep unchanged**: architecture patterns, test philosophy, linting, LSP
   tools, file naming conventions
 
@@ -206,8 +218,8 @@ Minimal changes:
 | `j4c issue create` | `gh issue create` |
 | `j4c issue transition --status="Done"` | `gh issue close` |
 | `j4c issue transition --status="Start Progress"` | Labels or implicit (branch exists) |
-| `j4c issue ready` | `gh api .../dependencies/blocked_by` per issue, ready if all blockers closed |
-| `j4c link create A Blocks B` | `gh api .../dependencies/blocked_by -f issue_id=<ID>` |
+| `j4c issue ready` | List open issues, then for each check `gh api repos/{owner}/{repo}/issues/<number>/dependencies/blocked_by --jq 'length'`; ready if 0 |
+| `j4c link create A Blocks B` | First get REST id: `gh api repos/{owner}/{repo}/issues/<blocker-number> --jq '.id'`, then `gh api repos/{owner}/{repo}/issues/<blocked-number>/dependencies/blocked_by -f issue_id=<REST-id>` |
 | `j4c issue comment` | `gh issue comment` |
 | JQL queries | GitHub search syntax |
 | Issue keys (`J4C-42`) | Issue numbers (`#42`) |
