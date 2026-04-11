@@ -3,6 +3,7 @@ package markdown_test
 import (
 	"encoding/json"
 	"os"
+	"sort"
 	"testing"
 
 	jira4claude "github.com/fwojciec/jira4claude"
@@ -61,7 +62,7 @@ This is a paragraph with **bold** and *italic* text.
 			result, warnings := converter.ToMarkdown(adfDoc)
 			assert.Empty(t, warnings)
 
-			assert.Equal(t, tc.markdown, result)
+			assertMarkdownEqual(t, tc.markdown, result)
 		})
 	}
 
@@ -77,7 +78,7 @@ This is a paragraph with **bold** and *italic* text.
 		result, warnings := converter.ToMarkdown(adfDoc)
 		assert.Empty(t, warnings)
 
-		assert.Equal(t, input, result)
+		assertMarkdownEqual(t, input, result)
 	})
 
 	t.Run("panel round-trip NOTE", func(t *testing.T) {
@@ -92,7 +93,7 @@ This is a paragraph with **bold** and *italic* text.
 		result, warnings := converter.ToMarkdown(adfDoc)
 		assert.Empty(t, warnings)
 
-		assert.Equal(t, input, result)
+		assertMarkdownEqual(t, input, result)
 	})
 
 	t.Run("panel round-trip all types", func(t *testing.T) {
@@ -109,7 +110,7 @@ This is a paragraph with **bold** and *italic* text.
 				assert.Empty(t, w1)
 				result, w2 := converter.ToMarkdown(adfDoc)
 				assert.Empty(t, w2)
-				assert.Equal(t, input, result)
+				assertMarkdownEqual(t, input, result)
 			})
 		}
 	})
@@ -126,7 +127,7 @@ This is a paragraph with **bold** and *italic* text.
 		result, warnings := converter.ToMarkdown(adfDoc)
 		assert.Empty(t, warnings)
 
-		assert.Equal(t, input, result)
+		assertMarkdownEqual(t, input, result)
 	})
 
 	t.Run("task list round-trip", func(t *testing.T) {
@@ -141,7 +142,7 @@ This is a paragraph with **bold** and *italic* text.
 		result, warnings := converter.ToMarkdown(adfDoc)
 		assert.Empty(t, warnings)
 
-		assert.Equal(t, input, result)
+		assertMarkdownEqual(t, input, result)
 	})
 }
 
@@ -365,7 +366,7 @@ func TestRoundTrip_Expand(t *testing.T) {
 	result, w2 := converter.ToMarkdown(adfDoc)
 	assert.Empty(t, w2)
 
-	assert.Equal(t, input, result)
+	assertMarkdownEqual(t, input, result)
 }
 
 func TestGoldenFile_MarksMDToADF(t *testing.T) {
@@ -418,7 +419,7 @@ func TestRoundTrip_Underline(t *testing.T) {
 	result, w2 := converter.ToMarkdown(adfDoc)
 	assert.Empty(t, w2)
 
-	assert.Equal(t, input, result)
+	assertMarkdownEqual(t, input, result)
 }
 
 func TestRoundTrip_Subscript(t *testing.T) {
@@ -433,7 +434,7 @@ func TestRoundTrip_Subscript(t *testing.T) {
 	result, w2 := converter.ToMarkdown(adfDoc)
 	assert.Empty(t, w2)
 
-	assert.Equal(t, input, result)
+	assertMarkdownEqual(t, input, result)
 }
 
 func TestRoundTrip_Superscript(t *testing.T) {
@@ -448,5 +449,97 @@ func TestRoundTrip_Superscript(t *testing.T) {
 	result, w2 := converter.ToMarkdown(adfDoc)
 	assert.Empty(t, w2)
 
-	assert.Equal(t, input, result)
+	assertMarkdownEqual(t, input, result)
+}
+
+func TestMarkdownEquivalence(t *testing.T) {
+	t.Parallel()
+
+	t.Run("identical strings are equivalent", func(t *testing.T) {
+		t.Parallel()
+		assert.True(t, markdownEquivalent(t, "**bold** text", "**bold** text"))
+	})
+
+	t.Run("different content is not equivalent", func(t *testing.T) {
+		t.Parallel()
+		assert.False(t, markdownEquivalent(t, "**bold** text", "*italic* text"))
+	})
+
+	t.Run("reordered marks are equivalent", func(t *testing.T) {
+		t.Parallel()
+		assert.True(t, markdownEquivalent(t, "~~**text**~~", "**~~text~~**"))
+	})
+
+	t.Run("setext and atx headings are equivalent", func(t *testing.T) {
+		t.Parallel()
+		assert.True(t, markdownEquivalent(t, "# Heading", "Heading\n======"))
+	})
+}
+
+// markdownEquivalent checks if two markdown strings are semantically equivalent
+// by comparing their ADF representations with normalized mark ordering.
+// Warnings from ToADF are compared to prevent false positives when content is dropped.
+func markdownEquivalent(t *testing.T, a, b string) bool {
+	t.Helper()
+	conv := markdown.New()
+
+	adfA, wA := conv.ToADF(a)
+	adfB, wB := conv.ToADF(b)
+
+	if !assert.ObjectsAreEqual(wA, wB) {
+		return false
+	}
+
+	normalizeADF(adfA)
+	normalizeADF(adfB)
+
+	return assert.ObjectsAreEqual(adfA, adfB)
+}
+
+// assertMarkdownEqual asserts that two markdown strings are semantically
+// equivalent by comparing their normalized ADF representations.
+// Warnings from ToADF are checked to prevent false positives when content is dropped.
+func assertMarkdownEqual(t *testing.T, expected, actual string) {
+	t.Helper()
+	conv := markdown.New()
+
+	expectedADF, wExpected := conv.ToADF(expected)
+	actualADF, wActual := conv.ToADF(actual)
+
+	assert.Equal(t, wExpected, wActual, "ToADF warnings differ between expected and actual markdown")
+
+	normalizeADF(expectedADF)
+	normalizeADF(actualADF)
+
+	if !assert.ObjectsAreEqual(expectedADF, actualADF) {
+		t.Errorf("markdown not semantically equivalent\nexpected: %s\nactual:   %s", expected, actual)
+	}
+}
+
+// normalizeADF normalizes an ADF tree for comparison by sorting marks
+// and stripping non-deterministic fields like localId.
+func normalizeADF(node *jira4claude.ADFNode) {
+	if node == nil {
+		return
+	}
+
+	// Sort marks by type for order-independent comparison
+	if len(node.Marks) > 1 {
+		sort.Slice(node.Marks, func(i, j int) bool {
+			return node.Marks[i].Type < node.Marks[j].Type
+		})
+	}
+
+	// Strip non-deterministic attrs (localId in taskItem)
+	if node.Type == "taskItem" && node.Attrs != nil {
+		var attrs map[string]any
+		if err := json.Unmarshal(node.Attrs, &attrs); err == nil {
+			delete(attrs, "localId")
+			node.Attrs, _ = json.Marshal(attrs)
+		}
+	}
+
+	for i := range node.Content {
+		normalizeADF(&node.Content[i])
+	}
 }
