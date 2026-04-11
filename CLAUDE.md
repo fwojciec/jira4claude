@@ -21,6 +21,9 @@ Strategic guidance for LLMs working with this codebase.
 |---------|---------|
 | `/work` | Pick a GitHub issue, implement with TDD, review, create PR |
 | `/address-pr-comments` | Fetch, evaluate, and respond to PR feedback |
+| `./ralph.sh "<milestone>"` | Autonomous milestone execution loop |
+| `/ralph-iterate` | Single iteration of the Ralph loop (called by `ralph.sh`) |
+| `/retrospective` | Post-milestone analysis, learnings capture |
 
 **Quick reference**:
 ```bash
@@ -31,8 +34,9 @@ make validate     # Quality gate - run before completing any task
 1. Research the problem
 2. Use `/brainstorm` to refine into design
 3. Write design doc to `docs/plans/`
-4. Use `gh-workflow` skill to create issues with dependencies
-5. Use dependency-filtered issue listing to find ready (unblocked) work
+4. Use `gh-workflow` skill to create issues with dependencies in a milestone
+5. Run `./ralph.sh "<milestone>"` for autonomous execution
+6. Run `/retrospective` after milestone completes
 
 ## Architecture Patterns
 

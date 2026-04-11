@@ -36,3 +36,7 @@ Thumbs.db
 
 # Git worktrees for parallel development
 .worktrees/
+
+# Ralph loop
+ralph-*.log
+.ralph-complete
