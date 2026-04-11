@@ -57,6 +57,10 @@ func adfNodeToGFM(node *jira4claude.ADFNode, skipped *skippedCollector) string {
 		return adfTableToGFM(node, skipped)
 	case "taskList":
 		return adfTaskListToGFM(node, skipped)
+	case "mediaSingle":
+		return adfMediaSingleToGFM(node)
+	case "mediaGroup":
+		return adfMediaGroupToGFM(node)
 	case "hardBreak":
 		return "\n"
 	case "text":
@@ -368,6 +372,11 @@ func adfInlineToGFM(node *jira4claude.ADFNode) string {
 			continue
 		}
 
+		if child.Type == "mediaInline" {
+			result.WriteString(adfMediaInlineToGFM(&child))
+			continue
+		}
+
 		if child.Type != "text" {
 			continue
 		}
@@ -437,4 +446,70 @@ func applyMarks(text string, marks []jira4claude.ADFMark) string {
 	}
 
 	return result
+}
+
+// mediaAttrs extracts common attributes from a media node's attrs JSON.
+func mediaAttrs(node *jira4claude.ADFNode) (url, alt, fileName string) {
+	if node.Attrs == nil {
+		return "", "", ""
+	}
+	var attrs map[string]any
+	if err := json.Unmarshal(node.Attrs, &attrs); err != nil {
+		return "", "", ""
+	}
+	if u, ok := attrs["url"].(string); ok {
+		url = u
+	}
+	if a, ok := attrs["alt"].(string); ok {
+		alt = a
+	}
+	if f, ok := attrs["__fileName"].(string); ok {
+		fileName = f
+	}
+	return url, alt, fileName
+}
+
+// adfMediaToGFM renders a single media node as markdown.
+func adfMediaToGFM(node *jira4claude.ADFNode) string {
+	url, alt, fileName := mediaAttrs(node)
+	if url != "" {
+		if alt == "" {
+			alt = fileName
+		}
+		return fmt.Sprintf("![%s](%s)", alt, url)
+	}
+	if fileName != "" {
+		return fmt.Sprintf("[image: %s]", fileName)
+	}
+	return "[image]"
+}
+
+// adfMediaSingleToGFM converts an ADF mediaSingle node to markdown.
+func adfMediaSingleToGFM(node *jira4claude.ADFNode) string {
+	for i := range node.Content {
+		if node.Content[i].Type == "media" {
+			return adfMediaToGFM(&node.Content[i])
+		}
+	}
+	return "[image]"
+}
+
+// adfMediaGroupToGFM converts an ADF mediaGroup (multiple media nodes) to markdown.
+func adfMediaGroupToGFM(node *jira4claude.ADFNode) string {
+	var parts []string
+	for i := range node.Content {
+		if node.Content[i].Type == "media" {
+			parts = append(parts, adfMediaToGFM(&node.Content[i]))
+		}
+	}
+	return strings.Join(parts, "\n")
+}
+
+// adfMediaInlineToGFM converts an ADF mediaInline node to inline markdown text.
+func adfMediaInlineToGFM(node *jira4claude.ADFNode) string {
+	_, _, fileName := mediaAttrs(node)
+	if fileName != "" {
+		return fmt.Sprintf("[%s]", fileName)
+	}
+	return "[attachment]"
 }

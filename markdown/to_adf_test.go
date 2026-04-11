@@ -1280,4 +1280,35 @@ func TestConverter_ToADF(t *testing.T) {
 		// Should warn about the dropped content
 		assert.NotEmpty(t, warnings)
 	})
+
+	t.Run("drops image and produces warning", func(t *testing.T) {
+		t.Parallel()
+
+		converter := markdown.New()
+		result, warnings := converter.ToADF("Before image.\n\n![alt text](https://example.com/photo.png)\n\nAfter image.")
+
+		// Should produce a warning about unsupported image conversion
+		require.NotEmpty(t, warnings)
+		assert.Contains(t, warnings[0], "Image")
+
+		// The surrounding text should still be present
+		require.GreaterOrEqual(t, len(result.Content), 2)
+		assert.Equal(t, "paragraph", result.Content[0].Type)
+		assert.Equal(t, "Before image.", result.Content[0].Content[0].Text)
+	})
+
+	t.Run("drops inline image in paragraph and produces warning", func(t *testing.T) {
+		t.Parallel()
+
+		converter := markdown.New()
+		result, warnings := converter.ToADF("Check this ![screenshot](https://example.com/img.png) out.")
+
+		// Should produce a warning about unsupported image conversion
+		require.NotEmpty(t, warnings)
+		assert.Contains(t, warnings[0], "Image")
+
+		// The paragraph should have text content (image dropped)
+		require.Len(t, result.Content, 1)
+		assert.Equal(t, "paragraph", result.Content[0].Type)
+	})
 }

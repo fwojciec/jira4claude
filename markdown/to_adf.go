@@ -114,11 +114,11 @@ func convertNode(node ast.Node, source []byte, skipped *skippedCollector) []jira
 func nodeToADF(node ast.Node, source []byte, skipped *skippedCollector) (jira4claude.ADFNode, bool) {
 	switch n := node.(type) {
 	case *ast.Paragraph:
-		return convertParagraph(n, source)
+		return convertParagraph(n, source, skipped)
 	case *ast.TextBlock:
-		return convertTextBlock(n, source)
+		return convertTextBlock(n, source, skipped)
 	case *ast.Heading:
-		return convertHeading(n, source)
+		return convertHeading(n, source, skipped)
 	case *ast.FencedCodeBlock:
 		return convertFencedCodeBlock(n, source), true
 	case *ast.List:
@@ -138,8 +138,8 @@ func nodeToADF(node ast.Node, source []byte, skipped *skippedCollector) (jira4cl
 }
 
 // convertParagraph converts a goldmark paragraph to an ADF paragraph.
-func convertParagraph(node *ast.Paragraph, source []byte) (jira4claude.ADFNode, bool) {
-	content := convertInlineContent(node, source)
+func convertParagraph(node *ast.Paragraph, source []byte, skipped *skippedCollector) (jira4claude.ADFNode, bool) {
+	content := convertInlineContent(node, source, skipped)
 	if len(content) == 0 {
 		return jira4claude.ADFNode{}, false
 	}
@@ -150,8 +150,8 @@ func convertParagraph(node *ast.Paragraph, source []byte) (jira4claude.ADFNode, 
 }
 
 // convertTextBlock converts a goldmark text block (used in tight lists) to an ADF paragraph.
-func convertTextBlock(node *ast.TextBlock, source []byte) (jira4claude.ADFNode, bool) {
-	content := convertInlineContent(node, source)
+func convertTextBlock(node *ast.TextBlock, source []byte, skipped *skippedCollector) (jira4claude.ADFNode, bool) {
+	content := convertInlineContent(node, source, skipped)
 	if len(content) == 0 {
 		return jira4claude.ADFNode{}, false
 	}
@@ -162,8 +162,8 @@ func convertTextBlock(node *ast.TextBlock, source []byte) (jira4claude.ADFNode, 
 }
 
 // convertHeading converts a goldmark heading to an ADF heading.
-func convertHeading(node *ast.Heading, source []byte) (jira4claude.ADFNode, bool) {
-	content := convertInlineContent(node, source)
+func convertHeading(node *ast.Heading, source []byte, skipped *skippedCollector) (jira4claude.ADFNode, bool) {
+	content := convertInlineContent(node, source, skipped)
 	if len(content) == 0 {
 		return jira4claude.ADFNode{}, false
 	}
@@ -347,7 +347,7 @@ func convertPanelContent(node *ast.Blockquote, source []byte, skipped *skippedCo
 		if isFirst {
 			isFirst = false
 			if para, ok := child.(*ast.Paragraph); ok {
-				panelPara := convertPanelFirstParagraph(para, source)
+				panelPara := convertPanelFirstParagraph(para, source, skipped)
 				if panelPara != nil {
 					content = append(content, *panelPara)
 				}
@@ -369,7 +369,7 @@ func convertPanelContent(node *ast.Blockquote, source []byte, skipped *skippedCo
 
 // convertPanelFirstParagraph converts the first paragraph of a panel blockquote,
 // skipping the first 3 text nodes that form the alert prefix ("[", "!NOTE", "]").
-func convertPanelFirstParagraph(para *ast.Paragraph, source []byte) *jira4claude.ADFNode {
+func convertPanelFirstParagraph(para *ast.Paragraph, source []byte, skipped *skippedCollector) *jira4claude.ADFNode {
 	var inlineContent []jira4claude.ADFNode
 	skipCount := 3 // Skip "[", "!ALERT_NAME", "]"
 
@@ -378,7 +378,7 @@ func convertPanelFirstParagraph(para *ast.Paragraph, source []byte) *jira4claude
 			skipCount--
 			continue
 		}
-		inlineContent = append(inlineContent, convertInlineNode(child, source, nil)...)
+		inlineContent = append(inlineContent, convertInlineNode(child, source, nil, skipped)...)
 	}
 
 	inlineContent = consolidateTextNodes(inlineContent)
@@ -469,10 +469,10 @@ func collectExpandContent(start ast.Node, source []byte, skipped *skippedCollect
 }
 
 // convertInlineContent converts the inline content of a block node to ADF text nodes.
-func convertInlineContent(node ast.Node, source []byte) []jira4claude.ADFNode {
+func convertInlineContent(node ast.Node, source []byte, skipped *skippedCollector) []jira4claude.ADFNode {
 	var content []jira4claude.ADFNode
 	for child := node.FirstChild(); child != nil; child = child.NextSibling() {
-		inlineNodes := convertInlineNode(child, source, nil)
+		inlineNodes := convertInlineNode(child, source, nil, skipped)
 		content = append(content, inlineNodes...)
 	}
 	return consolidateTextNodes(content)
@@ -541,16 +541,16 @@ func textNodeWithMarks(text string, marks []jira4claude.ADFMark) jira4claude.ADF
 }
 
 // convertChildren recursively converts all children of a node with the given marks.
-func convertChildren(node ast.Node, source []byte, marks []jira4claude.ADFMark) []jira4claude.ADFNode {
+func convertChildren(node ast.Node, source []byte, marks []jira4claude.ADFMark, skipped *skippedCollector) []jira4claude.ADFNode {
 	var content []jira4claude.ADFNode
 	for child := node.FirstChild(); child != nil; child = child.NextSibling() {
-		content = append(content, convertInlineNode(child, source, marks)...)
+		content = append(content, convertInlineNode(child, source, marks, skipped)...)
 	}
 	return content
 }
 
 // convertInlineNode converts inline nodes (text, emphasis, etc.) to ADF text nodes.
-func convertInlineNode(node ast.Node, source []byte, marks []jira4claude.ADFMark) []jira4claude.ADFNode {
+func convertInlineNode(node ast.Node, source []byte, marks []jira4claude.ADFMark, skipped *skippedCollector) []jira4claude.ADFNode {
 	switch n := node.(type) {
 	case *ast.Text:
 		text := string(n.Segment.Value(source))
@@ -569,7 +569,7 @@ func convertInlineNode(node ast.Node, source []byte, marks []jira4claude.ADFMark
 			markType = "strong"
 		}
 		newMarks := append(cloneMarks(marks), jira4claude.ADFMark{Type: markType})
-		return convertChildren(n, source, newMarks)
+		return convertChildren(n, source, newMarks, skipped)
 
 	case *ast.CodeSpan:
 		var codeText string
@@ -587,7 +587,7 @@ func convertInlineNode(node ast.Node, source []byte, marks []jira4claude.ADFMark
 			Type:  "link",
 			Attrs: attrs,
 		}
-		return convertChildren(n, source, append(cloneMarks(marks), newMark))
+		return convertChildren(n, source, append(cloneMarks(marks), newMark), skipped)
 
 	case *ast.AutoLink:
 		url := string(n.URL(source))
@@ -600,10 +600,16 @@ func convertInlineNode(node ast.Node, source []byte, marks []jira4claude.ADFMark
 
 	case *extast.Strikethrough:
 		newMarks := append(cloneMarks(marks), jira4claude.ADFMark{Type: "strike"})
-		return convertChildren(n, source, newMarks)
+		return convertChildren(n, source, newMarks, skipped)
+
+	case *ast.Image:
+		if skipped != nil {
+			skipped.add("Image")
+		}
+		return nil
 
 	default:
-		return convertChildren(node, source, marks)
+		return convertChildren(node, source, marks, skipped)
 	}
 }
 
@@ -624,14 +630,14 @@ func isTaskList(node *ast.List) bool {
 }
 
 // convertTaskList converts a goldmark list with task checkboxes to an ADF taskList.
-func convertTaskList(node *ast.List, source []byte, _ *skippedCollector) jira4claude.ADFNode {
+func convertTaskList(node *ast.List, source []byte, skipped *skippedCollector) jira4claude.ADFNode {
 	var items []jira4claude.ADFNode
 	for child := node.FirstChild(); child != nil; child = child.NextSibling() {
 		listItem, ok := child.(*ast.ListItem)
 		if !ok {
 			continue
 		}
-		items = append(items, convertTaskItem(listItem, source))
+		items = append(items, convertTaskItem(listItem, source, skipped))
 	}
 	return jira4claude.ADFNode{
 		Type:    "taskList",
@@ -640,7 +646,7 @@ func convertTaskList(node *ast.List, source []byte, _ *skippedCollector) jira4cl
 }
 
 // convertTaskItem converts a goldmark list item with a TaskCheckBox to an ADF taskItem.
-func convertTaskItem(node *ast.ListItem, source []byte) jira4claude.ADFNode {
+func convertTaskItem(node *ast.ListItem, source []byte, skipped *skippedCollector) jira4claude.ADFNode {
 	state := "TODO"
 	// Look for TaskCheckBox in the list item's children
 	for block := node.FirstChild(); block != nil; block = block.NextSibling() {
@@ -660,7 +666,7 @@ func convertTaskItem(node *ast.ListItem, source []byte) jira4claude.ADFNode {
 	})
 
 	// Convert content, skipping the TaskCheckBox node itself
-	content := convertTaskItemContent(node, source)
+	content := convertTaskItemContent(node, source, skipped)
 
 	return jira4claude.ADFNode{
 		Type:    "taskItem",
@@ -670,7 +676,7 @@ func convertTaskItem(node *ast.ListItem, source []byte) jira4claude.ADFNode {
 }
 
 // convertTaskItemContent converts the content of a task list item, skipping the checkbox.
-func convertTaskItemContent(node *ast.ListItem, source []byte) []jira4claude.ADFNode {
+func convertTaskItemContent(node *ast.ListItem, source []byte, skipped *skippedCollector) []jira4claude.ADFNode {
 	var content []jira4claude.ADFNode
 	for block := node.FirstChild(); block != nil; block = block.NextSibling() {
 		// Convert inline content, skipping TaskCheckBox nodes
@@ -679,7 +685,7 @@ func convertTaskItemContent(node *ast.ListItem, source []byte) []jira4claude.ADF
 			if _, ok := child.(*extast.TaskCheckBox); ok {
 				continue
 			}
-			inlineContent = append(inlineContent, convertInlineNode(child, source, nil)...)
+			inlineContent = append(inlineContent, convertInlineNode(child, source, nil, skipped)...)
 		}
 		inlineContent = consolidateTextNodes(inlineContent)
 		if len(inlineContent) > 0 {
@@ -703,15 +709,15 @@ func generateLocalID() string {
 // The goldmark AST has Table → TableHeader (first child) → TableCell,
 // then TableRow children → TableCell. ADF uses tableRow for both,
 // with tableHeader vs tableCell for cell types.
-func convertTable(node *extast.Table, source []byte, _ *skippedCollector) jira4claude.ADFNode {
+func convertTable(node *extast.Table, source []byte, skipped *skippedCollector) jira4claude.ADFNode {
 	var rows []jira4claude.ADFNode
 
 	for child := node.FirstChild(); child != nil; child = child.NextSibling() {
 		switch row := child.(type) {
 		case *extast.TableHeader:
-			rows = append(rows, convertTableRow(row, source, true))
+			rows = append(rows, convertTableRow(row, source, true, skipped))
 		case *extast.TableRow:
-			rows = append(rows, convertTableRow(row, source, false))
+			rows = append(rows, convertTableRow(row, source, false, skipped))
 		}
 	}
 
@@ -724,7 +730,7 @@ func convertTable(node *extast.Table, source []byte, _ *skippedCollector) jira4c
 // convertTableRow converts a goldmark table header or row to an ADF tableRow.
 // Each child TableCell becomes either an ADF tableHeader or tableCell node
 // depending on whether the row is a header row.
-func convertTableRow(node ast.Node, source []byte, isHeader bool) jira4claude.ADFNode {
+func convertTableRow(node ast.Node, source []byte, isHeader bool, skipped *skippedCollector) jira4claude.ADFNode {
 	var cells []jira4claude.ADFNode
 
 	for child := node.FirstChild(); child != nil; child = child.NextSibling() {
@@ -733,7 +739,7 @@ func convertTableRow(node ast.Node, source []byte, isHeader bool) jira4claude.AD
 			if isHeader {
 				cellType = "tableHeader"
 			}
-			content := convertInlineContent(cell, source)
+			content := convertInlineContent(cell, source, skipped)
 			var cellContent []jira4claude.ADFNode
 			if len(content) > 0 {
 				cellContent = []jira4claude.ADFNode{

@@ -525,7 +525,7 @@ func TestConverter_ToMarkdown(t *testing.T) {
 					},
 				},
 				{
-					Type:    "mediaSingle",
+					Type:    "layoutSection",
 					Content: []jira4claude.ADFNode{},
 				},
 				{
@@ -552,7 +552,7 @@ func TestConverter_ToMarkdown(t *testing.T) {
 		// Should return individual warnings for each skipped node type, sorted alphabetically
 		require.Len(t, warnings, 2)
 		assert.Contains(t, warnings[0], "bodiedExtension")
-		assert.Contains(t, warnings[1], "mediaSingle")
+		assert.Contains(t, warnings[1], "layoutSection")
 	})
 
 	t.Run("returns empty warnings slice when no content is skipped", func(t *testing.T) {
@@ -1426,5 +1426,200 @@ func TestConverter_ToMarkdown(t *testing.T) {
 
 		assert.Empty(t, warnings)
 		assert.Equal(t, "<details><summary></summary>\n\nNo title content.\n\n</details>", result)
+	})
+
+	t.Run("converts mediaSingle with URL-carrying media to image", func(t *testing.T) {
+		t.Parallel()
+
+		converter := markdown.New()
+		urlAttrs, _ := json.Marshal(map[string]any{
+			"id":         "abc-123",
+			"type":       "file",
+			"collection": "coll-1",
+			"url":        "https://example.com/image.png",
+			"alt":        "screenshot",
+		})
+		layoutAttrs, _ := json.Marshal(map[string]any{
+			"layout": "center",
+		})
+		adfDoc := &jira4claude.ADFNode{
+			Type:    "doc",
+			Version: 1,
+			Content: []jira4claude.ADFNode{
+				{
+					Type:  "mediaSingle",
+					Attrs: layoutAttrs,
+					Content: []jira4claude.ADFNode{
+						{
+							Type:  "media",
+							Attrs: urlAttrs,
+						},
+					},
+				},
+			},
+		}
+
+		result, warnings := converter.ToMarkdown(adfDoc)
+
+		assert.Empty(t, warnings)
+		assert.Equal(t, "![screenshot](https://example.com/image.png)", result)
+	})
+
+	t.Run("converts mediaSingle without URL to fallback text with filename", func(t *testing.T) {
+		t.Parallel()
+
+		converter := markdown.New()
+		attrs, _ := json.Marshal(map[string]any{
+			"id":         "abc-123",
+			"type":       "file",
+			"collection": "coll-1",
+		})
+		adfDoc := &jira4claude.ADFNode{
+			Type:    "doc",
+			Version: 1,
+			Content: []jira4claude.ADFNode{
+				{
+					Type: "mediaSingle",
+					Content: []jira4claude.ADFNode{
+						{
+							Type:  "media",
+							Attrs: attrs,
+						},
+					},
+				},
+			},
+		}
+
+		result, warnings := converter.ToMarkdown(adfDoc)
+
+		assert.Empty(t, warnings)
+		assert.Equal(t, "[image]", result)
+	})
+
+	t.Run("converts mediaSingle without URL but with filename to fallback text", func(t *testing.T) {
+		t.Parallel()
+
+		converter := markdown.New()
+		attrs, _ := json.Marshal(map[string]any{
+			"id":         "abc-123",
+			"type":       "file",
+			"collection": "coll-1",
+			"__fileName": "diagram.png",
+		})
+		adfDoc := &jira4claude.ADFNode{
+			Type:    "doc",
+			Version: 1,
+			Content: []jira4claude.ADFNode{
+				{
+					Type: "mediaSingle",
+					Content: []jira4claude.ADFNode{
+						{
+							Type:  "media",
+							Attrs: attrs,
+						},
+					},
+				},
+			},
+		}
+
+		result, warnings := converter.ToMarkdown(adfDoc)
+
+		assert.Empty(t, warnings)
+		assert.Equal(t, "[image: diagram.png]", result)
+	})
+
+	t.Run("converts mediaGroup with multiple media items", func(t *testing.T) {
+		t.Parallel()
+
+		converter := markdown.New()
+		urlAttrs, _ := json.Marshal(map[string]any{
+			"id":   "abc-1",
+			"type": "file",
+			"url":  "https://example.com/a.png",
+			"alt":  "first",
+		})
+		noURLAttrs, _ := json.Marshal(map[string]any{
+			"id":         "abc-2",
+			"type":       "file",
+			"__fileName": "second.png",
+		})
+		adfDoc := &jira4claude.ADFNode{
+			Type:    "doc",
+			Version: 1,
+			Content: []jira4claude.ADFNode{
+				{
+					Type: "mediaGroup",
+					Content: []jira4claude.ADFNode{
+						{Type: "media", Attrs: urlAttrs},
+						{Type: "media", Attrs: noURLAttrs},
+					},
+				},
+			},
+		}
+
+		result, warnings := converter.ToMarkdown(adfDoc)
+
+		assert.Empty(t, warnings)
+		assert.Equal(t, "![first](https://example.com/a.png)\n[image: second.png]", result)
+	})
+
+	t.Run("converts mediaInline with filename to inline text", func(t *testing.T) {
+		t.Parallel()
+
+		converter := markdown.New()
+		attrs, _ := json.Marshal(map[string]any{
+			"id":         "abc-123",
+			"type":       "file",
+			"collection": "coll-1",
+			"__fileName": "report.pdf",
+		})
+		adfDoc := &jira4claude.ADFNode{
+			Type:    "doc",
+			Version: 1,
+			Content: []jira4claude.ADFNode{
+				{
+					Type: "paragraph",
+					Content: []jira4claude.ADFNode{
+						{Type: "text", Text: "See "},
+						{Type: "mediaInline", Attrs: attrs},
+						{Type: "text", Text: " for details."},
+					},
+				},
+			},
+		}
+
+		result, warnings := converter.ToMarkdown(adfDoc)
+
+		assert.Empty(t, warnings)
+		assert.Equal(t, "See [report.pdf] for details.", result)
+	})
+
+	t.Run("converts mediaInline without filename to attachment fallback", func(t *testing.T) {
+		t.Parallel()
+
+		converter := markdown.New()
+		attrs, _ := json.Marshal(map[string]any{
+			"id":   "abc-123",
+			"type": "file",
+		})
+		adfDoc := &jira4claude.ADFNode{
+			Type:    "doc",
+			Version: 1,
+			Content: []jira4claude.ADFNode{
+				{
+					Type: "paragraph",
+					Content: []jira4claude.ADFNode{
+						{Type: "text", Text: "See "},
+						{Type: "mediaInline", Attrs: attrs},
+						{Type: "text", Text: " attached."},
+					},
+				},
+			},
+		}
+
+		result, warnings := converter.ToMarkdown(adfDoc)
+
+		assert.Empty(t, warnings)
+		assert.Equal(t, "See [attachment] attached.", result)
 	})
 }

@@ -1,0 +1,73 @@
+{
+  "type": "doc",
+  "version": 1,
+  "content": [
+    {
+      "type": "paragraph",
+      "content": [
+        {"type": "text", "text": "Here is a screenshot of the issue:"}
+      ]
+    },
+    {
+      "type": "mediaSingle",
+      "attrs": {"layout": "center"},
+      "content": [
+        {
+          "type": "media",
+          "attrs": {
+            "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+            "type": "file",
+            "collection": "jira-attachment-collection",
+            "url": "https://jira.example.com/rest/api/3/attachment/content/12345",
+            "alt": "error dialog"
+          }
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "content": [
+        {"type": "text", "text": "And here are the related logs:"}
+      ]
+    },
+    {
+      "type": "mediaGroup",
+      "content": [
+        {
+          "type": "media",
+          "attrs": {
+            "id": "f1e2d3c4-b5a6-7890-fedc-ba0987654321",
+            "type": "file",
+            "collection": "jira-attachment-collection",
+            "__fileName": "server.log"
+          }
+        },
+        {
+          "type": "media",
+          "attrs": {
+            "id": "11223344-5566-7788-99aa-bbccddeeff00",
+            "type": "file",
+            "collection": "jira-attachment-collection",
+            "__fileName": "client.log"
+          }
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "content": [
+        {"type": "text", "text": "Please review "},
+        {
+          "type": "mediaInline",
+          "attrs": {
+            "id": "aabbccdd-eeff-0011-2233-445566778899",
+            "type": "file",
+            "collection": "jira-attachment-collection",
+            "__fileName": "report.pdf"
+          }
+        },
+        {"type": "text", "text": " before the meeting."}
+      ]
+    }
+  ]
+}
