@@ -49,6 +49,8 @@ func adfNodeToGFM(node *jira4claude.ADFNode, skipped *skippedCollector) string {
 		return adfBlockquoteToGFM(node, skipped)
 	case "panel":
 		return adfPanelToGFM(node, skipped)
+	case "expand", "nestedExpand":
+		return adfExpandToGFM(node, skipped)
 	case "rule":
 		return "---"
 	case "table":
@@ -222,6 +224,30 @@ func adfPanelToGFM(node *jira4claude.ADFNode, skipped *skippedCollector) string 
 	}
 
 	return strings.Join(lines, "\n")
+}
+
+// adfExpandToGFM converts an ADF expand or nestedExpand to an HTML details block.
+func adfExpandToGFM(node *jira4claude.ADFNode, skipped *skippedCollector) string {
+	title := ""
+	if node.Attrs != nil {
+		var attrs map[string]any
+		if err := json.Unmarshal(node.Attrs, &attrs); err == nil {
+			if t, ok := attrs["title"].(string); ok {
+				title = t
+			}
+		}
+	}
+
+	var parts []string
+	for i := range node.Content {
+		part := adfNodeToGFM(&node.Content[i], skipped)
+		if part != "" {
+			parts = append(parts, part)
+		}
+	}
+
+	body := strings.Join(parts, "\n\n")
+	return fmt.Sprintf("<details><summary>%s</summary>\n\n%s\n\n</details>", title, body)
 }
 
 // adfTableToGFM converts an ADF table to a GFM pipe table.

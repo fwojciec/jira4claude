@@ -1166,6 +1166,98 @@ func TestConverter_ToADF(t *testing.T) {
 		assert.Equal(t, expected, result)
 	})
 
+	t.Run("converts details HTML to expand node", func(t *testing.T) {
+		t.Parallel()
+
+		converter := markdown.New()
+		input := "<details><summary>Click to expand</summary>\n\nBody paragraph.\n\n</details>"
+		result, warnings := converter.ToADF(input)
+
+		expected := &jira4claude.ADFNode{
+			Type:    "doc",
+			Version: 1,
+			Content: []jira4claude.ADFNode{
+				{
+					Type:  "expand",
+					Attrs: json.RawMessage(`{"title":"Click to expand"}`),
+					Content: []jira4claude.ADFNode{
+						{
+							Type: "paragraph",
+							Content: []jira4claude.ADFNode{
+								{Type: "text", Text: "Body paragraph."},
+							},
+						},
+					},
+				},
+			},
+		}
+
+		assert.Empty(t, warnings)
+		assert.Equal(t, expected, result)
+	})
+
+	t.Run("converts details with rich body content", func(t *testing.T) {
+		t.Parallel()
+
+		converter := markdown.New()
+		input := "<details><summary>Details</summary>\n\nFirst paragraph with **bold** text.\n\n- Item 1\n- Item 2\n\n</details>"
+		result, warnings := converter.ToADF(input)
+
+		expected := &jira4claude.ADFNode{
+			Type:    "doc",
+			Version: 1,
+			Content: []jira4claude.ADFNode{
+				{
+					Type:  "expand",
+					Attrs: json.RawMessage(`{"title":"Details"}`),
+					Content: []jira4claude.ADFNode{
+						{
+							Type: "paragraph",
+							Content: []jira4claude.ADFNode{
+								{Type: "text", Text: "First paragraph with "},
+								{Type: "text", Text: "bold", Marks: []jira4claude.ADFMark{{Type: "strong"}}},
+								{Type: "text", Text: " text."},
+							},
+						},
+						{
+							Type: "bulletList",
+							Content: []jira4claude.ADFNode{
+								{Type: "listItem", Content: []jira4claude.ADFNode{
+									{Type: "paragraph", Content: []jira4claude.ADFNode{{Type: "text", Text: "Item 1"}}},
+								}},
+								{Type: "listItem", Content: []jira4claude.ADFNode{
+									{Type: "paragraph", Content: []jira4claude.ADFNode{{Type: "text", Text: "Item 2"}}},
+								}},
+							},
+						},
+					},
+				},
+			},
+		}
+
+		assert.Empty(t, warnings)
+		assert.Equal(t, expected, result)
+	})
+
+	t.Run("converts details surrounded by other content", func(t *testing.T) {
+		t.Parallel()
+
+		converter := markdown.New()
+		input := "Before\n\n<details><summary>Title</summary>\n\nContent\n\n</details>\n\nAfter"
+		result, warnings := converter.ToADF(input)
+
+		assert.Empty(t, warnings)
+		require.Len(t, result.Content, 3)
+		assert.Equal(t, "paragraph", result.Content[0].Type)
+		assert.Equal(t, "expand", result.Content[1].Type)
+		assert.Equal(t, "paragraph", result.Content[2].Type)
+
+		// Verify expand attrs
+		var attrs map[string]any
+		require.NoError(t, json.Unmarshal(result.Content[1].Attrs, &attrs))
+		assert.Equal(t, "Title", attrs["title"])
+	})
+
 	t.Run("filters disallowed children from panel content", func(t *testing.T) {
 		t.Parallel()
 

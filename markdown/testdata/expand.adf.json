@@ -1,0 +1,61 @@
+{
+  "type": "doc",
+  "version": 1,
+  "content": [
+    {
+      "type": "expand",
+      "attrs": {"title":"Click to expand"},
+      "content": [
+        {
+          "type": "paragraph",
+          "content": [
+            {"type": "text", "text": "This is the expanded content."}
+          ]
+        }
+      ]
+    },
+    {
+      "type": "expand",
+      "attrs": {"title":"Details with formatting"},
+      "content": [
+        {
+          "type": "paragraph",
+          "content": [
+            {"type": "text", "text": "This has "},
+            {"type": "text", "text": "bold", "marks": [{"type": "strong"}]},
+            {"type": "text", "text": " and "},
+            {"type": "text", "text": "italic", "marks": [{"type": "em"}]},
+            {"type": "text", "text": " text."}
+          ]
+        },
+        {
+          "type": "bulletList",
+          "content": [
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {"type": "text", "text": "Item 1"}
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {"type": "text", "text": "Item 2"}
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

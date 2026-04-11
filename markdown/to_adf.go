@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"reflect"
 	"sort"
+	"strings"
 
 	"github.com/fwojciec/jira4claude"
 	"github.com/yuin/goldmark"
@@ -80,10 +81,26 @@ func toADF(markdown string) (*jira4claude.ADFNode, []string) {
 }
 
 // convertNode recursively converts goldmark AST nodes to ADF nodes.
+// It performs stateful sibling-level detection for <details> HTML blocks,
+// collecting sibling nodes between <details> and </details> into expand nodes.
 func convertNode(node ast.Node, source []byte, skipped *skippedCollector) []jira4claude.ADFNode {
 	var content []jira4claude.ADFNode
 
 	for child := node.FirstChild(); child != nil; child = child.NextSibling() {
+		// Check for <details> opening HTMLBlock
+		if htmlBlock, ok := child.(*ast.HTMLBlock); ok {
+			if title, found := detectDetailsOpen(htmlBlock, source); found {
+				// Collect siblings until </details>
+				expandNode, next := collectExpandContent(child.NextSibling(), source, skipped, title)
+				content = append(content, expandNode)
+				child = next
+				if child == nil {
+					break
+				}
+				continue
+			}
+		}
+
 		adfNode, ok := nodeToADF(child, source, skipped)
 		if ok {
 			content = append(content, adfNode)
@@ -373,6 +390,82 @@ func convertPanelFirstParagraph(para *ast.Paragraph, source []byte) *jira4claude
 		Type:    "paragraph",
 		Content: inlineContent,
 	}
+}
+
+// detectDetailsOpen checks if an HTMLBlock starts with <details><summary>...</summary>
+// and returns the extracted title if found.
+func detectDetailsOpen(htmlBlock *ast.HTMLBlock, source []byte) (string, bool) {
+	lines := htmlBlock.Lines()
+	if lines.Len() == 0 {
+		return "", false
+	}
+
+	var text string
+	for i := range lines.Len() {
+		line := lines.At(i)
+		text += string(line.Value(source))
+	}
+	text = strings.TrimSpace(text)
+
+	if !strings.HasPrefix(text, "<details>") {
+		return "", false
+	}
+
+	// Extract title from <summary>...</summary>
+	summaryStart := strings.Index(text, "<summary>")
+	summaryEnd := strings.Index(text, "</summary>")
+	if summaryStart == -1 || summaryEnd == -1 {
+		return "", false
+	}
+
+	title := text[summaryStart+len("<summary>") : summaryEnd]
+	return title, true
+}
+
+// isDetailsClose checks if an HTMLBlock is a </details> closing tag.
+func isDetailsClose(node ast.Node, source []byte) bool {
+	htmlBlock, ok := node.(*ast.HTMLBlock)
+	if !ok {
+		return false
+	}
+	lines := htmlBlock.Lines()
+	if lines.Len() == 0 {
+		return false
+	}
+
+	var text string
+	for i := range lines.Len() {
+		line := lines.At(i)
+		text += string(line.Value(source))
+	}
+	return strings.TrimSpace(text) == "</details>"
+}
+
+// collectExpandContent collects sibling nodes starting from 'start' until a
+// </details> HTMLBlock is encountered. Returns the assembled expand ADF node
+// and the </details> node (so the caller can advance past it).
+func collectExpandContent(start ast.Node, source []byte, skipped *skippedCollector, title string) (jira4claude.ADFNode, ast.Node) {
+	var bodyContent []jira4claude.ADFNode
+
+	var current ast.Node
+	for current = start; current != nil; current = current.NextSibling() {
+		if isDetailsClose(current, source) {
+			break
+		}
+		adfNode, ok := nodeToADF(current, source, skipped)
+		if ok {
+			bodyContent = append(bodyContent, adfNode)
+		}
+	}
+
+	attrs, _ := json.Marshal(map[string]any{"title": title})
+	expandNode := jira4claude.ADFNode{
+		Type:    "expand",
+		Attrs:   attrs,
+		Content: bodyContent,
+	}
+
+	return expandNode, current
 }
 
 // convertInlineContent converts the inline content of a block node to ADF text nodes.

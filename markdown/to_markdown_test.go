@@ -466,7 +466,7 @@ func TestConverter_ToMarkdown(t *testing.T) {
 		t.Parallel()
 
 		converter := markdown.New()
-		// ADF with an unsupported node type (e.g., "expand")
+		// ADF with an unsupported node type (e.g., "bodiedExtension")
 		adfDoc := &jira4claude.ADFNode{
 			Type:    "doc",
 			Version: 1,
@@ -481,7 +481,7 @@ func TestConverter_ToMarkdown(t *testing.T) {
 					},
 				},
 				{
-					Type:    "expand",
+					Type:    "bodiedExtension",
 					Content: []jira4claude.ADFNode{},
 				},
 				{
@@ -503,7 +503,7 @@ func TestConverter_ToMarkdown(t *testing.T) {
 
 		// Should return warning listing skipped content
 		require.Len(t, warnings, 1)
-		assert.Contains(t, warnings[0], "expand")
+		assert.Contains(t, warnings[0], "bodiedExtension")
 	})
 
 	t.Run("accumulates multiple warnings for different skipped node types", func(t *testing.T) {
@@ -529,7 +529,7 @@ func TestConverter_ToMarkdown(t *testing.T) {
 					Content: []jira4claude.ADFNode{},
 				},
 				{
-					Type:    "expand",
+					Type:    "bodiedExtension",
 					Content: []jira4claude.ADFNode{},
 				},
 				{
@@ -551,7 +551,7 @@ func TestConverter_ToMarkdown(t *testing.T) {
 
 		// Should return individual warnings for each skipped node type, sorted alphabetically
 		require.Len(t, warnings, 2)
-		assert.Contains(t, warnings[0], "expand")
+		assert.Contains(t, warnings[0], "bodiedExtension")
 		assert.Contains(t, warnings[1], "mediaSingle")
 	})
 
@@ -1294,5 +1294,137 @@ func TestConverter_ToMarkdown(t *testing.T) {
 
 		assert.Empty(t, warnings)
 		assert.Equal(t, "> [!WARNING]\n> First paragraph\n>\n> Second paragraph", result)
+	})
+
+	t.Run("converts expand to details HTML", func(t *testing.T) {
+		t.Parallel()
+
+		converter := markdown.New()
+		adfDoc := &jira4claude.ADFNode{
+			Type:    "doc",
+			Version: 1,
+			Content: []jira4claude.ADFNode{
+				{
+					Type:  "expand",
+					Attrs: json.RawMessage(`{"title":"Click to expand"}`),
+					Content: []jira4claude.ADFNode{
+						{
+							Type: "paragraph",
+							Content: []jira4claude.ADFNode{
+								{Type: "text", Text: "Expanded content here."},
+							},
+						},
+					},
+				},
+			},
+		}
+
+		result, warnings := converter.ToMarkdown(adfDoc)
+
+		assert.Empty(t, warnings)
+		assert.Equal(t, "<details><summary>Click to expand</summary>\n\nExpanded content here.\n\n</details>", result)
+	})
+
+	t.Run("converts expand with multiline body", func(t *testing.T) {
+		t.Parallel()
+
+		converter := markdown.New()
+		adfDoc := &jira4claude.ADFNode{
+			Type:    "doc",
+			Version: 1,
+			Content: []jira4claude.ADFNode{
+				{
+					Type:  "expand",
+					Attrs: json.RawMessage(`{"title":"Details"}`),
+					Content: []jira4claude.ADFNode{
+						{
+							Type: "paragraph",
+							Content: []jira4claude.ADFNode{
+								{Type: "text", Text: "First paragraph."},
+							},
+						},
+						{
+							Type: "bulletList",
+							Content: []jira4claude.ADFNode{
+								{
+									Type: "listItem",
+									Content: []jira4claude.ADFNode{
+										{Type: "paragraph", Content: []jira4claude.ADFNode{{Type: "text", Text: "Item 1"}}},
+									},
+								},
+								{
+									Type: "listItem",
+									Content: []jira4claude.ADFNode{
+										{Type: "paragraph", Content: []jira4claude.ADFNode{{Type: "text", Text: "Item 2"}}},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		}
+
+		result, warnings := converter.ToMarkdown(adfDoc)
+
+		assert.Empty(t, warnings)
+		assert.Equal(t, "<details><summary>Details</summary>\n\nFirst paragraph.\n\n- Item 1\n- Item 2\n\n</details>", result)
+	})
+
+	t.Run("converts nestedExpand same as expand", func(t *testing.T) {
+		t.Parallel()
+
+		converter := markdown.New()
+		adfDoc := &jira4claude.ADFNode{
+			Type:    "doc",
+			Version: 1,
+			Content: []jira4claude.ADFNode{
+				{
+					Type:  "nestedExpand",
+					Attrs: json.RawMessage(`{"title":"Nested"}`),
+					Content: []jira4claude.ADFNode{
+						{
+							Type: "paragraph",
+							Content: []jira4claude.ADFNode{
+								{Type: "text", Text: "Nested content."},
+							},
+						},
+					},
+				},
+			},
+		}
+
+		result, warnings := converter.ToMarkdown(adfDoc)
+
+		assert.Empty(t, warnings)
+		assert.Equal(t, "<details><summary>Nested</summary>\n\nNested content.\n\n</details>", result)
+	})
+
+	t.Run("converts expand without title attr", func(t *testing.T) {
+		t.Parallel()
+
+		converter := markdown.New()
+		adfDoc := &jira4claude.ADFNode{
+			Type:    "doc",
+			Version: 1,
+			Content: []jira4claude.ADFNode{
+				{
+					Type: "expand",
+					Content: []jira4claude.ADFNode{
+						{
+							Type: "paragraph",
+							Content: []jira4claude.ADFNode{
+								{Type: "text", Text: "No title content."},
+							},
+						},
+					},
+				},
+			},
+		}
+
+		result, warnings := converter.ToMarkdown(adfDoc)
+
+		assert.Empty(t, warnings)
+		assert.Equal(t, "<details><summary></summary>\n\nNo title content.\n\n</details>", result)
 	})
 }

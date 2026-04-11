@@ -276,3 +276,56 @@ func TestGoldenFile_TaskListADFToMD(t *testing.T) {
 	assert.Empty(t, warnings)
 	assert.Equal(t, string(expectedMD), result)
 }
+
+func TestGoldenFile_ExpandMDToADF(t *testing.T) {
+	t.Parallel()
+
+	mdBytes, err := os.ReadFile("testdata/expand.md")
+	require.NoError(t, err)
+
+	expectedBytes, err := os.ReadFile("testdata/expand.adf.json")
+	require.NoError(t, err)
+
+	var expected jira4claude.ADFNode
+	require.NoError(t, json.Unmarshal(expectedBytes, &expected))
+
+	converter := markdown.New()
+	result, warnings := converter.ToADF(string(mdBytes))
+
+	assert.Empty(t, warnings)
+	assert.Equal(t, &expected, result)
+}
+
+func TestGoldenFile_ExpandADFToMD(t *testing.T) {
+	t.Parallel()
+
+	adfBytes, err := os.ReadFile("testdata/expand.adf.json")
+	require.NoError(t, err)
+
+	var adfDoc jira4claude.ADFNode
+	require.NoError(t, json.Unmarshal(adfBytes, &adfDoc))
+
+	expectedMD, err := os.ReadFile("testdata/expand.md")
+	require.NoError(t, err)
+
+	converter := markdown.New()
+	result, warnings := converter.ToMarkdown(&adfDoc)
+
+	assert.Empty(t, warnings)
+	assert.Equal(t, string(expectedMD), result)
+}
+
+func TestRoundTrip_Expand(t *testing.T) {
+	t.Parallel()
+
+	input := "<details><summary>Click to expand</summary>\n\nExpanded content here.\n\n</details>"
+
+	converter := markdown.New()
+	adfDoc, w1 := converter.ToADF(input)
+	assert.Empty(t, w1)
+
+	result, w2 := converter.ToMarkdown(adfDoc)
+	assert.Empty(t, w2)
+
+	assert.Equal(t, input, result)
+}
