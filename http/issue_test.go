@@ -32,19 +32,19 @@ func TestIssueService_Create(t *testing.T) {
 		client := newTestClient(t, server.URL, "user@example.com", "api-token")
 		svc := jirahttp.NewIssueService(client)
 
-		// ADF document (now passed directly as map[string]any)
-		adfDoc := jira4claude.ADF{
-			"type":    "doc",
-			"version": 1,
-			"content": []any{
-				map[string]any{
-					"type": "paragraph",
-					"content": []any{
-						map[string]any{
-							"type": "text",
-							"text": "bold",
-							"marks": []any{
-								map[string]any{"type": "strong"},
+		// ADF document (typed struct)
+		adfDoc := &jira4claude.ADFNode{
+			Type:    "doc",
+			Version: 1,
+			Content: []jira4claude.ADFNode{
+				{
+					Type: "paragraph",
+					Content: []jira4claude.ADFNode{
+						{
+							Type: "text",
+							Text: "bold",
+							Marks: []jira4claude.ADFMark{
+								{Type: "strong"},
 							},
 						},
 					},
@@ -113,9 +113,9 @@ func TestIssueService_Create(t *testing.T) {
 		issue := &jira4claude.Issue{
 			Project: "TEST",
 			Summary: "Test issue",
-			Description: jira4claude.ADF{"type": "doc", "version": 1, "content": []any{
-				map[string]any{"type": "paragraph", "content": []any{
-					map[string]any{"type": "text", "text": "This is a test description"},
+			Description: &jira4claude.ADFNode{Type: "doc", Version: 1, Content: []jira4claude.ADFNode{
+				{Type: "paragraph", Content: []jira4claude.ADFNode{
+					{Type: "text", Text: "This is a test description"},
 				}},
 			}},
 			Type: "Task",
@@ -332,8 +332,8 @@ func TestIssueService_Get(t *testing.T) {
 		assert.Equal(t, "TEST-1", issue.Key)
 		assert.Equal(t, "TEST", issue.Project)
 		assert.Equal(t, "Test issue", issue.Summary)
-		// Description is now ADF (map[string]any)
-		assert.Equal(t, "doc", issue.Description["type"])
+		// Description is now *ADFNode
+		assert.Equal(t, "doc", issue.Description.Type)
 		assert.Equal(t, "To Do", issue.Status)
 		assert.Equal(t, "Task", issue.Type)
 		assert.Equal(t, "Medium", issue.Priority)
@@ -580,20 +580,20 @@ func TestIssueService_Get(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, issue.Comments, 2)
 
-		// First comment - Body is now ADF (map[string]any)
+		// First comment - Body is now *ADFNode
 		assert.Equal(t, "10001", issue.Comments[0].ID)
 		require.NotNil(t, issue.Comments[0].Author)
 		assert.Equal(t, "user123", issue.Comments[0].Author.AccountID)
 		assert.Equal(t, "John Doe", issue.Comments[0].Author.DisplayName)
-		assert.Equal(t, "doc", issue.Comments[0].Body["type"])
+		assert.Equal(t, "doc", issue.Comments[0].Body.Type)
 		assert.False(t, issue.Comments[0].Created.IsZero())
 
-		// Second comment - Body is now ADF (map[string]any)
+		// Second comment - Body is now *ADFNode
 		assert.Equal(t, "10002", issue.Comments[1].ID)
 		require.NotNil(t, issue.Comments[1].Author)
 		assert.Equal(t, "user456", issue.Comments[1].Author.AccountID)
 		assert.Equal(t, "Jane Smith", issue.Comments[1].Author.DisplayName)
-		assert.Equal(t, "doc", issue.Comments[1].Body["type"])
+		assert.Equal(t, "doc", issue.Comments[1].Body.Type)
 		assert.False(t, issue.Comments[1].Created.IsZero())
 	})
 
@@ -661,9 +661,9 @@ func TestIssueService_Get(t *testing.T) {
 
 		require.NoError(t, err)
 		require.Len(t, issue.Comments, 1)
-		// Body is now ADF directly
+		// Body is now *ADFNode directly
 		require.NotNil(t, issue.Comments[0].Body)
-		assert.Equal(t, "doc", issue.Comments[0].Body["type"])
+		assert.Equal(t, "doc", issue.Comments[0].Body.Type)
 	})
 
 	t.Run("returns parent issue with subtasks", func(t *testing.T) {
@@ -1139,19 +1139,19 @@ func TestIssueService_Update(t *testing.T) {
 		client := newTestClient(t, server.URL, "user@example.com", "api-token")
 		svc := jirahttp.NewIssueService(client)
 
-		// ADF document (now passed directly as map[string]any)
-		adfDoc := jira4claude.ADF{
-			"type":    "doc",
-			"version": 1,
-			"content": []any{
-				map[string]any{
-					"type": "paragraph",
-					"content": []any{
-						map[string]any{
-							"type": "text",
-							"text": "italic",
-							"marks": []any{
-								map[string]any{"type": "em"},
+		// ADF document (typed struct)
+		adfDoc := &jira4claude.ADFNode{
+			Type:    "doc",
+			Version: 1,
+			Content: []jira4claude.ADFNode{
+				{
+					Type: "paragraph",
+					Content: []jira4claude.ADFNode{
+						{
+							Type: "text",
+							Text: "italic",
+							Marks: []jira4claude.ADFMark{
+								{Type: "em"},
 							},
 						},
 					},
@@ -1216,9 +1216,9 @@ func TestIssueService_Update(t *testing.T) {
 		svc := jirahttp.NewIssueService(client)
 
 		newSummary := "Updated summary"
-		newDescription := jira4claude.ADF{"type": "doc", "version": 1, "content": []any{
-			map[string]any{"type": "paragraph", "content": []any{
-				map[string]any{"type": "text", "text": "Updated description"},
+		newDescription := &jira4claude.ADFNode{Type: "doc", Version: 1, Content: []jira4claude.ADFNode{
+			{Type: "paragraph", Content: []jira4claude.ADFNode{
+				{Type: "text", Text: "Updated description"},
 			}},
 		}}
 		newPriority := "High"
@@ -1457,19 +1457,19 @@ func TestIssueService_AddComment(t *testing.T) {
 		client := newTestClient(t, server.URL, "user@example.com", "api-token")
 		svc := jirahttp.NewIssueService(client)
 
-		// ADF document (now passed directly as map[string]any)
-		adfDoc := jira4claude.ADF{
-			"type":    "doc",
-			"version": 1,
-			"content": []any{
-				map[string]any{
-					"type": "paragraph",
-					"content": []any{
-						map[string]any{
-							"type": "text",
-							"text": "code",
-							"marks": []any{
-								map[string]any{"type": "code"},
+		// ADF document (typed struct)
+		adfDoc := &jira4claude.ADFNode{
+			Type:    "doc",
+			Version: 1,
+			Content: []jira4claude.ADFNode{
+				{
+					Type: "paragraph",
+					Content: []jira4claude.ADFNode{
+						{
+							Type: "text",
+							Text: "code",
+							Marks: []jira4claude.ADFMark{
+								{Type: "code"},
 							},
 						},
 					},
@@ -1530,9 +1530,9 @@ func TestIssueService_AddComment(t *testing.T) {
 		client := newTestClient(t, server.URL, "user@example.com", "api-token")
 		svc := jirahttp.NewIssueService(client)
 
-		adfDoc := jira4claude.ADF{"type": "doc", "version": 1, "content": []any{
-			map[string]any{"type": "paragraph", "content": []any{
-				map[string]any{"type": "text", "text": "This is a comment"},
+		adfDoc := &jira4claude.ADFNode{Type: "doc", Version: 1, Content: []jira4claude.ADFNode{
+			{Type: "paragraph", Content: []jira4claude.ADFNode{
+				{Type: "text", Text: "This is a comment"},
 			}},
 		}}
 		comment, err := svc.AddComment(context.Background(), "TEST-1", adfDoc)
@@ -1541,8 +1541,8 @@ func TestIssueService_AddComment(t *testing.T) {
 		assert.Equal(t, "10001", comment.ID)
 		assert.Equal(t, "123", comment.Author.AccountID)
 		assert.Equal(t, "John Doe", comment.Author.DisplayName)
-		// Body is now ADF (map[string]any), not a string
-		assert.Equal(t, "doc", comment.Body["type"])
+		// Body is now *ADFNode
+		assert.Equal(t, "doc", comment.Body.Type)
 		assert.False(t, comment.Created.IsZero())
 
 		// Verify request body is in ADF format
@@ -1562,9 +1562,9 @@ func TestIssueService_AddComment(t *testing.T) {
 		client := newTestClient(t, server.URL, "user@example.com", "api-token")
 		svc := jirahttp.NewIssueService(client)
 
-		adfDoc := jira4claude.ADF{"type": "doc", "version": 1, "content": []any{
-			map[string]any{"type": "paragraph", "content": []any{
-				map[string]any{"type": "text", "text": "Comment text"},
+		adfDoc := &jira4claude.ADFNode{Type: "doc", Version: 1, Content: []jira4claude.ADFNode{
+			{Type: "paragraph", Content: []jira4claude.ADFNode{
+				{Type: "text", Text: "Comment text"},
 			}},
 		}}
 		_, err := svc.AddComment(context.Background(), "NOTFOUND-1", adfDoc)
@@ -1603,18 +1603,18 @@ func TestIssueService_AddComment(t *testing.T) {
 		svc := jirahttp.NewIssueService(client)
 
 		// ADF with multiple paragraphs
-		adfDoc := jira4claude.ADF{
-			"type":    "doc",
-			"version": 1,
-			"content": []any{
-				map[string]any{"type": "paragraph", "content": []any{
-					map[string]any{"type": "text", "text": "Paragraph 1"},
+		adfDoc := &jira4claude.ADFNode{
+			Type:    "doc",
+			Version: 1,
+			Content: []jira4claude.ADFNode{
+				{Type: "paragraph", Content: []jira4claude.ADFNode{
+					{Type: "text", Text: "Paragraph 1"},
 				}},
-				map[string]any{"type": "paragraph", "content": []any{
-					map[string]any{"type": "text", "text": "Paragraph 2"},
+				{Type: "paragraph", Content: []jira4claude.ADFNode{
+					{Type: "text", Text: "Paragraph 2"},
 				}},
-				map[string]any{"type": "paragraph", "content": []any{
-					map[string]any{"type": "text", "text": "Paragraph 3"},
+				{Type: "paragraph", Content: []jira4claude.ADFNode{
+					{Type: "text", Text: "Paragraph 3"},
 				}},
 			},
 		}
@@ -1622,8 +1622,8 @@ func TestIssueService_AddComment(t *testing.T) {
 
 		require.NoError(t, err)
 		assert.Equal(t, "10002", comment.ID)
-		// Body is now ADF (map[string]any), not a string
-		assert.Equal(t, "doc", comment.Body["type"])
+		// Body is now *ADFNode
+		assert.Equal(t, "doc", comment.Body.Type)
 
 		// Verify request body has ADF format with paragraph nodes
 		body := receivedRequest["body"].(map[string]any)

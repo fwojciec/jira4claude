@@ -139,7 +139,7 @@ func (c *IssueCreateCmd) Run(ctx *IssueContext) error {
 	}
 
 	// Convert description to ADF (plain text is valid GFM)
-	var description jira4claude.ADF
+	var description *jira4claude.ADFNode
 	if c.Description != "" {
 		var warnings []string
 		description, warnings = ctx.Converter.ToADF(c.Description)
@@ -208,7 +208,7 @@ func (c *IssueUpdateCmd) Run(ctx *IssueContext) error {
 	}
 
 	// Convert description to ADF (plain text is valid GFM)
-	var description *jira4claude.ADF
+	var description **jira4claude.ADFNode
 	if c.Description != nil && *c.Description != "" {
 		adfDoc, warnings := ctx.Converter.ToADF(*c.Description)
 		for _, w := range warnings {

@@ -1,8 +1,10 @@
 package markdown_test
 
 import (
+	"encoding/json"
 	"testing"
 
+	jira4claude "github.com/fwojciec/jira4claude"
 	"github.com/fwojciec/jira4claude/markdown"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -17,16 +19,16 @@ func TestConverter_ToADF(t *testing.T) {
 		converter := markdown.New()
 		result, warnings := converter.ToADF("Hello, world!")
 
-		expected := map[string]any{
-			"type":    "doc",
-			"version": 1,
-			"content": []any{
-				map[string]any{
-					"type": "paragraph",
-					"content": []any{
-						map[string]any{
-							"type": "text",
-							"text": "Hello, world!",
+		expected := &jira4claude.ADFNode{
+			Type:    "doc",
+			Version: 1,
+			Content: []jira4claude.ADFNode{
+				{
+					Type: "paragraph",
+					Content: []jira4claude.ADFNode{
+						{
+							Type: "text",
+							Text: "Hello, world!",
 						},
 					},
 				},
@@ -43,29 +45,27 @@ func TestConverter_ToADF(t *testing.T) {
 		converter := markdown.New()
 		result, warnings := converter.ToADF("This is **bold** text.")
 
-		expected := map[string]any{
-			"type":    "doc",
-			"version": 1,
-			"content": []any{
-				map[string]any{
-					"type": "paragraph",
-					"content": []any{
-						map[string]any{
-							"type": "text",
-							"text": "This is ",
+		expected := &jira4claude.ADFNode{
+			Type:    "doc",
+			Version: 1,
+			Content: []jira4claude.ADFNode{
+				{
+					Type: "paragraph",
+					Content: []jira4claude.ADFNode{
+						{
+							Type: "text",
+							Text: "This is ",
 						},
-						map[string]any{
-							"type": "text",
-							"text": "bold",
-							"marks": []any{
-								map[string]any{
-									"type": "strong",
-								},
+						{
+							Type: "text",
+							Text: "bold",
+							Marks: []jira4claude.ADFMark{
+								{Type: "strong"},
 							},
 						},
-						map[string]any{
-							"type": "text",
-							"text": " text.",
+						{
+							Type: "text",
+							Text: " text.",
 						},
 					},
 				},
@@ -82,29 +82,27 @@ func TestConverter_ToADF(t *testing.T) {
 		converter := markdown.New()
 		result, warnings := converter.ToADF("This is *italic* text.")
 
-		expected := map[string]any{
-			"type":    "doc",
-			"version": 1,
-			"content": []any{
-				map[string]any{
-					"type": "paragraph",
-					"content": []any{
-						map[string]any{
-							"type": "text",
-							"text": "This is ",
+		expected := &jira4claude.ADFNode{
+			Type:    "doc",
+			Version: 1,
+			Content: []jira4claude.ADFNode{
+				{
+					Type: "paragraph",
+					Content: []jira4claude.ADFNode{
+						{
+							Type: "text",
+							Text: "This is ",
 						},
-						map[string]any{
-							"type": "text",
-							"text": "italic",
-							"marks": []any{
-								map[string]any{
-									"type": "em",
-								},
+						{
+							Type: "text",
+							Text: "italic",
+							Marks: []jira4claude.ADFMark{
+								{Type: "em"},
 							},
 						},
-						map[string]any{
-							"type": "text",
-							"text": " text.",
+						{
+							Type: "text",
+							Text: " text.",
 						},
 					},
 				},
@@ -121,29 +119,27 @@ func TestConverter_ToADF(t *testing.T) {
 		converter := markdown.New()
 		result, warnings := converter.ToADF("Use the `fmt.Println` function.")
 
-		expected := map[string]any{
-			"type":    "doc",
-			"version": 1,
-			"content": []any{
-				map[string]any{
-					"type": "paragraph",
-					"content": []any{
-						map[string]any{
-							"type": "text",
-							"text": "Use the ",
+		expected := &jira4claude.ADFNode{
+			Type:    "doc",
+			Version: 1,
+			Content: []jira4claude.ADFNode{
+				{
+					Type: "paragraph",
+					Content: []jira4claude.ADFNode{
+						{
+							Type: "text",
+							Text: "Use the ",
 						},
-						map[string]any{
-							"type": "text",
-							"text": "fmt.Println",
-							"marks": []any{
-								map[string]any{
-									"type": "code",
-								},
+						{
+							Type: "text",
+							Text: "fmt.Println",
+							Marks: []jira4claude.ADFMark{
+								{Type: "code"},
 							},
 						},
-						map[string]any{
-							"type": "text",
-							"text": " function.",
+						{
+							Type: "text",
+							Text: " function.",
 						},
 					},
 				},
@@ -160,19 +156,17 @@ func TestConverter_ToADF(t *testing.T) {
 		converter := markdown.New()
 		result, warnings := converter.ToADF("```go\nfmt.Println(\"hello\")\n```")
 
-		expected := map[string]any{
-			"type":    "doc",
-			"version": 1,
-			"content": []any{
-				map[string]any{
-					"type": "codeBlock",
-					"attrs": map[string]any{
-						"language": "go",
-					},
-					"content": []any{
-						map[string]any{
-							"type": "text",
-							"text": "fmt.Println(\"hello\")",
+		expected := &jira4claude.ADFNode{
+			Type:    "doc",
+			Version: 1,
+			Content: []jira4claude.ADFNode{
+				{
+					Type:  "codeBlock",
+					Attrs: json.RawMessage(`{"language":"go"}`),
+					Content: []jira4claude.ADFNode{
+						{
+							Type: "text",
+							Text: "fmt.Println(\"hello\")",
 						},
 					},
 				},
@@ -189,31 +183,27 @@ func TestConverter_ToADF(t *testing.T) {
 		converter := markdown.New()
 		result, warnings := converter.ToADF("# Heading 1\n\n## Heading 2")
 
-		expected := map[string]any{
-			"type":    "doc",
-			"version": 1,
-			"content": []any{
-				map[string]any{
-					"type": "heading",
-					"attrs": map[string]any{
-						"level": 1,
-					},
-					"content": []any{
-						map[string]any{
-							"type": "text",
-							"text": "Heading 1",
+		expected := &jira4claude.ADFNode{
+			Type:    "doc",
+			Version: 1,
+			Content: []jira4claude.ADFNode{
+				{
+					Type:  "heading",
+					Attrs: json.RawMessage(`{"level":1}`),
+					Content: []jira4claude.ADFNode{
+						{
+							Type: "text",
+							Text: "Heading 1",
 						},
 					},
 				},
-				map[string]any{
-					"type": "heading",
-					"attrs": map[string]any{
-						"level": 2,
-					},
-					"content": []any{
-						map[string]any{
-							"type": "text",
-							"text": "Heading 2",
+				{
+					Type:  "heading",
+					Attrs: json.RawMessage(`{"level":2}`),
+					Content: []jira4claude.ADFNode{
+						{
+							Type: "text",
+							Text: "Heading 2",
 						},
 					},
 				},
@@ -230,36 +220,36 @@ func TestConverter_ToADF(t *testing.T) {
 		converter := markdown.New()
 		result, warnings := converter.ToADF("- Item 1\n- Item 2")
 
-		expected := map[string]any{
-			"type":    "doc",
-			"version": 1,
-			"content": []any{
-				map[string]any{
-					"type": "bulletList",
-					"content": []any{
-						map[string]any{
-							"type": "listItem",
-							"content": []any{
-								map[string]any{
-									"type": "paragraph",
-									"content": []any{
-										map[string]any{
-											"type": "text",
-											"text": "Item 1",
+		expected := &jira4claude.ADFNode{
+			Type:    "doc",
+			Version: 1,
+			Content: []jira4claude.ADFNode{
+				{
+					Type: "bulletList",
+					Content: []jira4claude.ADFNode{
+						{
+							Type: "listItem",
+							Content: []jira4claude.ADFNode{
+								{
+									Type: "paragraph",
+									Content: []jira4claude.ADFNode{
+										{
+											Type: "text",
+											Text: "Item 1",
 										},
 									},
 								},
 							},
 						},
-						map[string]any{
-							"type": "listItem",
-							"content": []any{
-								map[string]any{
-									"type": "paragraph",
-									"content": []any{
-										map[string]any{
-											"type": "text",
-											"text": "Item 2",
+						{
+							Type: "listItem",
+							Content: []jira4claude.ADFNode{
+								{
+									Type: "paragraph",
+									Content: []jira4claude.ADFNode{
+										{
+											Type: "text",
+											Text: "Item 2",
 										},
 									},
 								},
@@ -280,36 +270,36 @@ func TestConverter_ToADF(t *testing.T) {
 		converter := markdown.New()
 		result, warnings := converter.ToADF("1. First\n2. Second")
 
-		expected := map[string]any{
-			"type":    "doc",
-			"version": 1,
-			"content": []any{
-				map[string]any{
-					"type": "orderedList",
-					"content": []any{
-						map[string]any{
-							"type": "listItem",
-							"content": []any{
-								map[string]any{
-									"type": "paragraph",
-									"content": []any{
-										map[string]any{
-											"type": "text",
-											"text": "First",
+		expected := &jira4claude.ADFNode{
+			Type:    "doc",
+			Version: 1,
+			Content: []jira4claude.ADFNode{
+				{
+					Type: "orderedList",
+					Content: []jira4claude.ADFNode{
+						{
+							Type: "listItem",
+							Content: []jira4claude.ADFNode{
+								{
+									Type: "paragraph",
+									Content: []jira4claude.ADFNode{
+										{
+											Type: "text",
+											Text: "First",
 										},
 									},
 								},
 							},
 						},
-						map[string]any{
-							"type": "listItem",
-							"content": []any{
-								map[string]any{
-									"type": "paragraph",
-									"content": []any{
-										map[string]any{
-											"type": "text",
-											"text": "Second",
+						{
+							Type: "listItem",
+							Content: []jira4claude.ADFNode{
+								{
+									Type: "paragraph",
+									Content: []jira4claude.ADFNode{
+										{
+											Type: "text",
+											Text: "Second",
 										},
 									},
 								},
@@ -330,32 +320,30 @@ func TestConverter_ToADF(t *testing.T) {
 		converter := markdown.New()
 		result, warnings := converter.ToADF("Visit [Google](https://google.com) for more.")
 
-		expected := map[string]any{
-			"type":    "doc",
-			"version": 1,
-			"content": []any{
-				map[string]any{
-					"type": "paragraph",
-					"content": []any{
-						map[string]any{
-							"type": "text",
-							"text": "Visit ",
+		expected := &jira4claude.ADFNode{
+			Type:    "doc",
+			Version: 1,
+			Content: []jira4claude.ADFNode{
+				{
+					Type: "paragraph",
+					Content: []jira4claude.ADFNode{
+						{
+							Type: "text",
+							Text: "Visit ",
 						},
-						map[string]any{
-							"type": "text",
-							"text": "Google",
-							"marks": []any{
-								map[string]any{
-									"type": "link",
-									"attrs": map[string]any{
-										"href": "https://google.com",
-									},
+						{
+							Type: "text",
+							Text: "Google",
+							Marks: []jira4claude.ADFMark{
+								{
+									Type:  "link",
+									Attrs: json.RawMessage(`{"href":"https://google.com"}`),
 								},
 							},
 						},
-						map[string]any{
-							"type": "text",
-							"text": " for more.",
+						{
+							Type: "text",
+							Text: " for more.",
 						},
 					},
 				},
@@ -372,19 +360,19 @@ func TestConverter_ToADF(t *testing.T) {
 		converter := markdown.New()
 		result, warnings := converter.ToADF("> This is a quote.")
 
-		expected := map[string]any{
-			"type":    "doc",
-			"version": 1,
-			"content": []any{
-				map[string]any{
-					"type": "blockquote",
-					"content": []any{
-						map[string]any{
-							"type": "paragraph",
-							"content": []any{
-								map[string]any{
-									"type": "text",
-									"text": "This is a quote.",
+		expected := &jira4claude.ADFNode{
+			Type:    "doc",
+			Version: 1,
+			Content: []jira4claude.ADFNode{
+				{
+					Type: "blockquote",
+					Content: []jira4claude.ADFNode{
+						{
+							Type: "paragraph",
+							Content: []jira4claude.ADFNode{
+								{
+									Type: "text",
+									Text: "This is a quote.",
 								},
 							},
 						},
@@ -403,32 +391,28 @@ func TestConverter_ToADF(t *testing.T) {
 		converter := markdown.New()
 		result, warnings := converter.ToADF("This is ***bold and italic*** text.")
 
-		expected := map[string]any{
-			"type":    "doc",
-			"version": 1,
-			"content": []any{
-				map[string]any{
-					"type": "paragraph",
-					"content": []any{
-						map[string]any{
-							"type": "text",
-							"text": "This is ",
+		expected := &jira4claude.ADFNode{
+			Type:    "doc",
+			Version: 1,
+			Content: []jira4claude.ADFNode{
+				{
+					Type: "paragraph",
+					Content: []jira4claude.ADFNode{
+						{
+							Type: "text",
+							Text: "This is ",
 						},
-						map[string]any{
-							"type": "text",
-							"text": "bold and italic",
-							"marks": []any{
-								map[string]any{
-									"type": "em",
-								},
-								map[string]any{
-									"type": "strong",
-								},
+						{
+							Type: "text",
+							Text: "bold and italic",
+							Marks: []jira4claude.ADFMark{
+								{Type: "em"},
+								{Type: "strong"},
 							},
 						},
-						map[string]any{
-							"type": "text",
-							"text": " text.",
+						{
+							Type: "text",
+							Text: " text.",
 						},
 					},
 				},
@@ -445,10 +429,10 @@ func TestConverter_ToADF(t *testing.T) {
 		converter := markdown.New()
 		result, warnings := converter.ToADF("")
 
-		expected := map[string]any{
-			"type":    "doc",
-			"version": 1,
-			"content": []any{},
+		expected := &jira4claude.ADFNode{
+			Type:    "doc",
+			Version: 1,
+			Content: []jira4claude.ADFNode{},
 		}
 
 		assert.Empty(t, warnings)
@@ -464,12 +448,10 @@ func TestConverter_ToADF(t *testing.T) {
 
 		// Should still return converted content (best effort)
 		require.NotNil(t, result)
-		assert.Equal(t, "doc", result["type"])
+		assert.Equal(t, "doc", result.Type)
 
 		// Content should have the paragraphs that were converted
-		content, ok := result["content"].([]any)
-		require.True(t, ok)
-		assert.Len(t, content, 2) // "Before" and "After" paragraphs
+		assert.Len(t, result.Content, 2) // "Before" and "After" paragraphs
 
 		// Should return warning listing skipped content
 		require.Len(t, warnings, 1)
@@ -485,7 +467,7 @@ func TestConverter_ToADF(t *testing.T) {
 
 		// Should still return converted content (best effort)
 		require.NotNil(t, result)
-		assert.Equal(t, "doc", result["type"])
+		assert.Equal(t, "doc", result.Type)
 
 		// Should return warnings for each skipped type, sorted alphabetically
 		require.Len(t, warnings, 2)
@@ -514,16 +496,16 @@ func TestConverter_ToADF(t *testing.T) {
 		converter := markdown.New()
 		result, warnings := converter.ToADF("Hello world")
 
-		expected := map[string]any{
-			"type":    "doc",
-			"version": 1,
-			"content": []any{
-				map[string]any{
-					"type": "paragraph",
-					"content": []any{
-						map[string]any{
-							"type": "text",
-							"text": "Hello world",
+		expected := &jira4claude.ADFNode{
+			Type:    "doc",
+			Version: 1,
+			Content: []jira4claude.ADFNode{
+				{
+					Type: "paragraph",
+					Content: []jira4claude.ADFNode{
+						{
+							Type: "text",
+							Text: "Hello world",
 						},
 					},
 				},
@@ -544,17 +526,11 @@ func TestConverter_ToADF(t *testing.T) {
 		require.NotNil(t, result)
 		assert.Empty(t, warnings)
 
-		content, ok := result["content"].([]any)
-		require.True(t, ok)
-		require.Len(t, content, 1)
+		require.Len(t, result.Content, 1)
 
-		paragraph, ok := content[0].(map[string]any)
-		require.True(t, ok)
-
-		paragraphContent, ok := paragraph["content"].([]any)
-		require.True(t, ok)
+		paragraph := result.Content[0]
 		// Should have 2 separate text nodes: "bold" with mark, "plain" without
-		assert.Len(t, paragraphContent, 2)
+		assert.Len(t, paragraph.Content, 2)
 	})
 
 	t.Run("produces link mark with nested attrs map", func(t *testing.T) {
@@ -565,22 +541,20 @@ func TestConverter_ToADF(t *testing.T) {
 		converter := markdown.New()
 		result, warnings := converter.ToADF("[click here](https://example.com)")
 
-		expected := map[string]any{
-			"type":    "doc",
-			"version": 1,
-			"content": []any{
-				map[string]any{
-					"type": "paragraph",
-					"content": []any{
-						map[string]any{
-							"type": "text",
-							"text": "click here",
-							"marks": []any{
-								map[string]any{
-									"type": "link",
-									"attrs": map[string]any{
-										"href": "https://example.com",
-									},
+		expected := &jira4claude.ADFNode{
+			Type:    "doc",
+			Version: 1,
+			Content: []jira4claude.ADFNode{
+				{
+					Type: "paragraph",
+					Content: []jira4claude.ADFNode{
+						{
+							Type: "text",
+							Text: "click here",
+							Marks: []jira4claude.ADFMark{
+								{
+									Type:  "link",
+									Attrs: json.RawMessage(`{"href":"https://example.com"}`),
 								},
 							},
 						},
@@ -603,17 +577,11 @@ func TestConverter_ToADF(t *testing.T) {
 		require.NotNil(t, result)
 		assert.Empty(t, warnings)
 
-		content, ok := result["content"].([]any)
-		require.True(t, ok)
-		require.Len(t, content, 1)
+		require.Len(t, result.Content, 1)
 
-		paragraph, ok := content[0].(map[string]any)
-		require.True(t, ok)
-
-		paragraphContent, ok := paragraph["content"].([]any)
-		require.True(t, ok)
+		paragraph := result.Content[0]
 		// Should have 2 separate text nodes with different links
-		assert.Len(t, paragraphContent, 2)
+		assert.Len(t, paragraph.Content, 2)
 	})
 
 	t.Run("does not consolidate when one has marks and other does not", func(t *testing.T) {
@@ -626,17 +594,11 @@ func TestConverter_ToADF(t *testing.T) {
 		require.NotNil(t, result)
 		assert.Empty(t, warnings)
 
-		content, ok := result["content"].([]any)
-		require.True(t, ok)
-		require.Len(t, content, 1)
+		require.Len(t, result.Content, 1)
 
-		paragraph, ok := content[0].(map[string]any)
-		require.True(t, ok)
-
-		paragraphContent, ok := paragraph["content"].([]any)
-		require.True(t, ok)
+		paragraph := result.Content[0]
 		// Should have 2 separate text nodes: "plain" without mark, "bold" with mark
-		assert.Len(t, paragraphContent, 2)
+		assert.Len(t, paragraph.Content, 2)
 	})
 
 	t.Run("does not consolidate when marks have different lengths", func(t *testing.T) {
@@ -649,17 +611,11 @@ func TestConverter_ToADF(t *testing.T) {
 		require.NotNil(t, result)
 		assert.Empty(t, warnings)
 
-		content, ok := result["content"].([]any)
-		require.True(t, ok)
-		require.Len(t, content, 1)
+		require.Len(t, result.Content, 1)
 
-		paragraph, ok := content[0].(map[string]any)
-		require.True(t, ok)
-
-		paragraphContent, ok := paragraph["content"].([]any)
-		require.True(t, ok)
+		paragraph := result.Content[0]
 		// Should have 2 separate text nodes with different mark counts
-		assert.Len(t, paragraphContent, 2)
+		assert.Len(t, paragraph.Content, 2)
 	})
 
 	t.Run("converts bare URL autolink to link mark", func(t *testing.T) {
@@ -668,32 +624,30 @@ func TestConverter_ToADF(t *testing.T) {
 		converter := markdown.New()
 		result, warnings := converter.ToADF("Visit https://example.com for details.")
 
-		expected := map[string]any{
-			"type":    "doc",
-			"version": 1,
-			"content": []any{
-				map[string]any{
-					"type": "paragraph",
-					"content": []any{
-						map[string]any{
-							"type": "text",
-							"text": "Visit ",
+		expected := &jira4claude.ADFNode{
+			Type:    "doc",
+			Version: 1,
+			Content: []jira4claude.ADFNode{
+				{
+					Type: "paragraph",
+					Content: []jira4claude.ADFNode{
+						{
+							Type: "text",
+							Text: "Visit ",
 						},
-						map[string]any{
-							"type": "text",
-							"text": "https://example.com",
-							"marks": []any{
-								map[string]any{
-									"type": "link",
-									"attrs": map[string]any{
-										"href": "https://example.com",
-									},
+						{
+							Type: "text",
+							Text: "https://example.com",
+							Marks: []jira4claude.ADFMark{
+								{
+									Type:  "link",
+									Attrs: json.RawMessage(`{"href":"https://example.com"}`),
 								},
 							},
 						},
-						map[string]any{
-							"type": "text",
-							"text": " for details.",
+						{
+							Type: "text",
+							Text: " for details.",
 						},
 					},
 				},
@@ -710,32 +664,30 @@ func TestConverter_ToADF(t *testing.T) {
 		converter := markdown.New()
 		result, warnings := converter.ToADF("Check <https://example.com> now.")
 
-		expected := map[string]any{
-			"type":    "doc",
-			"version": 1,
-			"content": []any{
-				map[string]any{
-					"type": "paragraph",
-					"content": []any{
-						map[string]any{
-							"type": "text",
-							"text": "Check ",
+		expected := &jira4claude.ADFNode{
+			Type:    "doc",
+			Version: 1,
+			Content: []jira4claude.ADFNode{
+				{
+					Type: "paragraph",
+					Content: []jira4claude.ADFNode{
+						{
+							Type: "text",
+							Text: "Check ",
 						},
-						map[string]any{
-							"type": "text",
-							"text": "https://example.com",
-							"marks": []any{
-								map[string]any{
-									"type": "link",
-									"attrs": map[string]any{
-										"href": "https://example.com",
-									},
+						{
+							Type: "text",
+							Text: "https://example.com",
+							Marks: []jira4claude.ADFMark{
+								{
+									Type:  "link",
+									Attrs: json.RawMessage(`{"href":"https://example.com"}`),
 								},
 							},
 						},
-						map[string]any{
-							"type": "text",
-							"text": " now.",
+						{
+							Type: "text",
+							Text: " now.",
 						},
 					},
 				},
@@ -752,16 +704,16 @@ func TestConverter_ToADF(t *testing.T) {
 		converter := markdown.New()
 		result, warnings := converter.ToADF("Use this → see results — important")
 
-		expected := map[string]any{
-			"type":    "doc",
-			"version": 1,
-			"content": []any{
-				map[string]any{
-					"type": "paragraph",
-					"content": []any{
-						map[string]any{
-							"type": "text",
-							"text": "Use this   see results   important",
+		expected := &jira4claude.ADFNode{
+			Type:    "doc",
+			Version: 1,
+			Content: []jira4claude.ADFNode{
+				{
+					Type: "paragraph",
+					Content: []jira4claude.ADFNode{
+						{
+							Type: "text",
+							Text: "Use this   see results   important",
 						},
 					},
 				},

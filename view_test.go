@@ -16,7 +16,7 @@ func TestToIssueView(t *testing.T) {
 		t.Parallel()
 
 		conv := &mock.Converter{
-			ToMarkdownFn: func(adf jira4claude.ADF) (string, []string) {
+			ToMarkdownFn: func(adf *jira4claude.ADFNode) (string, []string) {
 				return "# Hello World", nil
 			},
 		}
@@ -26,9 +26,9 @@ func TestToIssueView(t *testing.T) {
 			Summary: "Test issue",
 			Status:  "To Do",
 			Type:    "Task",
-			Description: jira4claude.ADF{
-				"type":    "doc",
-				"version": 1,
+			Description: &jira4claude.ADFNode{
+				Type:    "doc",
+				Version: 1,
 			},
 			Created: time.Date(2024, 1, 1, 12, 0, 0, 0, time.UTC),
 			Updated: time.Date(2024, 1, 2, 12, 0, 0, 0, time.UTC),
@@ -47,7 +47,7 @@ func TestToIssueView(t *testing.T) {
 		t.Parallel()
 
 		conv := &mock.Converter{
-			ToMarkdownFn: func(adf jira4claude.ADF) (string, []string) {
+			ToMarkdownFn: func(adf *jira4claude.ADFNode) (string, []string) {
 				return "text", []string{"unsupported element: emoji", "unknown node type"}
 			},
 		}
@@ -57,8 +57,8 @@ func TestToIssueView(t *testing.T) {
 			Summary: "Test issue",
 			Status:  "To Do",
 			Type:    "Task",
-			Description: jira4claude.ADF{
-				"type": "doc",
+			Description: &jira4claude.ADFNode{
+				Type: "doc",
 			},
 			Created: time.Date(2024, 1, 1, 12, 0, 0, 0, time.UTC),
 			Updated: time.Date(2024, 1, 2, 12, 0, 0, 0, time.UTC),
@@ -74,9 +74,9 @@ func TestToIssueView(t *testing.T) {
 		t.Parallel()
 
 		conv := &mock.Converter{
-			ToMarkdownFn: func(adf jira4claude.ADF) (string, []string) {
-				if text, ok := adf["text"].(string); ok {
-					return text + " (converted)", nil
+			ToMarkdownFn: func(adf *jira4claude.ADFNode) (string, []string) {
+				if adf != nil && adf.Text != "" {
+					return adf.Text + " (converted)", nil
 				}
 				return "", nil
 			},
@@ -91,7 +91,7 @@ func TestToIssueView(t *testing.T) {
 				{
 					ID:      "10001",
 					Author:  &jira4claude.User{DisplayName: "John Doe"},
-					Body:    jira4claude.ADF{"text": "comment body"},
+					Body:    &jira4claude.ADFNode{Text: "comment body"},
 					Created: time.Date(2024, 1, 15, 10, 30, 0, 0, time.UTC),
 				},
 			},
@@ -111,7 +111,7 @@ func TestToIssueView(t *testing.T) {
 		t.Parallel()
 
 		conv := &mock.Converter{
-			ToMarkdownFn: func(adf jira4claude.ADF) (string, []string) {
+			ToMarkdownFn: func(adf *jira4claude.ADFNode) (string, []string) {
 				return "text", []string{"comment warning"}
 			},
 		}
@@ -124,7 +124,7 @@ func TestToIssueView(t *testing.T) {
 			Comments: []*jira4claude.Comment{
 				{
 					ID:      "10001",
-					Body:    jira4claude.ADF{"type": "doc"},
+					Body:    &jira4claude.ADFNode{Type: "doc"},
 					Created: time.Date(2024, 1, 15, 10, 30, 0, 0, time.UTC),
 				},
 			},
@@ -143,7 +143,7 @@ func TestToIssueView(t *testing.T) {
 		t.Parallel()
 
 		conv := &mock.Converter{
-			ToMarkdownFn: func(adf jira4claude.ADF) (string, []string) {
+			ToMarkdownFn: func(adf *jira4claude.ADFNode) (string, []string) {
 				return "", nil
 			},
 		}
@@ -168,7 +168,7 @@ func TestToIssueView(t *testing.T) {
 		t.Parallel()
 
 		conv := &mock.Converter{
-			ToMarkdownFn: func(adf jira4claude.ADF) (string, []string) {
+			ToMarkdownFn: func(adf *jira4claude.ADFNode) (string, []string) {
 				return "", nil
 			},
 		}
@@ -231,7 +231,7 @@ func TestToIssueView(t *testing.T) {
 		t.Parallel()
 
 		conv := &mock.Converter{
-			ToMarkdownFn: func(adf jira4claude.ADF) (string, []string) {
+			ToMarkdownFn: func(adf *jira4claude.ADFNode) (string, []string) {
 				return "", nil
 			},
 		}
@@ -254,7 +254,7 @@ func TestToIssueView(t *testing.T) {
 		t.Parallel()
 
 		conv := &mock.Converter{
-			ToMarkdownFn: func(adf jira4claude.ADF) (string, []string) {
+			ToMarkdownFn: func(adf *jira4claude.ADFNode) (string, []string) {
 				return "", nil
 			},
 		}
@@ -278,7 +278,7 @@ func TestToIssueView(t *testing.T) {
 		t.Parallel()
 
 		conv := &mock.Converter{
-			ToMarkdownFn: func(adf jira4claude.ADF) (string, []string) {
+			ToMarkdownFn: func(adf *jira4claude.ADFNode) (string, []string) {
 				return "", nil
 			},
 		}
@@ -320,7 +320,7 @@ func TestToIssueView(t *testing.T) {
 		t.Parallel()
 
 		conv := &mock.Converter{
-			ToMarkdownFn: func(adf jira4claude.ADF) (string, []string) {
+			ToMarkdownFn: func(adf *jira4claude.ADFNode) (string, []string) {
 				return "", nil
 			},
 		}
@@ -403,7 +403,7 @@ func TestToCommentView(t *testing.T) {
 		t.Parallel()
 
 		conv := &mock.Converter{
-			ToMarkdownFn: func(adf jira4claude.ADF) (string, []string) {
+			ToMarkdownFn: func(adf *jira4claude.ADFNode) (string, []string) {
 				return "**bold** text", nil
 			},
 		}
@@ -411,7 +411,7 @@ func TestToCommentView(t *testing.T) {
 		comment := &jira4claude.Comment{
 			ID:      "10001",
 			Author:  &jira4claude.User{DisplayName: "John Doe"},
-			Body:    jira4claude.ADF{"type": "doc"},
+			Body:    &jira4claude.ADFNode{Type: "doc"},
 			Created: time.Date(2024, 1, 15, 10, 30, 0, 0, time.UTC),
 		}
 
@@ -429,7 +429,7 @@ func TestToCommentView(t *testing.T) {
 		t.Parallel()
 
 		conv := &mock.Converter{
-			ToMarkdownFn: func(adf jira4claude.ADF) (string, []string) {
+			ToMarkdownFn: func(adf *jira4claude.ADFNode) (string, []string) {
 				return "text", []string{"unsupported node type", "emoji not supported"}
 			},
 		}
@@ -437,7 +437,7 @@ func TestToCommentView(t *testing.T) {
 		comment := &jira4claude.Comment{
 			ID:      "10001",
 			Author:  &jira4claude.User{DisplayName: "John Doe"},
-			Body:    jira4claude.ADF{"type": "doc"},
+			Body:    &jira4claude.ADFNode{Type: "doc"},
 			Created: time.Date(2024, 1, 15, 10, 30, 0, 0, time.UTC),
 		}
 
@@ -451,7 +451,7 @@ func TestToCommentView(t *testing.T) {
 		t.Parallel()
 
 		conv := &mock.Converter{
-			ToMarkdownFn: func(adf jira4claude.ADF) (string, []string) {
+			ToMarkdownFn: func(adf *jira4claude.ADFNode) (string, []string) {
 				return "text", nil
 			},
 		}
@@ -459,7 +459,7 @@ func TestToCommentView(t *testing.T) {
 		comment := &jira4claude.Comment{
 			ID:      "10001",
 			Author:  nil,
-			Body:    jira4claude.ADF{"type": "doc"},
+			Body:    &jira4claude.ADFNode{Type: "doc"},
 			Created: time.Date(2024, 1, 15, 10, 30, 0, 0, time.UTC),
 		}
 
@@ -535,7 +535,7 @@ func TestToIssueView_Subtasks(t *testing.T) {
 		t.Parallel()
 
 		conv := &mock.Converter{
-			ToMarkdownFn: func(adf jira4claude.ADF) (string, []string) {
+			ToMarkdownFn: func(adf *jira4claude.ADFNode) (string, []string) {
 				return "", nil
 			},
 		}
@@ -580,7 +580,7 @@ func TestToIssueView_Subtasks(t *testing.T) {
 		t.Parallel()
 
 		conv := &mock.Converter{
-			ToMarkdownFn: func(adf jira4claude.ADF) (string, []string) {
+			ToMarkdownFn: func(adf *jira4claude.ADFNode) (string, []string) {
 				return "", nil
 			},
 		}

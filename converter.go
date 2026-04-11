@@ -6,9 +6,11 @@ package jira4claude
 type Converter interface {
 	// ToADF converts GitHub-flavored markdown to ADF.
 	// Returns the ADF document and any warnings about skipped/unsupported content.
-	ToADF(markdown string) (ADF, []string)
+	// Always returns a non-nil *ADFNode, even for empty input.
+	ToADF(markdown string) (*ADFNode, []string)
 
 	// ToMarkdown converts ADF to GitHub-flavored markdown.
 	// Returns the markdown string and any warnings about skipped/unsupported content.
-	ToMarkdown(adf ADF) (string, []string)
+	// If adf is nil, returns an empty string.
+	ToMarkdown(adf *ADFNode) (string, []string)
 }

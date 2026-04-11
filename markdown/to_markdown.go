@@ -1,31 +1,29 @@
 package markdown
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
+
+	"github.com/fwojciec/jira4claude"
 )
 
 // toMarkdown converts an Atlassian Document Format (ADF) document to GitHub-flavored markdown.
 // This is useful for displaying Jira issue content in a readable format.
 // Returns warnings for any elements that were skipped during conversion.
-func toMarkdown(adfDoc map[string]any) (string, []string) {
+func toMarkdown(adfDoc *jira4claude.ADFNode) (string, []string) {
 	if adfDoc == nil {
 		return "", nil
 	}
 
-	content, ok := adfDoc["content"].([]any)
-	if !ok || len(content) == 0 {
+	if len(adfDoc.Content) == 0 {
 		return "", nil
 	}
 
 	skipped := newSkippedCollector()
 	var parts []string
-	for _, item := range content {
-		node, ok := item.(map[string]any)
-		if !ok {
-			continue
-		}
-		part := adfNodeToGFM(node, skipped)
+	for _, node := range adfDoc.Content {
+		part := adfNodeToGFM(&node, skipped)
 		if part != "" {
 			parts = append(parts, part)
 		}
@@ -35,10 +33,8 @@ func toMarkdown(adfDoc map[string]any) (string, []string) {
 }
 
 // adfNodeToGFM converts a single ADF node to markdown.
-func adfNodeToGFM(node map[string]any, skipped *skippedCollector) string {
-	nodeType, _ := node["type"].(string)
-
-	switch nodeType {
+func adfNodeToGFM(node *jira4claude.ADFNode, skipped *skippedCollector) string {
+	switch node.Type {
 	case "paragraph":
 		return adfInlineToGFM(node)
 	case "heading":
@@ -63,24 +59,26 @@ func adfNodeToGFM(node map[string]any, skipped *skippedCollector) string {
 		// Jira sometimes places bare "text" nodes at block level (e.g., inside listItem
 		// without a wrapping paragraph). Reuse the inline rendering path so any marks
 		// on the text node (strong/em/code/link) are preserved.
-		return adfInlineToGFM(map[string]any{
-			"content": []any{node},
-		})
+		wrapper := &jira4claude.ADFNode{
+			Content: []jira4claude.ADFNode{*node},
+		}
+		return adfInlineToGFM(wrapper)
 	default:
 		// Record the skipped node type
-		skipped.add(nodeType)
+		skipped.add(node.Type)
 		return ""
 	}
 }
 
 // adfHeadingToGFM converts an ADF heading to markdown.
-func adfHeadingToGFM(node map[string]any) string {
+func adfHeadingToGFM(node *jira4claude.ADFNode) string {
 	level := 1
-	if attrs, ok := node["attrs"].(map[string]any); ok {
-		if l, ok := attrs["level"].(int); ok {
-			level = l
-		} else if l, ok := attrs["level"].(float64); ok {
-			level = int(l)
+	if node.Attrs != nil {
+		var attrs map[string]any
+		if err := json.Unmarshal(node.Attrs, &attrs); err == nil {
+			if l, ok := attrs["level"].(float64); ok {
+				level = int(l)
+			}
 		}
 	}
 
@@ -89,24 +87,21 @@ func adfHeadingToGFM(node map[string]any) string {
 }
 
 // adfCodeBlockToGFM converts an ADF codeBlock to a fenced code block.
-func adfCodeBlockToGFM(node map[string]any) string {
+func adfCodeBlockToGFM(node *jira4claude.ADFNode) string {
 	lang := ""
-	if attrs, ok := node["attrs"].(map[string]any); ok {
-		if l, ok := attrs["language"].(string); ok {
-			lang = l
+	if node.Attrs != nil {
+		var attrs map[string]any
+		if err := json.Unmarshal(node.Attrs, &attrs); err == nil {
+			if l, ok := attrs["language"].(string); ok {
+				lang = l
+			}
 		}
 	}
 
 	var code string
-	if content, ok := node["content"].([]any); ok {
-		for _, item := range content {
-			if textNode, ok := item.(map[string]any); ok {
-				if textNode["type"] == "text" {
-					if t, ok := textNode["text"].(string); ok {
-						code += t
-					}
-				}
-			}
+	for _, child := range node.Content {
+		if child.Type == "text" {
+			code += child.Text
 		}
 	}
 
@@ -114,19 +109,14 @@ func adfCodeBlockToGFM(node map[string]any) string {
 }
 
 // adfBulletListToGFM converts an ADF bulletList to markdown.
-func adfBulletListToGFM(node map[string]any, skipped *skippedCollector) string {
-	content, ok := node["content"].([]any)
-	if !ok {
-		return ""
-	}
-
-	items := make([]string, 0, len(content))
-	for _, item := range content {
-		listItem, ok := item.(map[string]any)
-		if !ok || listItem["type"] != "listItem" {
+func adfBulletListToGFM(node *jira4claude.ADFNode, skipped *skippedCollector) string {
+	items := make([]string, 0, len(node.Content))
+	for i := range node.Content {
+		child := &node.Content[i]
+		if child.Type != "listItem" {
 			continue
 		}
-		itemText := adfListItemToGFM(listItem, skipped)
+		itemText := adfListItemToGFM(child, skipped)
 		items = append(items, "- "+itemText)
 	}
 
@@ -134,39 +124,32 @@ func adfBulletListToGFM(node map[string]any, skipped *skippedCollector) string {
 }
 
 // adfOrderedListToGFM converts an ADF orderedList to markdown.
-func adfOrderedListToGFM(node map[string]any, skipped *skippedCollector) string {
-	content, ok := node["content"].([]any)
-	if !ok {
-		return ""
-	}
-
-	items := make([]string, 0, len(content))
-	for i, item := range content {
-		listItem, ok := item.(map[string]any)
-		if !ok || listItem["type"] != "listItem" {
+func adfOrderedListToGFM(node *jira4claude.ADFNode, skipped *skippedCollector) string {
+	items := make([]string, 0, len(node.Content))
+	num := 0
+	for i := range node.Content {
+		child := &node.Content[i]
+		if child.Type != "listItem" {
 			continue
 		}
-		itemText := adfListItemToGFM(listItem, skipped)
-		items = append(items, fmt.Sprintf("%d. %s", i+1, itemText))
+		num++
+		itemText := adfListItemToGFM(child, skipped)
+		items = append(items, fmt.Sprintf("%d. %s", num, itemText))
 	}
 
 	return strings.Join(items, "\n")
 }
 
 // adfListItemToGFM extracts the text content from a list item.
-func adfListItemToGFM(node map[string]any, skipped *skippedCollector) string {
-	content, ok := node["content"].([]any)
-	if !ok || len(content) == 0 {
+func adfListItemToGFM(node *jira4claude.ADFNode, skipped *skippedCollector) string {
+	if len(node.Content) == 0 {
 		return ""
 	}
 
 	// List items typically contain paragraphs or nested lists
-	parts := make([]string, 0, len(content))
-	for _, item := range content {
-		child, ok := item.(map[string]any)
-		if !ok {
-			continue
-		}
+	parts := make([]string, 0, len(node.Content))
+	for i := range node.Content {
+		child := &node.Content[i]
 		part := adfNodeToGFM(child, skipped)
 		if part != "" {
 			parts = append(parts, part)
@@ -177,18 +160,10 @@ func adfListItemToGFM(node map[string]any, skipped *skippedCollector) string {
 }
 
 // adfBlockquoteToGFM converts an ADF blockquote to markdown.
-func adfBlockquoteToGFM(node map[string]any, skipped *skippedCollector) string {
-	content, ok := node["content"].([]any)
-	if !ok {
-		return ""
-	}
-
+func adfBlockquoteToGFM(node *jira4claude.ADFNode, skipped *skippedCollector) string {
 	var lines []string
-	for _, item := range content {
-		child, ok := item.(map[string]any)
-		if !ok {
-			continue
-		}
+	for i := range node.Content {
+		child := &node.Content[i]
 		text := adfNodeToGFM(child, skipped)
 		// Prefix each line with >
 		for _, line := range strings.Split(text, "\n") {
@@ -200,9 +175,8 @@ func adfBlockquoteToGFM(node map[string]any, skipped *skippedCollector) string {
 }
 
 // adfTableToGFM converts an ADF table to a GFM pipe table.
-func adfTableToGFM(node map[string]any, skipped *skippedCollector) string {
-	rows, ok := node["content"].([]any)
-	if !ok || len(rows) == 0 {
+func adfTableToGFM(node *jira4claude.ADFNode, skipped *skippedCollector) string {
+	if len(node.Content) == 0 {
 		return ""
 	}
 
@@ -211,33 +185,22 @@ func adfTableToGFM(node map[string]any, skipped *skippedCollector) string {
 	firstRendered := true
 	maxCols := 0
 
-	for _, row := range rows {
-		rowNode, ok := row.(map[string]any)
-		if !ok || rowNode["type"] != "tableRow" {
-			continue
-		}
-
-		cells, ok := rowNode["content"].([]any)
-		if !ok {
+	for i := range node.Content {
+		rowNode := &node.Content[i]
+		if rowNode.Type != "tableRow" {
 			continue
 		}
 
 		// Check if the first rendered row contains header cells
 		isHeaderRow := false
-		if firstRendered && len(cells) > 0 {
+		if firstRendered && len(rowNode.Content) > 0 {
 			firstRendered = false
-			if first, ok := cells[0].(map[string]any); ok {
-				isHeaderRow = first["type"] == "tableHeader"
-			}
+			isHeaderRow = rowNode.Content[0].Type == "tableHeader"
 		}
 
 		var cellTexts []string
-		for _, cell := range cells {
-			cellNode, ok := cell.(map[string]any)
-			if !ok {
-				cellTexts = append(cellTexts, "")
-				continue
-			}
+		for j := range rowNode.Content {
+			cellNode := &rowNode.Content[j]
 			cellTexts = append(cellTexts, adfTableCellToGFM(cellNode, skipped))
 		}
 
@@ -273,18 +236,10 @@ func adfTableToGFM(node map[string]any, skipped *skippedCollector) string {
 }
 
 // adfTableCellToGFM extracts text from a table cell (tableHeader or tableCell).
-func adfTableCellToGFM(node map[string]any, skipped *skippedCollector) string {
-	content, ok := node["content"].([]any)
-	if !ok {
-		return ""
-	}
-
+func adfTableCellToGFM(node *jira4claude.ADFNode, skipped *skippedCollector) string {
 	var parts []string
-	for _, item := range content {
-		child, ok := item.(map[string]any)
-		if !ok {
-			continue
-		}
+	for i := range node.Content {
+		child := &node.Content[i]
 		part := adfNodeToGFM(child, skipped)
 		if part != "" {
 			parts = append(parts, part)
@@ -299,23 +254,21 @@ func adfTableCellToGFM(node map[string]any, skipped *skippedCollector) string {
 }
 
 // adfTaskListToGFM converts an ADF taskList to GFM task list items.
-func adfTaskListToGFM(node map[string]any, skipped *skippedCollector) string {
-	content, ok := node["content"].([]any)
-	if !ok {
-		return ""
-	}
-
+func adfTaskListToGFM(node *jira4claude.ADFNode, skipped *skippedCollector) string {
 	var items []string
-	for _, item := range content {
-		taskItem, ok := item.(map[string]any)
-		if !ok || taskItem["type"] != "taskItem" {
+	for i := range node.Content {
+		taskItem := &node.Content[i]
+		if taskItem.Type != "taskItem" {
 			continue
 		}
 
 		checkbox := "[ ]"
-		if attrs, ok := taskItem["attrs"].(map[string]any); ok {
-			if state, ok := attrs["state"].(string); ok && state == "DONE" {
-				checkbox = "[x]"
+		if taskItem.Attrs != nil {
+			var attrs map[string]any
+			if err := json.Unmarshal(taskItem.Attrs, &attrs); err == nil {
+				if state, ok := attrs["state"].(string); ok && state == "DONE" {
+					checkbox = "[x]"
+				}
 			}
 		}
 
@@ -327,55 +280,41 @@ func adfTaskListToGFM(node map[string]any, skipped *skippedCollector) string {
 }
 
 // adfInlineToGFM converts inline content to markdown.
-func adfInlineToGFM(node map[string]any) string {
-	content, ok := node["content"].([]any)
-	if !ok {
+func adfInlineToGFM(node *jira4claude.ADFNode) string {
+	if len(node.Content) == 0 {
 		return ""
 	}
 
 	var result strings.Builder
-	for _, item := range content {
-		textNode, ok := item.(map[string]any)
-		if !ok {
-			continue
-		}
-
-		if textNode["type"] == "hardBreak" {
+	for _, child := range node.Content {
+		if child.Type == "hardBreak" {
 			result.WriteString("\n")
 			continue
 		}
 
-		if textNode["type"] != "text" {
+		if child.Type != "text" {
 			continue
 		}
 
-		text, _ := textNode["text"].(string)
-		marks, hasMarks := textNode["marks"].([]any)
-
-		if !hasMarks || len(marks) == 0 {
-			result.WriteString(text)
+		if len(child.Marks) == 0 {
+			result.WriteString(child.Text)
 			continue
 		}
 
 		// Apply marks
-		result.WriteString(applyMarks(text, marks))
+		result.WriteString(applyMarks(child.Text, child.Marks))
 	}
 
 	return result.String()
 }
 
 // applyMarks wraps text with the appropriate markdown syntax for its marks.
-func applyMarks(text string, marks []any) string {
+func applyMarks(text string, marks []jira4claude.ADFMark) string {
 	var hasStrong, hasEm, hasCode bool
 	var linkHref string
 
 	for _, mark := range marks {
-		markMap, ok := mark.(map[string]any)
-		if !ok {
-			continue
-		}
-		markType, _ := markMap["type"].(string)
-		switch markType {
+		switch mark.Type {
 		case "strong":
 			hasStrong = true
 		case "em":
@@ -383,9 +322,12 @@ func applyMarks(text string, marks []any) string {
 		case "code":
 			hasCode = true
 		case "link":
-			if attrs, ok := markMap["attrs"].(map[string]any); ok {
-				if href, ok := attrs["href"].(string); ok {
-					linkHref = href
+			if mark.Attrs != nil {
+				var attrs map[string]any
+				if err := json.Unmarshal(mark.Attrs, &attrs); err == nil {
+					if href, ok := attrs["href"].(string); ok {
+						linkHref = href
+					}
 				}
 			}
 		}

@@ -57,7 +57,7 @@ type LinkedIssue struct {
 type Comment struct {
 	ID      string
 	Author  *User
-	Body    ADF // ADF document; conversion to markdown happens at CLI boundary
+	Body    *ADFNode // ADF document; conversion to markdown happens at CLI boundary
 	Created time.Time
 }
 
@@ -66,7 +66,7 @@ type Issue struct {
 	Key         string
 	Project     string
 	Summary     string
-	Description ADF // ADF document; conversion to markdown happens at CLI boundary
+	Description *ADFNode // ADF document; conversion to markdown happens at CLI boundary
 	Status      string
 	Type        string
 	Priority    string
@@ -103,7 +103,7 @@ type IssueFilter struct {
 // For Parent: nil means no change, empty string means clear, non-empty means set.
 type IssueUpdate struct {
 	Summary     *string
-	Description *ADF // ADF document; conversion from markdown happens at CLI boundary
+	Description **ADFNode // nil = no change, non-nil = set; conversion from markdown happens at CLI boundary
 	Priority    *string
 	Assignee    *string
 	Labels      *[]string
@@ -130,7 +130,7 @@ type IssueService interface {
 
 	// AddComment adds a comment to an issue.
 	// The body is an ADF document; conversion from markdown happens at CLI boundary.
-	AddComment(ctx context.Context, key string, body ADF) (*Comment, error)
+	AddComment(ctx context.Context, key string, body *ADFNode) (*Comment, error)
 
 	// Transitions returns available workflow transitions for an issue.
 	Transitions(ctx context.Context, key string) ([]*Transition, error)

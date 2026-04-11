@@ -1,8 +1,10 @@
 package markdown_test
 
 import (
+	"encoding/json"
 	"testing"
 
+	jira4claude "github.com/fwojciec/jira4claude"
 	"github.com/fwojciec/jira4claude/markdown"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -15,16 +17,16 @@ func TestConverter_ToMarkdown(t *testing.T) {
 		t.Parallel()
 
 		converter := markdown.New()
-		adfDoc := map[string]any{
-			"type":    "doc",
-			"version": 1,
-			"content": []any{
-				map[string]any{
-					"type": "paragraph",
-					"content": []any{
-						map[string]any{
-							"type": "text",
-							"text": "Hello, world!",
+		adfDoc := &jira4claude.ADFNode{
+			Type:    "doc",
+			Version: 1,
+			Content: []jira4claude.ADFNode{
+				{
+					Type: "paragraph",
+					Content: []jira4claude.ADFNode{
+						{
+							Type: "text",
+							Text: "Hello, world!",
 						},
 					},
 				},
@@ -41,29 +43,27 @@ func TestConverter_ToMarkdown(t *testing.T) {
 		t.Parallel()
 
 		converter := markdown.New()
-		adfDoc := map[string]any{
-			"type":    "doc",
-			"version": 1,
-			"content": []any{
-				map[string]any{
-					"type": "paragraph",
-					"content": []any{
-						map[string]any{
-							"type": "text",
-							"text": "This is ",
+		adfDoc := &jira4claude.ADFNode{
+			Type:    "doc",
+			Version: 1,
+			Content: []jira4claude.ADFNode{
+				{
+					Type: "paragraph",
+					Content: []jira4claude.ADFNode{
+						{
+							Type: "text",
+							Text: "This is ",
 						},
-						map[string]any{
-							"type": "text",
-							"text": "bold",
-							"marks": []any{
-								map[string]any{
-									"type": "strong",
-								},
+						{
+							Type: "text",
+							Text: "bold",
+							Marks: []jira4claude.ADFMark{
+								{Type: "strong"},
 							},
 						},
-						map[string]any{
-							"type": "text",
-							"text": " text.",
+						{
+							Type: "text",
+							Text: " text.",
 						},
 					},
 				},
@@ -80,29 +80,27 @@ func TestConverter_ToMarkdown(t *testing.T) {
 		t.Parallel()
 
 		converter := markdown.New()
-		adfDoc := map[string]any{
-			"type":    "doc",
-			"version": 1,
-			"content": []any{
-				map[string]any{
-					"type": "paragraph",
-					"content": []any{
-						map[string]any{
-							"type": "text",
-							"text": "This is ",
+		adfDoc := &jira4claude.ADFNode{
+			Type:    "doc",
+			Version: 1,
+			Content: []jira4claude.ADFNode{
+				{
+					Type: "paragraph",
+					Content: []jira4claude.ADFNode{
+						{
+							Type: "text",
+							Text: "This is ",
 						},
-						map[string]any{
-							"type": "text",
-							"text": "italic",
-							"marks": []any{
-								map[string]any{
-									"type": "em",
-								},
+						{
+							Type: "text",
+							Text: "italic",
+							Marks: []jira4claude.ADFMark{
+								{Type: "em"},
 							},
 						},
-						map[string]any{
-							"type": "text",
-							"text": " text.",
+						{
+							Type: "text",
+							Text: " text.",
 						},
 					},
 				},
@@ -119,29 +117,27 @@ func TestConverter_ToMarkdown(t *testing.T) {
 		t.Parallel()
 
 		converter := markdown.New()
-		adfDoc := map[string]any{
-			"type":    "doc",
-			"version": 1,
-			"content": []any{
-				map[string]any{
-					"type": "paragraph",
-					"content": []any{
-						map[string]any{
-							"type": "text",
-							"text": "Use the ",
+		adfDoc := &jira4claude.ADFNode{
+			Type:    "doc",
+			Version: 1,
+			Content: []jira4claude.ADFNode{
+				{
+					Type: "paragraph",
+					Content: []jira4claude.ADFNode{
+						{
+							Type: "text",
+							Text: "Use the ",
 						},
-						map[string]any{
-							"type": "text",
-							"text": "fmt.Println",
-							"marks": []any{
-								map[string]any{
-									"type": "code",
-								},
+						{
+							Type: "text",
+							Text: "fmt.Println",
+							Marks: []jira4claude.ADFMark{
+								{Type: "code"},
 							},
 						},
-						map[string]any{
-							"type": "text",
-							"text": " function.",
+						{
+							Type: "text",
+							Text: " function.",
 						},
 					},
 				},
@@ -158,19 +154,17 @@ func TestConverter_ToMarkdown(t *testing.T) {
 		t.Parallel()
 
 		converter := markdown.New()
-		adfDoc := map[string]any{
-			"type":    "doc",
-			"version": 1,
-			"content": []any{
-				map[string]any{
-					"type": "codeBlock",
-					"attrs": map[string]any{
-						"language": "go",
-					},
-					"content": []any{
-						map[string]any{
-							"type": "text",
-							"text": "fmt.Println(\"hello\")",
+		adfDoc := &jira4claude.ADFNode{
+			Type:    "doc",
+			Version: 1,
+			Content: []jira4claude.ADFNode{
+				{
+					Type:  "codeBlock",
+					Attrs: json.RawMessage(`{"language":"go"}`),
+					Content: []jira4claude.ADFNode{
+						{
+							Type: "text",
+							Text: "fmt.Println(\"hello\")",
 						},
 					},
 				},
@@ -187,19 +181,17 @@ func TestConverter_ToMarkdown(t *testing.T) {
 		t.Parallel()
 
 		converter := markdown.New()
-		adfDoc := map[string]any{
-			"type":    "doc",
-			"version": 1,
-			"content": []any{
-				map[string]any{
-					"type": "heading",
-					"attrs": map[string]any{
-						"level": 2,
-					},
-					"content": []any{
-						map[string]any{
-							"type": "text",
-							"text": "My Heading",
+		adfDoc := &jira4claude.ADFNode{
+			Type:    "doc",
+			Version: 1,
+			Content: []jira4claude.ADFNode{
+				{
+					Type:  "heading",
+					Attrs: json.RawMessage(`{"level":2}`),
+					Content: []jira4claude.ADFNode{
+						{
+							Type: "text",
+							Text: "My Heading",
 						},
 					},
 				},
@@ -216,37 +208,31 @@ func TestConverter_ToMarkdown(t *testing.T) {
 		t.Parallel()
 
 		converter := markdown.New()
-		adfDoc := map[string]any{
-			"type":    "doc",
-			"version": 1,
-			"content": []any{
-				map[string]any{
-					"type": "bulletList",
-					"content": []any{
-						map[string]any{
-							"type": "listItem",
-							"content": []any{
-								map[string]any{
-									"type": "paragraph",
-									"content": []any{
-										map[string]any{
-											"type": "text",
-											"text": "Item 1",
-										},
+		adfDoc := &jira4claude.ADFNode{
+			Type:    "doc",
+			Version: 1,
+			Content: []jira4claude.ADFNode{
+				{
+					Type: "bulletList",
+					Content: []jira4claude.ADFNode{
+						{
+							Type: "listItem",
+							Content: []jira4claude.ADFNode{
+								{
+									Type: "paragraph",
+									Content: []jira4claude.ADFNode{
+										{Type: "text", Text: "Item 1"},
 									},
 								},
 							},
 						},
-						map[string]any{
-							"type": "listItem",
-							"content": []any{
-								map[string]any{
-									"type": "paragraph",
-									"content": []any{
-										map[string]any{
-											"type": "text",
-											"text": "Item 2",
-										},
+						{
+							Type: "listItem",
+							Content: []jira4claude.ADFNode{
+								{
+									Type: "paragraph",
+									Content: []jira4claude.ADFNode{
+										{Type: "text", Text: "Item 2"},
 									},
 								},
 							},
@@ -266,37 +252,31 @@ func TestConverter_ToMarkdown(t *testing.T) {
 		t.Parallel()
 
 		converter := markdown.New()
-		adfDoc := map[string]any{
-			"type":    "doc",
-			"version": 1,
-			"content": []any{
-				map[string]any{
-					"type": "orderedList",
-					"content": []any{
-						map[string]any{
-							"type": "listItem",
-							"content": []any{
-								map[string]any{
-									"type": "paragraph",
-									"content": []any{
-										map[string]any{
-											"type": "text",
-											"text": "First",
-										},
+		adfDoc := &jira4claude.ADFNode{
+			Type:    "doc",
+			Version: 1,
+			Content: []jira4claude.ADFNode{
+				{
+					Type: "orderedList",
+					Content: []jira4claude.ADFNode{
+						{
+							Type: "listItem",
+							Content: []jira4claude.ADFNode{
+								{
+									Type: "paragraph",
+									Content: []jira4claude.ADFNode{
+										{Type: "text", Text: "First"},
 									},
 								},
 							},
 						},
-						map[string]any{
-							"type": "listItem",
-							"content": []any{
-								map[string]any{
-									"type": "paragraph",
-									"content": []any{
-										map[string]any{
-											"type": "text",
-											"text": "Second",
-										},
+						{
+							Type: "listItem",
+							Content: []jira4claude.ADFNode{
+								{
+									Type: "paragraph",
+									Content: []jira4claude.ADFNode{
+										{Type: "text", Text: "Second"},
 									},
 								},
 							},
@@ -316,32 +296,30 @@ func TestConverter_ToMarkdown(t *testing.T) {
 		t.Parallel()
 
 		converter := markdown.New()
-		adfDoc := map[string]any{
-			"type":    "doc",
-			"version": 1,
-			"content": []any{
-				map[string]any{
-					"type": "paragraph",
-					"content": []any{
-						map[string]any{
-							"type": "text",
-							"text": "Visit ",
+		adfDoc := &jira4claude.ADFNode{
+			Type:    "doc",
+			Version: 1,
+			Content: []jira4claude.ADFNode{
+				{
+					Type: "paragraph",
+					Content: []jira4claude.ADFNode{
+						{
+							Type: "text",
+							Text: "Visit ",
 						},
-						map[string]any{
-							"type": "text",
-							"text": "Google",
-							"marks": []any{
-								map[string]any{
-									"type": "link",
-									"attrs": map[string]any{
-										"href": "https://google.com",
-									},
+						{
+							Type: "text",
+							Text: "Google",
+							Marks: []jira4claude.ADFMark{
+								{
+									Type:  "link",
+									Attrs: json.RawMessage(`{"href":"https://google.com"}`),
 								},
 							},
 						},
-						map[string]any{
-							"type": "text",
-							"text": " for more.",
+						{
+							Type: "text",
+							Text: " for more.",
 						},
 					},
 				},
@@ -358,19 +336,19 @@ func TestConverter_ToMarkdown(t *testing.T) {
 		t.Parallel()
 
 		converter := markdown.New()
-		adfDoc := map[string]any{
-			"type":    "doc",
-			"version": 1,
-			"content": []any{
-				map[string]any{
-					"type": "blockquote",
-					"content": []any{
-						map[string]any{
-							"type": "paragraph",
-							"content": []any{
-								map[string]any{
-									"type": "text",
-									"text": "This is a quote.",
+		adfDoc := &jira4claude.ADFNode{
+			Type:    "doc",
+			Version: 1,
+			Content: []jira4claude.ADFNode{
+				{
+					Type: "blockquote",
+					Content: []jira4claude.ADFNode{
+						{
+							Type: "paragraph",
+							Content: []jira4claude.ADFNode{
+								{
+									Type: "text",
+									Text: "This is a quote.",
 								},
 							},
 						},
@@ -389,25 +367,25 @@ func TestConverter_ToMarkdown(t *testing.T) {
 		t.Parallel()
 
 		converter := markdown.New()
-		adfDoc := map[string]any{
-			"type":    "doc",
-			"version": 1,
-			"content": []any{
-				map[string]any{
-					"type": "paragraph",
-					"content": []any{
-						map[string]any{
-							"type": "text",
-							"text": "First paragraph.",
+		adfDoc := &jira4claude.ADFNode{
+			Type:    "doc",
+			Version: 1,
+			Content: []jira4claude.ADFNode{
+				{
+					Type: "paragraph",
+					Content: []jira4claude.ADFNode{
+						{
+							Type: "text",
+							Text: "First paragraph.",
 						},
 					},
 				},
-				map[string]any{
-					"type": "paragraph",
-					"content": []any{
-						map[string]any{
-							"type": "text",
-							"text": "Second paragraph.",
+				{
+					Type: "paragraph",
+					Content: []jira4claude.ADFNode{
+						{
+							Type: "text",
+							Text: "Second paragraph.",
 						},
 					},
 				},
@@ -424,32 +402,28 @@ func TestConverter_ToMarkdown(t *testing.T) {
 		t.Parallel()
 
 		converter := markdown.New()
-		adfDoc := map[string]any{
-			"type":    "doc",
-			"version": 1,
-			"content": []any{
-				map[string]any{
-					"type": "paragraph",
-					"content": []any{
-						map[string]any{
-							"type": "text",
-							"text": "This is ",
+		adfDoc := &jira4claude.ADFNode{
+			Type:    "doc",
+			Version: 1,
+			Content: []jira4claude.ADFNode{
+				{
+					Type: "paragraph",
+					Content: []jira4claude.ADFNode{
+						{
+							Type: "text",
+							Text: "This is ",
 						},
-						map[string]any{
-							"type": "text",
-							"text": "bold and italic",
-							"marks": []any{
-								map[string]any{
-									"type": "em",
-								},
-								map[string]any{
-									"type": "strong",
-								},
+						{
+							Type: "text",
+							Text: "bold and italic",
+							Marks: []jira4claude.ADFMark{
+								{Type: "em"},
+								{Type: "strong"},
 							},
 						},
-						map[string]any{
-							"type": "text",
-							"text": " text.",
+						{
+							Type: "text",
+							Text: " text.",
 						},
 					},
 				},
@@ -476,10 +450,10 @@ func TestConverter_ToMarkdown(t *testing.T) {
 		t.Parallel()
 
 		converter := markdown.New()
-		adfDoc := map[string]any{
-			"type":    "doc",
-			"version": 1,
-			"content": []any{},
+		adfDoc := &jira4claude.ADFNode{
+			Type:    "doc",
+			Version: 1,
+			Content: []jira4claude.ADFNode{},
 		}
 
 		result, warnings := converter.ToMarkdown(adfDoc)
@@ -493,29 +467,29 @@ func TestConverter_ToMarkdown(t *testing.T) {
 
 		converter := markdown.New()
 		// ADF with an unsupported node type (e.g., "panel")
-		adfDoc := map[string]any{
-			"type":    "doc",
-			"version": 1,
-			"content": []any{
-				map[string]any{
-					"type": "paragraph",
-					"content": []any{
-						map[string]any{
-							"type": "text",
-							"text": "Before",
+		adfDoc := &jira4claude.ADFNode{
+			Type:    "doc",
+			Version: 1,
+			Content: []jira4claude.ADFNode{
+				{
+					Type: "paragraph",
+					Content: []jira4claude.ADFNode{
+						{
+							Type: "text",
+							Text: "Before",
 						},
 					},
 				},
-				map[string]any{
-					"type":    "panel",
-					"content": []any{},
+				{
+					Type:    "panel",
+					Content: []jira4claude.ADFNode{},
 				},
-				map[string]any{
-					"type": "paragraph",
-					"content": []any{
-						map[string]any{
-							"type": "text",
-							"text": "After",
+				{
+					Type: "paragraph",
+					Content: []jira4claude.ADFNode{
+						{
+							Type: "text",
+							Text: "After",
 						},
 					},
 				},
@@ -537,33 +511,33 @@ func TestConverter_ToMarkdown(t *testing.T) {
 
 		converter := markdown.New()
 		// ADF with multiple unsupported node types
-		adfDoc := map[string]any{
-			"type":    "doc",
-			"version": 1,
-			"content": []any{
-				map[string]any{
-					"type": "paragraph",
-					"content": []any{
-						map[string]any{
-							"type": "text",
-							"text": "Start",
+		adfDoc := &jira4claude.ADFNode{
+			Type:    "doc",
+			Version: 1,
+			Content: []jira4claude.ADFNode{
+				{
+					Type: "paragraph",
+					Content: []jira4claude.ADFNode{
+						{
+							Type: "text",
+							Text: "Start",
 						},
 					},
 				},
-				map[string]any{
-					"type":    "panel",
-					"content": []any{},
+				{
+					Type:    "panel",
+					Content: []jira4claude.ADFNode{},
 				},
-				map[string]any{
-					"type":    "expand",
-					"content": []any{},
+				{
+					Type:    "expand",
+					Content: []jira4claude.ADFNode{},
 				},
-				map[string]any{
-					"type": "paragraph",
-					"content": []any{
-						map[string]any{
-							"type": "text",
-							"text": "End",
+				{
+					Type: "paragraph",
+					Content: []jira4claude.ADFNode{
+						{
+							Type: "text",
+							Text: "End",
 						},
 					},
 				},
@@ -585,16 +559,16 @@ func TestConverter_ToMarkdown(t *testing.T) {
 		t.Parallel()
 
 		converter := markdown.New()
-		adfDoc := map[string]any{
-			"type":    "doc",
-			"version": 1,
-			"content": []any{
-				map[string]any{
-					"type": "paragraph",
-					"content": []any{
-						map[string]any{
-							"type": "text",
-							"text": "Hello",
+		adfDoc := &jira4claude.ADFNode{
+			Type:    "doc",
+			Version: 1,
+			Content: []jira4claude.ADFNode{
+				{
+					Type: "paragraph",
+					Content: []jira4claude.ADFNode{
+						{
+							Type: "text",
+							Text: "Hello",
 						},
 					},
 				},
@@ -610,22 +584,20 @@ func TestConverter_ToMarkdown(t *testing.T) {
 	t.Run("handles heading level as float64 from JSON unmarshaling", func(t *testing.T) {
 		t.Parallel()
 
-		// When ADF is unmarshaled from JSON, numbers become float64.
-		// This test verifies the float64 code path in adfHeadingToGFM.
+		// With typed structs, JSON unmarshaling produces proper int values via
+		// json.RawMessage. This test verifies heading level 3 works correctly.
 		converter := markdown.New()
-		adfDoc := map[string]any{
-			"type":    "doc",
-			"version": 1,
-			"content": []any{
-				map[string]any{
-					"type": "heading",
-					"attrs": map[string]any{
-						"level": float64(3), // Simulates JSON unmarshaling
-					},
-					"content": []any{
-						map[string]any{
-							"type": "text",
-							"text": "Level 3 Heading",
+		adfDoc := &jira4claude.ADFNode{
+			Type:    "doc",
+			Version: 1,
+			Content: []jira4claude.ADFNode{
+				{
+					Type:  "heading",
+					Attrs: json.RawMessage(`{"level":3}`),
+					Content: []jira4claude.ADFNode{
+						{
+							Type: "text",
+							Text: "Level 3 Heading",
 						},
 					},
 				},
@@ -643,17 +615,17 @@ func TestConverter_ToMarkdown(t *testing.T) {
 
 		// When attrs are missing entirely, should default to level 1.
 		converter := markdown.New()
-		adfDoc := map[string]any{
-			"type":    "doc",
-			"version": 1,
-			"content": []any{
-				map[string]any{
-					"type": "heading",
+		adfDoc := &jira4claude.ADFNode{
+			Type:    "doc",
+			Version: 1,
+			Content: []jira4claude.ADFNode{
+				{
+					Type: "heading",
 					// No attrs - level should default to 1
-					"content": []any{
-						map[string]any{
-							"type": "text",
-							"text": "Default Heading",
+					Content: []jira4claude.ADFNode{
+						{
+							Type: "text",
+							Text: "Default Heading",
 						},
 					},
 				},
@@ -670,28 +642,28 @@ func TestConverter_ToMarkdown(t *testing.T) {
 		t.Parallel()
 
 		converter := markdown.New()
-		adfDoc := map[string]any{
-			"type":    "doc",
-			"version": 1,
-			"content": []any{
-				map[string]any{
-					"type": "paragraph",
-					"content": []any{
-						map[string]any{
-							"type": "text",
-							"text": "Above",
+		adfDoc := &jira4claude.ADFNode{
+			Type:    "doc",
+			Version: 1,
+			Content: []jira4claude.ADFNode{
+				{
+					Type: "paragraph",
+					Content: []jira4claude.ADFNode{
+						{
+							Type: "text",
+							Text: "Above",
 						},
 					},
 				},
-				map[string]any{
-					"type": "rule",
+				{
+					Type: "rule",
 				},
-				map[string]any{
-					"type": "paragraph",
-					"content": []any{
-						map[string]any{
-							"type": "text",
-							"text": "Below",
+				{
+					Type: "paragraph",
+					Content: []jira4claude.ADFNode{
+						{
+							Type: "text",
+							Text: "Below",
 						},
 					},
 				},
@@ -708,61 +680,61 @@ func TestConverter_ToMarkdown(t *testing.T) {
 		t.Parallel()
 
 		converter := markdown.New()
-		adfDoc := map[string]any{
-			"type":    "doc",
-			"version": 1,
-			"content": []any{
-				map[string]any{
-					"type": "table",
-					"content": []any{
-						map[string]any{
-							"type": "tableRow",
-							"content": []any{
-								map[string]any{
-									"type": "tableHeader",
-									"content": []any{
-										map[string]any{
-											"type": "paragraph",
-											"content": []any{
-												map[string]any{"type": "text", "text": "Name"},
+		adfDoc := &jira4claude.ADFNode{
+			Type:    "doc",
+			Version: 1,
+			Content: []jira4claude.ADFNode{
+				{
+					Type: "table",
+					Content: []jira4claude.ADFNode{
+						{
+							Type: "tableRow",
+							Content: []jira4claude.ADFNode{
+								{
+									Type: "tableHeader",
+									Content: []jira4claude.ADFNode{
+										{
+											Type: "paragraph",
+											Content: []jira4claude.ADFNode{
+												{Type: "text", Text: "Name"},
 											},
 										},
 									},
 								},
-								map[string]any{
-									"type": "tableHeader",
-									"content": []any{
-										map[string]any{
-											"type": "paragraph",
-											"content": []any{
-												map[string]any{"type": "text", "text": "Value"},
+								{
+									Type: "tableHeader",
+									Content: []jira4claude.ADFNode{
+										{
+											Type: "paragraph",
+											Content: []jira4claude.ADFNode{
+												{Type: "text", Text: "Value"},
 											},
 										},
 									},
 								},
 							},
 						},
-						map[string]any{
-							"type": "tableRow",
-							"content": []any{
-								map[string]any{
-									"type": "tableCell",
-									"content": []any{
-										map[string]any{
-											"type": "paragraph",
-											"content": []any{
-												map[string]any{"type": "text", "text": "foo"},
+						{
+							Type: "tableRow",
+							Content: []jira4claude.ADFNode{
+								{
+									Type: "tableCell",
+									Content: []jira4claude.ADFNode{
+										{
+											Type: "paragraph",
+											Content: []jira4claude.ADFNode{
+												{Type: "text", Text: "foo"},
 											},
 										},
 									},
 								},
-								map[string]any{
-									"type": "tableCell",
-									"content": []any{
-										map[string]any{
-											"type": "paragraph",
-											"content": []any{
-												map[string]any{"type": "text", "text": "bar"},
+								{
+									Type: "tableCell",
+									Content: []jira4claude.ADFNode{
+										{
+											Type: "paragraph",
+											Content: []jira4claude.ADFNode{
+												{Type: "text", Text: "bar"},
 											},
 										},
 									},
@@ -784,34 +756,34 @@ func TestConverter_ToMarkdown(t *testing.T) {
 		t.Parallel()
 
 		converter := markdown.New()
-		adfDoc := map[string]any{
-			"type":    "doc",
-			"version": 1,
-			"content": []any{
-				map[string]any{
-					"type": "table",
-					"content": []any{
-						map[string]any{
-							"type": "tableRow",
-							"content": []any{
-								map[string]any{
-									"type": "tableCell",
-									"content": []any{
-										map[string]any{
-											"type": "paragraph",
-											"content": []any{
-												map[string]any{"type": "text", "text": "a"},
+		adfDoc := &jira4claude.ADFNode{
+			Type:    "doc",
+			Version: 1,
+			Content: []jira4claude.ADFNode{
+				{
+					Type: "table",
+					Content: []jira4claude.ADFNode{
+						{
+							Type: "tableRow",
+							Content: []jira4claude.ADFNode{
+								{
+									Type: "tableCell",
+									Content: []jira4claude.ADFNode{
+										{
+											Type: "paragraph",
+											Content: []jira4claude.ADFNode{
+												{Type: "text", Text: "a"},
 											},
 										},
 									},
 								},
-								map[string]any{
-									"type": "tableCell",
-									"content": []any{
-										map[string]any{
-											"type": "paragraph",
-											"content": []any{
-												map[string]any{"type": "text", "text": "b"},
+								{
+									Type: "tableCell",
+									Content: []jira4claude.ADFNode{
+										{
+											Type: "paragraph",
+											Content: []jira4claude.ADFNode{
+												{Type: "text", Text: "b"},
 											},
 										},
 									},
@@ -834,39 +806,39 @@ func TestConverter_ToMarkdown(t *testing.T) {
 		t.Parallel()
 
 		converter := markdown.New()
-		adfDoc := map[string]any{
-			"type":    "doc",
-			"version": 1,
-			"content": []any{
-				map[string]any{
-					"type": "table",
-					"content": []any{
-						map[string]any{
-							"type": "tableRow",
-							"content": []any{
-								map[string]any{
-									"type": "tableHeader",
-									"content": []any{
-										map[string]any{
-											"type": "paragraph",
-											"content": []any{
-												map[string]any{"type": "text", "text": "Col"},
+		adfDoc := &jira4claude.ADFNode{
+			Type:    "doc",
+			Version: 1,
+			Content: []jira4claude.ADFNode{
+				{
+					Type: "table",
+					Content: []jira4claude.ADFNode{
+						{
+							Type: "tableRow",
+							Content: []jira4claude.ADFNode{
+								{
+									Type: "tableHeader",
+									Content: []jira4claude.ADFNode{
+										{
+											Type: "paragraph",
+											Content: []jira4claude.ADFNode{
+												{Type: "text", Text: "Col"},
 											},
 										},
 									},
 								},
 							},
 						},
-						map[string]any{
-							"type": "tableRow",
-							"content": []any{
-								map[string]any{
-									"type": "tableCell",
-									"content": []any{
-										map[string]any{
-											"type": "paragraph",
-											"content": []any{
-												map[string]any{"type": "text", "text": "foo | bar"},
+						{
+							Type: "tableRow",
+							Content: []jira4claude.ADFNode{
+								{
+									Type: "tableCell",
+									Content: []jira4claude.ADFNode{
+										{
+											Type: "paragraph",
+											Content: []jira4claude.ADFNode{
+												{Type: "text", Text: "foo | bar"},
 											},
 										},
 									},
@@ -888,37 +860,33 @@ func TestConverter_ToMarkdown(t *testing.T) {
 		t.Parallel()
 
 		converter := markdown.New()
-		adfDoc := map[string]any{
-			"type":    "doc",
-			"version": 1,
-			"content": []any{
-				map[string]any{
-					"type": "taskList",
-					"content": []any{
-						map[string]any{
-							"type": "taskItem",
-							"attrs": map[string]any{
-								"state": "TODO",
-							},
-							"content": []any{
-								map[string]any{
-									"type": "paragraph",
-									"content": []any{
-										map[string]any{"type": "text", "text": "Buy milk"},
+		adfDoc := &jira4claude.ADFNode{
+			Type:    "doc",
+			Version: 1,
+			Content: []jira4claude.ADFNode{
+				{
+					Type: "taskList",
+					Content: []jira4claude.ADFNode{
+						{
+							Type:  "taskItem",
+							Attrs: json.RawMessage(`{"state":"TODO"}`),
+							Content: []jira4claude.ADFNode{
+								{
+									Type: "paragraph",
+									Content: []jira4claude.ADFNode{
+										{Type: "text", Text: "Buy milk"},
 									},
 								},
 							},
 						},
-						map[string]any{
-							"type": "taskItem",
-							"attrs": map[string]any{
-								"state": "DONE",
-							},
-							"content": []any{
-								map[string]any{
-									"type": "paragraph",
-									"content": []any{
-										map[string]any{"type": "text", "text": "Write code"},
+						{
+							Type:  "taskItem",
+							Attrs: json.RawMessage(`{"state":"DONE"}`),
+							Content: []jira4claude.ADFNode{
+								{
+									Type: "paragraph",
+									Content: []jira4claude.ADFNode{
+										{Type: "text", Text: "Write code"},
 									},
 								},
 							},
@@ -938,41 +906,41 @@ func TestConverter_ToMarkdown(t *testing.T) {
 		t.Parallel()
 
 		converter := markdown.New()
-		adfDoc := map[string]any{
-			"type":    "doc",
-			"version": 1,
-			"content": []any{
-				map[string]any{
-					"type": "table",
-					"content": []any{
-						map[string]any{
-							"type": "tableRow",
-							"content": []any{
-								map[string]any{
-									"type": "tableHeader",
-									"content": []any{
-										map[string]any{
-											"type": "paragraph",
-											"content": []any{
-												map[string]any{"type": "text", "text": "Col"},
+		adfDoc := &jira4claude.ADFNode{
+			Type:    "doc",
+			Version: 1,
+			Content: []jira4claude.ADFNode{
+				{
+					Type: "table",
+					Content: []jira4claude.ADFNode{
+						{
+							Type: "tableRow",
+							Content: []jira4claude.ADFNode{
+								{
+									Type: "tableHeader",
+									Content: []jira4claude.ADFNode{
+										{
+											Type: "paragraph",
+											Content: []jira4claude.ADFNode{
+												{Type: "text", Text: "Col"},
 											},
 										},
 									},
 								},
 							},
 						},
-						map[string]any{
-							"type": "tableRow",
-							"content": []any{
-								map[string]any{
-									"type": "tableCell",
-									"content": []any{
-										map[string]any{
-											"type": "paragraph",
-											"content": []any{
-												map[string]any{"type": "text", "text": "line1"},
-												map[string]any{"type": "hardBreak"},
-												map[string]any{"type": "text", "text": "line2"},
+						{
+							Type: "tableRow",
+							Content: []jira4claude.ADFNode{
+								{
+									Type: "tableCell",
+									Content: []jira4claude.ADFNode{
+										{
+											Type: "paragraph",
+											Content: []jira4claude.ADFNode{
+												{Type: "text", Text: "line1"},
+												{Type: "hardBreak"},
+												{Type: "text", Text: "line2"},
 											},
 										},
 									},
@@ -995,13 +963,13 @@ func TestConverter_ToMarkdown(t *testing.T) {
 		t.Parallel()
 
 		converter := markdown.New()
-		adfDoc := map[string]any{
-			"type":    "doc",
-			"version": 1,
-			"content": []any{
-				map[string]any{
-					"type":    "table",
-					"content": []any{},
+		adfDoc := &jira4claude.ADFNode{
+			Type:    "doc",
+			Version: 1,
+			Content: []jira4claude.ADFNode{
+				{
+					Type:    "table",
+					Content: []jira4claude.ADFNode{},
 				},
 			},
 		}
@@ -1016,21 +984,21 @@ func TestConverter_ToMarkdown(t *testing.T) {
 		t.Parallel()
 
 		converter := markdown.New()
-		adfDoc := map[string]any{
-			"type":    "doc",
-			"version": 1,
-			"content": []any{
-				map[string]any{
-					"type": "taskList",
-					"content": []any{
-						map[string]any{
-							"type": "taskItem",
+		adfDoc := &jira4claude.ADFNode{
+			Type:    "doc",
+			Version: 1,
+			Content: []jira4claude.ADFNode{
+				{
+					Type: "taskList",
+					Content: []jira4claude.ADFNode{
+						{
+							Type: "taskItem",
 							// No attrs at all
-							"content": []any{
-								map[string]any{
-									"type": "paragraph",
-									"content": []any{
-										map[string]any{"type": "text", "text": "No state"},
+							Content: []jira4claude.ADFNode{
+								{
+									Type: "paragraph",
+									Content: []jira4claude.ADFNode{
+										{Type: "text", Text: "No state"},
 									},
 								},
 							},
@@ -1051,19 +1019,17 @@ func TestConverter_ToMarkdown(t *testing.T) {
 
 		// When attrs exist but level is missing, should default to level 1.
 		converter := markdown.New()
-		adfDoc := map[string]any{
-			"type":    "doc",
-			"version": 1,
-			"content": []any{
-				map[string]any{
-					"type":  "heading",
-					"attrs": map[string]any{
-						// level is missing
-					},
-					"content": []any{
-						map[string]any{
-							"type": "text",
-							"text": "Default Heading",
+		adfDoc := &jira4claude.ADFNode{
+			Type:    "doc",
+			Version: 1,
+			Content: []jira4claude.ADFNode{
+				{
+					Type:  "heading",
+					Attrs: json.RawMessage(`{}`),
+					Content: []jira4claude.ADFNode{
+						{
+							Type: "text",
+							Text: "Default Heading",
 						},
 					},
 				},
@@ -1084,19 +1050,19 @@ func TestConverter_ToMarkdown(t *testing.T) {
 		// (e.g., inside a listItem without a wrapping paragraph).
 		// These should still be rendered as text content in the surrounding
 		// structure and should not produce a warning.
-		adfDoc := map[string]any{
-			"type":    "doc",
-			"version": 1,
-			"content": []any{
-				map[string]any{
-					"type": "bulletList",
-					"content": []any{
-						map[string]any{
-							"type": "listItem",
-							"content": []any{
-								map[string]any{
-									"type": "text",
-									"text": "bare text node",
+		adfDoc := &jira4claude.ADFNode{
+			Type:    "doc",
+			Version: 1,
+			Content: []jira4claude.ADFNode{
+				{
+					Type: "bulletList",
+					Content: []jira4claude.ADFNode{
+						{
+							Type: "listItem",
+							Content: []jira4claude.ADFNode{
+								{
+									Type: "text",
+									Text: "bare text node",
 								},
 							},
 						},
@@ -1115,21 +1081,21 @@ func TestConverter_ToMarkdown(t *testing.T) {
 		t.Parallel()
 
 		converter := markdown.New()
-		adfDoc := map[string]any{
-			"type":    "doc",
-			"version": 1,
-			"content": []any{
-				map[string]any{
-					"type": "bulletList",
-					"content": []any{
-						map[string]any{
-							"type": "listItem",
-							"content": []any{
-								map[string]any{
-									"type": "text",
-									"text": "bold text",
-									"marks": []any{
-										map[string]any{"type": "strong"},
+		adfDoc := &jira4claude.ADFNode{
+			Type:    "doc",
+			Version: 1,
+			Content: []jira4claude.ADFNode{
+				{
+					Type: "bulletList",
+					Content: []jira4claude.ADFNode{
+						{
+							Type: "listItem",
+							Content: []jira4claude.ADFNode{
+								{
+									Type: "text",
+									Text: "bold text",
+									Marks: []jira4claude.ADFMark{
+										{Type: "strong"},
 									},
 								},
 							},

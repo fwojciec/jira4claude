@@ -2,6 +2,7 @@ package main_test
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -15,38 +16,28 @@ import (
 // mockConverter returns a converter that creates valid ADF from markdown.
 func mockConverter() *mock.Converter {
 	return &mock.Converter{
-		ToADFFn: func(markdown string) (jira4claude.ADF, []string) {
-			return jira4claude.ADF{
-				"type":    "doc",
-				"version": 1,
-				"content": []any{
-					map[string]any{
-						"type": "paragraph",
-						"content": []any{
-							map[string]any{
-								"type": "text",
-								"text": markdown,
+		ToADFFn: func(markdown string) (*jira4claude.ADFNode, []string) {
+			return &jira4claude.ADFNode{
+				Type:    "doc",
+				Version: 1,
+				Content: []jira4claude.ADFNode{
+					{
+						Type: "paragraph",
+						Content: []jira4claude.ADFNode{
+							{
+								Type: "text",
+								Text: markdown,
 							},
 						},
 					},
 				},
 			}, nil
 		},
-		ToMarkdownFn: func(adf jira4claude.ADF) (string, []string) {
+		ToMarkdownFn: func(adf *jira4claude.ADFNode) (string, []string) {
 			var result string
-			if content, ok := adf["content"].([]any); ok {
-				for _, block := range content {
-					if para, ok := block.(map[string]any); ok {
-						if paraContent, ok := para["content"].([]any); ok {
-							for _, node := range paraContent {
-								if textNode, ok := node.(map[string]any); ok {
-									if text, ok := textNode["text"].(string); ok {
-										result += text
-									}
-								}
-							}
-						}
-					}
+			for _, block := range adf.Content {
+				for _, node := range block.Content {
+					result += node.Text
 				}
 			}
 			return result, nil
@@ -196,8 +187,8 @@ func TestIssueCreateCmd(t *testing.T) {
 
 		require.NoError(t, err)
 		require.NotNil(t, capturedIssue)
-		// Description should be ADF (map[string]any)
-		assert.Equal(t, "doc", capturedIssue.Description["type"])
+		// Description should be ADF
+		assert.Equal(t, "doc", capturedIssue.Description.Type)
 	})
 
 	t.Run("plain text input is valid GFM", func(t *testing.T) {
@@ -227,7 +218,7 @@ func TestIssueCreateCmd(t *testing.T) {
 		require.NoError(t, err)
 		require.NotNil(t, capturedIssue)
 		// Plain text is valid GFM and should be converted to ADF
-		assert.Equal(t, "doc", capturedIssue.Description["type"])
+		assert.Equal(t, "doc", capturedIssue.Description.Type)
 	})
 
 	t.Run("skips conversion when description is empty", func(t *testing.T) {
@@ -508,8 +499,8 @@ func TestIssueUpdateCmd(t *testing.T) {
 
 		require.NoError(t, err)
 		require.NotNil(t, capturedUpdate.Description)
-		// Description should be ADF (map[string]any)
-		assert.Equal(t, "doc", (*capturedUpdate.Description)["type"])
+		// Description should be ADF
+		assert.Equal(t, "doc", (*capturedUpdate.Description).Type)
 	})
 
 	t.Run("plain text input is valid GFM", func(t *testing.T) {
@@ -537,7 +528,7 @@ func TestIssueUpdateCmd(t *testing.T) {
 		require.NoError(t, err)
 		require.NotNil(t, capturedUpdate.Description)
 		// Plain text is valid GFM and should be converted to ADF
-		assert.Equal(t, "doc", (*capturedUpdate.Description)["type"])
+		assert.Equal(t, "doc", (*capturedUpdate.Description).Type)
 	})
 
 	t.Run("skips conversion when description is empty", func(t *testing.T) {
@@ -804,9 +795,9 @@ func TestIssueCommentCmd(t *testing.T) {
 	t.Run("always converts body as GFM", func(t *testing.T) {
 		t.Parallel()
 
-		var capturedBody jira4claude.ADF
+		var capturedBody *jira4claude.ADFNode
 		svc := &mock.IssueService{
-			AddCommentFn: func(ctx context.Context, key string, body jira4claude.ADF) (*jira4claude.Comment, error) {
+			AddCommentFn: func(ctx context.Context, key string, body *jira4claude.ADFNode) (*jira4claude.Comment, error) {
 				capturedBody = body
 				return &jira4claude.Comment{
 					ID:      "12345",
@@ -828,16 +819,16 @@ func TestIssueCommentCmd(t *testing.T) {
 		err := cmd.Run(ctx)
 
 		require.NoError(t, err)
-		// Body should be ADF (map[string]any)
-		assert.Equal(t, "doc", capturedBody["type"])
+		// Body should be ADF
+		assert.Equal(t, "doc", capturedBody.Type)
 	})
 
 	t.Run("plain text input is valid GFM", func(t *testing.T) {
 		t.Parallel()
 
-		var capturedBody jira4claude.ADF
+		var capturedBody *jira4claude.ADFNode
 		svc := &mock.IssueService{
-			AddCommentFn: func(ctx context.Context, key string, body jira4claude.ADF) (*jira4claude.Comment, error) {
+			AddCommentFn: func(ctx context.Context, key string, body *jira4claude.ADFNode) (*jira4claude.Comment, error) {
 				capturedBody = body
 				return &jira4claude.Comment{
 					ID:      "12345",
@@ -860,7 +851,7 @@ func TestIssueCommentCmd(t *testing.T) {
 
 		require.NoError(t, err)
 		// Plain text is valid GFM and should be converted to ADF
-		assert.Equal(t, "doc", capturedBody["type"])
+		assert.Equal(t, "doc", capturedBody.Type)
 	})
 }
 
@@ -1175,19 +1166,17 @@ func TestIssueViewCmd(t *testing.T) {
 					Summary: "Test issue",
 					Status:  "To Do",
 					Type:    "Task",
-					Description: jira4claude.ADF{
-						"type":    "doc",
-						"version": 1,
-						"content": []any{
-							map[string]any{
-								"type": "heading",
-								"attrs": map[string]any{
-									"level": 1,
-								},
-								"content": []any{
-									map[string]any{
-										"type": "text",
-										"text": "Hello",
+					Description: &jira4claude.ADFNode{
+						Type:    "doc",
+						Version: 1,
+						Content: []jira4claude.ADFNode{
+							{
+								Type:  "heading",
+								Attrs: json.RawMessage(`{"level":1}`),
+								Content: []jira4claude.ADFNode{
+									{
+										Type: "text",
+										Text: "Hello",
 									},
 								},
 							},
@@ -1258,22 +1247,22 @@ func TestIssueViewCmd(t *testing.T) {
 						{
 							ID:     "10001",
 							Author: &jira4claude.User{DisplayName: "John Doe"},
-							Body: jira4claude.ADF{
-								"type":    "doc",
-								"version": 1,
-								"content": []any{
-									map[string]any{
-										"type": "paragraph",
-										"content": []any{
-											map[string]any{
-												"type": "text",
-												"text": "Comment with ",
+							Body: &jira4claude.ADFNode{
+								Type:    "doc",
+								Version: 1,
+								Content: []jira4claude.ADFNode{
+									{
+										Type: "paragraph",
+										Content: []jira4claude.ADFNode{
+											{
+												Type: "text",
+												Text: "Comment with ",
 											},
-											map[string]any{
-												"type": "text",
-												"text": "bold",
-												"marks": []any{
-													map[string]any{"type": "strong"},
+											{
+												Type: "text",
+												Text: "bold",
+												Marks: []jira4claude.ADFMark{
+													{Type: "strong"},
 												},
 											},
 										},

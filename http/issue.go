@@ -252,7 +252,7 @@ func (s *IssueService) Delete(ctx context.Context, key string) error {
 }
 
 // AddComment adds a comment to an issue.
-func (s *IssueService) AddComment(ctx context.Context, key string, body jira4claude.ADF) (*jira4claude.Comment, error) {
+func (s *IssueService) AddComment(ctx context.Context, key string, body *jira4claude.ADFNode) (*jira4claude.Comment, error) {
 	reqBody := map[string]any{
 		"body": body,
 	}
@@ -340,7 +340,7 @@ type issueResponse struct {
 	Fields struct {
 		Project     struct{ Key string }  `json:"project"`
 		Summary     string                `json:"summary"`
-		Description map[string]any        `json:"description"`
+		Description *jira4claude.ADFNode  `json:"description"`
 		Status      struct{ Name string } `json:"status"`
 		IssueType   struct{ Name string } `json:"issuetype"`
 		Priority    struct{ Name string } `json:"priority"`
@@ -364,10 +364,10 @@ type commentsResponse struct {
 
 // commentAPIResponse represents a single comment in the issue response.
 type commentAPIResponse struct {
-	ID      string         `json:"id"`
-	Author  *userResponse  `json:"author"`
-	Body    map[string]any `json:"body"`
-	Created string         `json:"created"`
+	ID      string               `json:"id"`
+	Author  *userResponse        `json:"author"`
+	Body    *jira4claude.ADFNode `json:"body"`
+	Created string               `json:"created"`
 }
 
 // issueLinkResponse represents a link in the Jira API response.
@@ -668,10 +668,10 @@ func (s *IssueService) findLinkID(ctx context.Context, key1, key2 string) (strin
 
 // commentResponse represents the JSON structure returned by Jira API for a comment.
 type commentResponse struct {
-	ID      string         `json:"id"`
-	Author  *userResponse  `json:"author"`
-	Body    map[string]any `json:"body"`
-	Created string         `json:"created"`
+	ID      string               `json:"id"`
+	Author  *userResponse        `json:"author"`
+	Body    *jira4claude.ADFNode `json:"body"`
+	Created string               `json:"created"`
 }
 
 // parseCommentResponse parses the JSON response from Jira into a domain Comment.

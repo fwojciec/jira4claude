@@ -17,12 +17,14 @@ func New() *Converter {
 
 // ToADF converts GitHub-flavored markdown to ADF.
 // Returns the ADF document and any warnings about skipped/unsupported content.
-func (c *Converter) ToADF(markdown string) (jira4claude.ADF, []string) {
+// Always returns a non-nil *ADFNode, even for empty input.
+func (c *Converter) ToADF(markdown string) (*jira4claude.ADFNode, []string) {
 	return toADF(markdown)
 }
 
 // ToMarkdown converts ADF to GitHub-flavored markdown.
 // Returns the markdown string and any warnings about skipped/unsupported content.
-func (c *Converter) ToMarkdown(adfDoc jira4claude.ADF) (string, []string) {
+// If adfDoc is nil, returns an empty string.
+func (c *Converter) ToMarkdown(adfDoc *jira4claude.ADFNode) (string, []string) {
 	return toMarkdown(adfDoc)
 }

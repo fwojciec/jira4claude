@@ -1,10 +1,12 @@
 package markdown
 
 import (
+	"encoding/json"
 	"fmt"
 	"reflect"
 	"sort"
 
+	"github.com/fwojciec/jira4claude"
 	"github.com/yuin/goldmark"
 	"github.com/yuin/goldmark/ast"
 	"github.com/yuin/goldmark/extension"
@@ -48,7 +50,8 @@ func (s *skippedCollector) warnings() []string {
 // toADF converts GitHub-flavored markdown to Atlassian Document Format (ADF).
 // The result can be used directly in Jira API requests for description and comment fields.
 // Returns warnings for any elements that were skipped during conversion.
-func toADF(markdown string) (map[string]any, []string) {
+// Always returns a non-nil *ADFNode.
+func toADF(markdown string) (*jira4claude.ADFNode, []string) {
 	markdown = NormalizeUnicode(markdown)
 
 	md := goldmark.New(
@@ -64,23 +67,23 @@ func toADF(markdown string) (map[string]any, []string) {
 	skipped := newSkippedCollector()
 	content := convertNode(doc, []byte(markdown), skipped)
 	if content == nil {
-		content = []any{}
+		content = []jira4claude.ADFNode{}
 	}
 
-	return map[string]any{
-		"type":    "doc",
-		"version": 1,
-		"content": content,
+	return &jira4claude.ADFNode{
+		Type:    "doc",
+		Version: 1,
+		Content: content,
 	}, skipped.warnings()
 }
 
 // convertNode recursively converts goldmark AST nodes to ADF nodes.
-func convertNode(node ast.Node, source []byte, skipped *skippedCollector) []any {
-	var content []any
+func convertNode(node ast.Node, source []byte, skipped *skippedCollector) []jira4claude.ADFNode {
+	var content []jira4claude.ADFNode
 
 	for child := node.FirstChild(); child != nil; child = child.NextSibling() {
-		adfNode := nodeToADF(child, source, skipped)
-		if adfNode != nil {
+		adfNode, ok := nodeToADF(child, source, skipped)
+		if ok {
 			content = append(content, adfNode)
 		}
 	}
@@ -89,7 +92,7 @@ func convertNode(node ast.Node, source []byte, skipped *skippedCollector) []any 
 }
 
 // nodeToADF converts a single goldmark AST node to an ADF node.
-func nodeToADF(node ast.Node, source []byte, skipped *skippedCollector) map[string]any {
+func nodeToADF(node ast.Node, source []byte, skipped *skippedCollector) (jira4claude.ADFNode, bool) {
 	switch n := node.(type) {
 	case *ast.Paragraph:
 		return convertParagraph(n, source)
@@ -98,60 +101,59 @@ func nodeToADF(node ast.Node, source []byte, skipped *skippedCollector) map[stri
 	case *ast.Heading:
 		return convertHeading(n, source)
 	case *ast.FencedCodeBlock:
-		return convertFencedCodeBlock(n, source)
+		return convertFencedCodeBlock(n, source), true
 	case *ast.List:
-		return convertList(n, source, skipped)
+		return convertList(n, source, skipped), true
 	case *ast.Blockquote:
-		return convertBlockquote(n, source, skipped)
+		return convertBlockquote(n, source, skipped), true
 	default:
 		// Record the skipped node type
 		typeName := reflect.TypeOf(node).Elem().Name()
 		skipped.add(typeName)
-		return nil
+		return jira4claude.ADFNode{}, false
 	}
 }
 
 // convertParagraph converts a goldmark paragraph to an ADF paragraph.
-func convertParagraph(node *ast.Paragraph, source []byte) map[string]any {
+func convertParagraph(node *ast.Paragraph, source []byte) (jira4claude.ADFNode, bool) {
 	content := convertInlineContent(node, source)
 	if len(content) == 0 {
-		return nil
+		return jira4claude.ADFNode{}, false
 	}
-	return map[string]any{
-		"type":    "paragraph",
-		"content": content,
-	}
+	return jira4claude.ADFNode{
+		Type:    "paragraph",
+		Content: content,
+	}, true
 }
 
 // convertTextBlock converts a goldmark text block (used in tight lists) to an ADF paragraph.
-func convertTextBlock(node *ast.TextBlock, source []byte) map[string]any {
+func convertTextBlock(node *ast.TextBlock, source []byte) (jira4claude.ADFNode, bool) {
 	content := convertInlineContent(node, source)
 	if len(content) == 0 {
-		return nil
+		return jira4claude.ADFNode{}, false
 	}
-	return map[string]any{
-		"type":    "paragraph",
-		"content": content,
-	}
+	return jira4claude.ADFNode{
+		Type:    "paragraph",
+		Content: content,
+	}, true
 }
 
 // convertHeading converts a goldmark heading to an ADF heading.
-func convertHeading(node *ast.Heading, source []byte) map[string]any {
+func convertHeading(node *ast.Heading, source []byte) (jira4claude.ADFNode, bool) {
 	content := convertInlineContent(node, source)
 	if len(content) == 0 {
-		return nil
+		return jira4claude.ADFNode{}, false
 	}
-	return map[string]any{
-		"type": "heading",
-		"attrs": map[string]any{
-			"level": node.Level,
-		},
-		"content": content,
-	}
+	attrs, _ := json.Marshal(map[string]any{"level": node.Level})
+	return jira4claude.ADFNode{
+		Type:    "heading",
+		Attrs:   attrs,
+		Content: content,
+	}, true
 }
 
 // convertFencedCodeBlock converts a goldmark fenced code block to an ADF codeBlock.
-func convertFencedCodeBlock(node *ast.FencedCodeBlock, source []byte) map[string]any {
+func convertFencedCodeBlock(node *ast.FencedCodeBlock, source []byte) jira4claude.ADFNode {
 	var codeText string
 	lines := node.Lines()
 	for i := range lines.Len() {
@@ -163,67 +165,66 @@ func convertFencedCodeBlock(node *ast.FencedCodeBlock, source []byte) map[string
 		codeText = codeText[:len(codeText)-1]
 	}
 
-	result := map[string]any{
-		"type": "codeBlock",
-		"content": []any{
-			map[string]any{
-				"type": "text",
-				"text": codeText,
+	result := jira4claude.ADFNode{
+		Type: "codeBlock",
+		Content: []jira4claude.ADFNode{
+			{
+				Type: "text",
+				Text: codeText,
 			},
 		},
 	}
 
 	lang := string(node.Language(source))
 	if lang != "" {
-		result["attrs"] = map[string]any{
-			"language": lang,
-		}
+		attrs, _ := json.Marshal(map[string]any{"language": lang})
+		result.Attrs = attrs
 	}
 
 	return result
 }
 
 // convertList converts a goldmark list to an ADF bulletList or orderedList.
-func convertList(node *ast.List, source []byte, skipped *skippedCollector) map[string]any {
+func convertList(node *ast.List, source []byte, skipped *skippedCollector) jira4claude.ADFNode {
 	listType := "bulletList"
 	if node.IsOrdered() {
 		listType = "orderedList"
 	}
 
-	var items []any
+	var items []jira4claude.ADFNode
 	for child := node.FirstChild(); child != nil; child = child.NextSibling() {
 		if listItem, ok := child.(*ast.ListItem); ok {
 			items = append(items, convertListItem(listItem, source, skipped))
 		}
 	}
 
-	return map[string]any{
-		"type":    listType,
-		"content": items,
+	return jira4claude.ADFNode{
+		Type:    listType,
+		Content: items,
 	}
 }
 
 // convertListItem converts a goldmark list item to an ADF listItem.
-func convertListItem(node *ast.ListItem, source []byte, skipped *skippedCollector) map[string]any {
+func convertListItem(node *ast.ListItem, source []byte, skipped *skippedCollector) jira4claude.ADFNode {
 	content := convertNode(node, source, skipped)
-	return map[string]any{
-		"type":    "listItem",
-		"content": content,
+	return jira4claude.ADFNode{
+		Type:    "listItem",
+		Content: content,
 	}
 }
 
 // convertBlockquote converts a goldmark blockquote to an ADF blockquote.
-func convertBlockquote(node *ast.Blockquote, source []byte, skipped *skippedCollector) map[string]any {
+func convertBlockquote(node *ast.Blockquote, source []byte, skipped *skippedCollector) jira4claude.ADFNode {
 	content := convertNode(node, source, skipped)
-	return map[string]any{
-		"type":    "blockquote",
-		"content": content,
+	return jira4claude.ADFNode{
+		Type:    "blockquote",
+		Content: content,
 	}
 }
 
 // convertInlineContent converts the inline content of a block node to ADF text nodes.
-func convertInlineContent(node ast.Node, source []byte) []any {
-	var content []any
+func convertInlineContent(node ast.Node, source []byte) []jira4claude.ADFNode {
+	var content []jira4claude.ADFNode
 	for child := node.FirstChild(); child != nil; child = child.NextSibling() {
 		inlineNodes := convertInlineNode(child, source, nil)
 		content = append(content, inlineNodes...)
@@ -232,102 +233,52 @@ func convertInlineContent(node ast.Node, source []byte) []any {
 }
 
 // consolidateTextNodes merges adjacent text nodes with identical marks.
-func consolidateTextNodes(nodes []any) []any {
+func consolidateTextNodes(nodes []jira4claude.ADFNode) []jira4claude.ADFNode {
 	if len(nodes) == 0 {
 		return nodes
 	}
 
-	var result []any
+	var result []jira4claude.ADFNode
 	for _, node := range nodes {
-		nodeMap, ok := node.(map[string]any)
-		if !ok {
-			result = append(result, node)
-			continue
-		}
-
 		if len(result) == 0 {
 			result = append(result, node)
 			continue
 		}
 
-		lastMap, ok := result[len(result)-1].(map[string]any)
-		if !ok {
-			result = append(result, node)
-			continue
-		}
+		last := &result[len(result)-1]
 
 		// Both must be text nodes
-		if lastMap["type"] != "text" || nodeMap["type"] != "text" {
+		if last.Type != "text" || node.Type != "text" {
 			result = append(result, node)
 			continue
 		}
 
 		// Compare marks
-		if !marksEqual(lastMap["marks"], nodeMap["marks"]) {
+		if !marksEqual(last.Marks, node.Marks) {
 			result = append(result, node)
 			continue
 		}
 
 		// Merge the text
-		lastText, _ := lastMap["text"].(string)
-		nodeText, _ := nodeMap["text"].(string)
-		lastMap["text"] = lastText + nodeText
+		last.Text += node.Text
 	}
 
 	return result
 }
 
 // marksEqual compares two marks slices for equality.
-func marksEqual(a, b any) bool {
-	aSlice, aOk := a.([]any)
-	bSlice, bOk := b.([]any)
-
-	// Both nil or both missing
-	if !aOk && !bOk {
+func marksEqual(a, b []jira4claude.ADFMark) bool {
+	if len(a) == 0 && len(b) == 0 {
 		return true
 	}
-	// One is nil, other is not
-	if !aOk || !bOk {
-		return false
-	}
-	// Different lengths
-	if len(aSlice) != len(bSlice) {
-		return false
-	}
-	// Compare each mark
-	for i := range aSlice {
-		aMap, aMapOk := aSlice[i].(map[string]any)
-		bMap, bMapOk := bSlice[i].(map[string]any)
-		if !aMapOk || !bMapOk {
-			return false
-		}
-		if !mapEqual(aMap, bMap) {
-			return false
-		}
-	}
-	return true
-}
-
-// mapEqual compares two maps for equality (shallow comparison for mark comparison).
-func mapEqual(a, b map[string]any) bool {
 	if len(a) != len(b) {
 		return false
 	}
-	for k, v := range a {
-		bv, ok := b[k]
-		if !ok {
+	for i := range a {
+		if a[i].Type != b[i].Type {
 			return false
 		}
-		// Handle nested maps (for attrs)
-		aMap, aIsMap := v.(map[string]any)
-		bMap, bIsMap := bv.(map[string]any)
-		if aIsMap && bIsMap {
-			if !mapEqual(aMap, bMap) {
-				return false
-			}
-			continue
-		}
-		if v != bv {
+		if string(a[i].Attrs) != string(b[i].Attrs) {
 			return false
 		}
 	}
@@ -335,24 +286,17 @@ func mapEqual(a, b map[string]any) bool {
 }
 
 // textNodeWithMarks creates an ADF text node with the given text and marks.
-func textNodeWithMarks(text string, marks []map[string]any) map[string]any {
-	result := map[string]any{
-		"type": "text",
-		"text": text,
+func textNodeWithMarks(text string, marks []jira4claude.ADFMark) jira4claude.ADFNode {
+	return jira4claude.ADFNode{
+		Type:  "text",
+		Text:  text,
+		Marks: marks,
 	}
-	if len(marks) > 0 {
-		marksCopy := make([]any, len(marks))
-		for i, m := range marks {
-			marksCopy[i] = m
-		}
-		result["marks"] = marksCopy
-	}
-	return result
 }
 
 // convertChildren recursively converts all children of a node with the given marks.
-func convertChildren(node ast.Node, source []byte, marks []map[string]any) []any {
-	var content []any
+func convertChildren(node ast.Node, source []byte, marks []jira4claude.ADFMark) []jira4claude.ADFNode {
+	var content []jira4claude.ADFNode
 	for child := node.FirstChild(); child != nil; child = child.NextSibling() {
 		content = append(content, convertInlineNode(child, source, marks)...)
 	}
@@ -360,21 +304,21 @@ func convertChildren(node ast.Node, source []byte, marks []map[string]any) []any
 }
 
 // convertInlineNode converts inline nodes (text, emphasis, etc.) to ADF text nodes.
-func convertInlineNode(node ast.Node, source []byte, marks []map[string]any) []any {
+func convertInlineNode(node ast.Node, source []byte, marks []jira4claude.ADFMark) []jira4claude.ADFNode {
 	switch n := node.(type) {
 	case *ast.Text:
 		text := string(n.Segment.Value(source))
 		if text == "" {
 			return nil
 		}
-		return []any{textNodeWithMarks(text, marks)}
+		return []jira4claude.ADFNode{textNodeWithMarks(text, marks)}
 
 	case *ast.Emphasis:
 		markType := "em"
 		if n.Level == 2 {
 			markType = "strong"
 		}
-		newMarks := append(marks, map[string]any{"type": markType})
+		newMarks := append(cloneMarks(marks), jira4claude.ADFMark{Type: markType})
 		return convertChildren(n, source, newMarks)
 
 	case *ast.CodeSpan:
@@ -384,29 +328,37 @@ func convertInlineNode(node ast.Node, source []byte, marks []map[string]any) []a
 				codeText += string(textNode.Segment.Value(source))
 			}
 		}
-		newMarks := append(marks, map[string]any{"type": "code"})
-		return []any{textNodeWithMarks(codeText, newMarks)}
+		newMarks := append(cloneMarks(marks), jira4claude.ADFMark{Type: "code"})
+		return []jira4claude.ADFNode{textNodeWithMarks(codeText, newMarks)}
 
 	case *ast.Link:
-		newMark := map[string]any{
-			"type": "link",
-			"attrs": map[string]any{
-				"href": string(n.Destination),
-			},
+		attrs, _ := json.Marshal(map[string]any{"href": string(n.Destination)})
+		newMark := jira4claude.ADFMark{
+			Type:  "link",
+			Attrs: attrs,
 		}
-		return convertChildren(n, source, append(marks, newMark))
+		return convertChildren(n, source, append(cloneMarks(marks), newMark))
 
 	case *ast.AutoLink:
 		url := string(n.URL(source))
-		newMark := map[string]any{
-			"type": "link",
-			"attrs": map[string]any{
-				"href": url,
-			},
+		attrs, _ := json.Marshal(map[string]any{"href": url})
+		newMark := jira4claude.ADFMark{
+			Type:  "link",
+			Attrs: attrs,
 		}
-		return []any{textNodeWithMarks(url, append(marks, newMark))}
+		return []jira4claude.ADFNode{textNodeWithMarks(url, append(cloneMarks(marks), newMark))}
 
 	default:
 		return convertChildren(node, source, marks)
 	}
+}
+
+// cloneMarks creates a shallow copy of a marks slice to avoid mutation via append.
+func cloneMarks(marks []jira4claude.ADFMark) []jira4claude.ADFMark {
+	if marks == nil {
+		return nil
+	}
+	c := make([]jira4claude.ADFMark, len(marks))
+	copy(c, marks)
+	return c
 }
