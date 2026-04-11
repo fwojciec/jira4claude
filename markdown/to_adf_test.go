@@ -1500,4 +1500,80 @@ func TestConverter_ToADF(t *testing.T) {
 		requireValidADF(t, result)
 		assert.Equal(t, expected, result)
 	})
+
+	t.Run("downgrades heading inside blockquote to paragraph", func(t *testing.T) {
+		t.Parallel()
+
+		converter := markdown.New()
+		result, warnings := converter.ToADF("> # Heading inside quote")
+
+		// ADF blockquote cannot contain heading — it should be downgraded to paragraph
+		assert.Empty(t, warnings)
+		requireValidADF(t, result)
+		assert.Equal(t, "doc", result.Type)
+
+		bq := result.Content[0]
+		assert.Equal(t, "blockquote", bq.Type)
+		// The child must be paragraph, not heading
+		assert.Equal(t, "paragraph", bq.Content[0].Type)
+		assert.Equal(t, "Heading inside quote", bq.Content[0].Content[0].Text)
+	})
+
+	t.Run("filters blockquote inside listItem", func(t *testing.T) {
+		t.Parallel()
+
+		converter := markdown.New()
+		// A list item with an indented blockquote
+		result, _ := converter.ToADF("- item\n\n  > quoted text")
+
+		requireValidADF(t, result)
+		list := result.Content[0]
+		assert.Equal(t, "bulletList", list.Type)
+
+		listItem := list.Content[0]
+		assert.Equal(t, "listItem", listItem.Type)
+		// All children of listItem must be allowed types (paragraph, lists, codeBlock, mediaSingle, mediaGroup)
+		for _, child := range listItem.Content {
+			switch child.Type {
+			case "paragraph", "bulletList", "orderedList", "codeBlock", "mediaSingle", "mediaGroup":
+				// OK
+			default:
+				t.Errorf("listItem contains disallowed child type %q", child.Type)
+			}
+		}
+	})
+
+	t.Run("preserves ordered list start number in ADF attrs", func(t *testing.T) {
+		t.Parallel()
+
+		converter := markdown.New()
+		result, warnings := converter.ToADF("5. five\n6. six")
+
+		assert.Empty(t, warnings)
+		requireValidADF(t, result)
+
+		ol := result.Content[0]
+		assert.Equal(t, "orderedList", ol.Type)
+		assert.NotNil(t, ol.Attrs, "orderedList should have attrs with order")
+
+		var attrs map[string]any
+		err := json.Unmarshal(ol.Attrs, &attrs)
+		require.NoError(t, err)
+		assert.InDelta(t, float64(5), attrs["order"], 0)
+	})
+
+	t.Run("malformed details without closing tag skips with warning", func(t *testing.T) {
+		t.Parallel()
+
+		converter := markdown.New()
+		result, warnings := converter.ToADF("<details><summary>Title</summary>\n\nBody text\n\nMore text")
+
+		requireValidADF(t, result)
+		// Should not produce an expand node when there's no closing </details>
+		for _, node := range result.Content {
+			assert.NotEqual(t, "expand", node.Type, "should not emit expand without closing tag")
+		}
+		// Should produce a warning for the unmatched HTML
+		assert.NotEmpty(t, warnings)
+	})
 }

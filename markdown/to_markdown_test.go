@@ -2545,4 +2545,127 @@ func TestConverter_ToMarkdown(t *testing.T) {
 		assert.Empty(t, warnings)
 		assert.Equal(t, "highlighted text", result)
 	})
+
+	t.Run("renders nested list inside list item with proper indentation", func(t *testing.T) {
+		t.Parallel()
+
+		converter := markdown.New()
+		adfDoc := &jira4claude.ADFNode{
+			Type:    "doc",
+			Version: 1,
+			Content: []jira4claude.ADFNode{
+				{
+					Type: "bulletList",
+					Content: []jira4claude.ADFNode{
+						{
+							Type: "listItem",
+							Content: []jira4claude.ADFNode{
+								{
+									Type:    "paragraph",
+									Content: []jira4claude.ADFNode{{Type: "text", Text: "Parent"}},
+								},
+								{
+									Type: "bulletList",
+									Content: []jira4claude.ADFNode{
+										{
+											Type: "listItem",
+											Content: []jira4claude.ADFNode{
+												{
+													Type:    "paragraph",
+													Content: []jira4claude.ADFNode{{Type: "text", Text: "Child"}},
+												},
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		}
+
+		result, warnings := converter.ToMarkdown(adfDoc)
+
+		assert.Empty(t, warnings)
+		assert.Equal(t, "- Parent\n  - Child", result)
+	})
+
+	t.Run("renders code block inside list item with proper indentation", func(t *testing.T) {
+		t.Parallel()
+
+		converter := markdown.New()
+		adfDoc := &jira4claude.ADFNode{
+			Type:    "doc",
+			Version: 1,
+			Content: []jira4claude.ADFNode{
+				{
+					Type: "bulletList",
+					Content: []jira4claude.ADFNode{
+						{
+							Type: "listItem",
+							Content: []jira4claude.ADFNode{
+								{
+									Type:    "paragraph",
+									Content: []jira4claude.ADFNode{{Type: "text", Text: "Code example"}},
+								},
+								{
+									Type:    "codeBlock",
+									Content: []jira4claude.ADFNode{{Type: "text", Text: "fmt.Println()"}},
+								},
+							},
+						},
+					},
+				},
+			},
+		}
+
+		result, warnings := converter.ToMarkdown(adfDoc)
+
+		assert.Empty(t, warnings)
+		expected := "- Code example\n  ```\n  fmt.Println()\n  ```"
+		assert.Equal(t, expected, result)
+	})
+
+	t.Run("preserves ordered list start number from attrs", func(t *testing.T) {
+		t.Parallel()
+
+		converter := markdown.New()
+		attrs, _ := json.Marshal(map[string]any{"order": 5})
+		adfDoc := &jira4claude.ADFNode{
+			Type:    "doc",
+			Version: 1,
+			Content: []jira4claude.ADFNode{
+				{
+					Type:  "orderedList",
+					Attrs: attrs,
+					Content: []jira4claude.ADFNode{
+						{
+							Type: "listItem",
+							Content: []jira4claude.ADFNode{
+								{
+									Type:    "paragraph",
+									Content: []jira4claude.ADFNode{{Type: "text", Text: "five"}},
+								},
+							},
+						},
+						{
+							Type: "listItem",
+							Content: []jira4claude.ADFNode{
+								{
+									Type:    "paragraph",
+									Content: []jira4claude.ADFNode{{Type: "text", Text: "six"}},
+								},
+							},
+						},
+					},
+				},
+			},
+		}
+
+		result, warnings := converter.ToMarkdown(adfDoc)
+
+		assert.Empty(t, warnings)
+		assert.Equal(t, "5. five\n6. six", result)
+	})
 }
