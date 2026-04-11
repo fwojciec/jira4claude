@@ -1311,4 +1311,149 @@ func TestConverter_ToADF(t *testing.T) {
 		require.Len(t, result.Content, 1)
 		assert.Equal(t, "paragraph", result.Content[0].Type)
 	})
+
+	t.Run("converts u tag to underline mark", func(t *testing.T) {
+		t.Parallel()
+
+		converter := markdown.New()
+		result, warnings := converter.ToADF("This is <u>underlined</u> text.")
+
+		expected := &jira4claude.ADFNode{
+			Type:    "doc",
+			Version: 1,
+			Content: []jira4claude.ADFNode{
+				{
+					Type: "paragraph",
+					Content: []jira4claude.ADFNode{
+						{
+							Type: "text",
+							Text: "This is ",
+						},
+						{
+							Type: "text",
+							Text: "underlined",
+							Marks: []jira4claude.ADFMark{
+								{Type: "underline"},
+							},
+						},
+						{
+							Type: "text",
+							Text: " text.",
+						},
+					},
+				},
+			},
+		}
+
+		assert.Empty(t, warnings)
+		assert.Equal(t, expected, result)
+	})
+
+	t.Run("converts sub tag to subsup mark with type sub", func(t *testing.T) {
+		t.Parallel()
+
+		converter := markdown.New()
+		subsupAttrs, _ := json.Marshal(map[string]any{"type": "sub"})
+		result, warnings := converter.ToADF("H<sub>2</sub>O")
+
+		expected := &jira4claude.ADFNode{
+			Type:    "doc",
+			Version: 1,
+			Content: []jira4claude.ADFNode{
+				{
+					Type: "paragraph",
+					Content: []jira4claude.ADFNode{
+						{
+							Type: "text",
+							Text: "H",
+						},
+						{
+							Type:  "text",
+							Text:  "2",
+							Marks: []jira4claude.ADFMark{{Type: "subsup", Attrs: subsupAttrs}},
+						},
+						{
+							Type: "text",
+							Text: "O",
+						},
+					},
+				},
+			},
+		}
+
+		assert.Empty(t, warnings)
+		assert.Equal(t, expected, result)
+	})
+
+	t.Run("converts sup tag to subsup mark with type sup", func(t *testing.T) {
+		t.Parallel()
+
+		converter := markdown.New()
+		subsupAttrs, _ := json.Marshal(map[string]any{"type": "sup"})
+		result, warnings := converter.ToADF("x<sup>2</sup>")
+
+		expected := &jira4claude.ADFNode{
+			Type:    "doc",
+			Version: 1,
+			Content: []jira4claude.ADFNode{
+				{
+					Type: "paragraph",
+					Content: []jira4claude.ADFNode{
+						{
+							Type: "text",
+							Text: "x",
+						},
+						{
+							Type:  "text",
+							Text:  "2",
+							Marks: []jira4claude.ADFMark{{Type: "subsup", Attrs: subsupAttrs}},
+						},
+					},
+				},
+			},
+		}
+
+		assert.Empty(t, warnings)
+		assert.Equal(t, expected, result)
+	})
+
+	t.Run("converts underline inside bold", func(t *testing.T) {
+		t.Parallel()
+
+		converter := markdown.New()
+		result, warnings := converter.ToADF("**bold <u>underlined</u> text**")
+
+		expected := &jira4claude.ADFNode{
+			Type:    "doc",
+			Version: 1,
+			Content: []jira4claude.ADFNode{
+				{
+					Type: "paragraph",
+					Content: []jira4claude.ADFNode{
+						{
+							Type:  "text",
+							Text:  "bold ",
+							Marks: []jira4claude.ADFMark{{Type: "strong"}},
+						},
+						{
+							Type: "text",
+							Text: "underlined",
+							Marks: []jira4claude.ADFMark{
+								{Type: "strong"},
+								{Type: "underline"},
+							},
+						},
+						{
+							Type:  "text",
+							Text:  " text",
+							Marks: []jira4claude.ADFMark{{Type: "strong"}},
+						},
+					},
+				},
+			},
+		}
+
+		assert.Empty(t, warnings)
+		assert.Equal(t, expected, result)
+	})
 }

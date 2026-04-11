@@ -367,3 +367,86 @@ func TestRoundTrip_Expand(t *testing.T) {
 
 	assert.Equal(t, input, result)
 }
+
+func TestGoldenFile_MarksMDToADF(t *testing.T) {
+	t.Parallel()
+
+	mdBytes, err := os.ReadFile("testdata/marks.md")
+	require.NoError(t, err)
+
+	expectedBytes, err := os.ReadFile("testdata/marks.adf.json")
+	require.NoError(t, err)
+
+	var expected jira4claude.ADFNode
+	require.NoError(t, json.Unmarshal(expectedBytes, &expected))
+
+	converter := markdown.New()
+	result, warnings := converter.ToADF(string(mdBytes))
+
+	assert.Empty(t, warnings)
+	assert.Equal(t, &expected, result)
+}
+
+func TestGoldenFile_MarksADFToMD(t *testing.T) {
+	t.Parallel()
+
+	adfBytes, err := os.ReadFile("testdata/marks.adf.json")
+	require.NoError(t, err)
+
+	var adfDoc jira4claude.ADFNode
+	require.NoError(t, json.Unmarshal(adfBytes, &adfDoc))
+
+	expectedMD, err := os.ReadFile("testdata/marks.md")
+	require.NoError(t, err)
+
+	converter := markdown.New()
+	result, warnings := converter.ToMarkdown(&adfDoc)
+
+	assert.Empty(t, warnings)
+	assert.Equal(t, string(expectedMD), result)
+}
+
+func TestRoundTrip_Underline(t *testing.T) {
+	t.Parallel()
+
+	input := "This is <u>underlined</u> text."
+
+	converter := markdown.New()
+	adfDoc, w1 := converter.ToADF(input)
+	assert.Empty(t, w1)
+
+	result, w2 := converter.ToMarkdown(adfDoc)
+	assert.Empty(t, w2)
+
+	assert.Equal(t, input, result)
+}
+
+func TestRoundTrip_Subscript(t *testing.T) {
+	t.Parallel()
+
+	input := "H<sub>2</sub>O"
+
+	converter := markdown.New()
+	adfDoc, w1 := converter.ToADF(input)
+	assert.Empty(t, w1)
+
+	result, w2 := converter.ToMarkdown(adfDoc)
+	assert.Empty(t, w2)
+
+	assert.Equal(t, input, result)
+}
+
+func TestRoundTrip_Superscript(t *testing.T) {
+	t.Parallel()
+
+	input := "x<sup>2</sup>"
+
+	converter := markdown.New()
+	adfDoc, w1 := converter.ToADF(input)
+	assert.Empty(t, w1)
+
+	result, w2 := converter.ToMarkdown(adfDoc)
+	assert.Empty(t, w2)
+
+	assert.Equal(t, input, result)
+}

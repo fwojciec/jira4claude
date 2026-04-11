@@ -1924,4 +1924,109 @@ func TestConverter_ToMarkdown(t *testing.T) {
 		require.Len(t, warnings, 1)
 		assert.Contains(t, warnings[0], "futureInlineNode")
 	})
+
+	t.Run("converts underline mark to u tag", func(t *testing.T) {
+		t.Parallel()
+
+		converter := markdown.New()
+		adfDoc := &jira4claude.ADFNode{
+			Type:    "doc",
+			Version: 1,
+			Content: []jira4claude.ADFNode{
+				{
+					Type: "paragraph",
+					Content: []jira4claude.ADFNode{
+						{
+							Type: "text",
+							Text: "This is ",
+						},
+						{
+							Type: "text",
+							Text: "underlined",
+							Marks: []jira4claude.ADFMark{
+								{Type: "underline"},
+							},
+						},
+						{
+							Type: "text",
+							Text: " text.",
+						},
+					},
+				},
+			},
+		}
+
+		result, warnings := converter.ToMarkdown(adfDoc)
+
+		assert.Empty(t, warnings)
+		assert.Equal(t, "This is <u>underlined</u> text.", result)
+	})
+
+	t.Run("converts subsup mark with type sub", func(t *testing.T) {
+		t.Parallel()
+
+		converter := markdown.New()
+		subsupAttrs, _ := json.Marshal(map[string]any{"type": "sub"})
+		adfDoc := &jira4claude.ADFNode{
+			Type:    "doc",
+			Version: 1,
+			Content: []jira4claude.ADFNode{
+				{
+					Type: "paragraph",
+					Content: []jira4claude.ADFNode{
+						{
+							Type: "text",
+							Text: "H",
+						},
+						{
+							Type:  "text",
+							Text:  "2",
+							Marks: []jira4claude.ADFMark{{Type: "subsup", Attrs: subsupAttrs}},
+						},
+						{
+							Type: "text",
+							Text: "O",
+						},
+					},
+				},
+			},
+		}
+
+		result, warnings := converter.ToMarkdown(adfDoc)
+
+		assert.Empty(t, warnings)
+		assert.Equal(t, "H<sub>2</sub>O", result)
+	})
+
+	t.Run("converts subsup mark with type sup", func(t *testing.T) {
+		t.Parallel()
+
+		converter := markdown.New()
+		subsupAttrs, _ := json.Marshal(map[string]any{"type": "sup"})
+		adfDoc := &jira4claude.ADFNode{
+			Type:    "doc",
+			Version: 1,
+			Content: []jira4claude.ADFNode{
+				{
+					Type: "paragraph",
+					Content: []jira4claude.ADFNode{
+						{
+							Type: "text",
+							Text: "x",
+						},
+						{
+							Type:  "text",
+							Text:  "2",
+							Marks: []jira4claude.ADFMark{{Type: "subsup", Attrs: subsupAttrs}},
+						},
+					},
+				},
+			},
+		}
+
+		result, warnings := converter.ToMarkdown(adfDoc)
+
+		assert.Empty(t, warnings)
+		assert.Equal(t, "x<sup>2</sup>", result)
+	})
 }

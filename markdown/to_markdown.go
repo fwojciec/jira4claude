@@ -413,8 +413,9 @@ func adfInlineToGFM(node *jira4claude.ADFNode, skipped *skippedCollector) string
 
 // applyMarks wraps text with the appropriate markdown syntax for its marks.
 func applyMarks(text string, marks []jira4claude.ADFMark) string {
-	var hasStrong, hasEm, hasCode, hasStrike bool
+	var hasStrong, hasEm, hasCode, hasStrike, hasUnderline bool
 	var linkHref string
+	var subsupType string // "sub" or "sup"
 
 	for _, mark := range marks {
 		switch mark.Type {
@@ -426,6 +427,17 @@ func applyMarks(text string, marks []jira4claude.ADFMark) string {
 			hasCode = true
 		case "strike":
 			hasStrike = true
+		case "underline":
+			hasUnderline = true
+		case "subsup":
+			if mark.Attrs != nil {
+				var attrs map[string]any
+				if err := json.Unmarshal(mark.Attrs, &attrs); err == nil {
+					if t, ok := attrs["type"].(string); ok {
+						subsupType = t
+					}
+				}
+			}
 		case "link":
 			if mark.Attrs != nil {
 				var attrs map[string]any
@@ -440,6 +452,7 @@ func applyMarks(text string, marks []jira4claude.ADFMark) string {
 
 	// Apply marks in specific order.
 	// If code is present, skip em/strong/strike since markdown doesn't support emphasis inside backticks.
+	// HTML tags (underline, subsup) are applied outside code since they work in rendered markdown.
 	result := text
 
 	if hasCode {
@@ -458,6 +471,15 @@ func applyMarks(text string, marks []jira4claude.ADFMark) string {
 		if hasStrike {
 			result = "~~" + result + "~~"
 		}
+	}
+	if hasUnderline {
+		result = "<u>" + result + "</u>"
+	}
+	switch subsupType {
+	case "sub":
+		result = "<sub>" + result + "</sub>"
+	case "sup":
+		result = "<sup>" + result + "</sup>"
 	}
 	if linkHref != "" && result != linkHref {
 		result = "[" + result + "](" + linkHref + ")"

@@ -1,0 +1,98 @@
+{
+  "type": "doc",
+  "version": 1,
+  "content": [
+    {
+      "type": "paragraph",
+      "content": [
+        {
+          "type": "text",
+          "text": "This is "
+        },
+        {
+          "type": "text",
+          "text": "underlined",
+          "marks": [
+            {
+              "type": "underline"
+            }
+          ]
+        },
+        {
+          "type": "text",
+          "text": " text."
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "content": [
+        {
+          "type": "text",
+          "text": "H"
+        },
+        {
+          "type": "text",
+          "text": "2",
+          "marks": [
+            {
+              "type": "subsup",
+              "attrs": {"type":"sub"}
+            }
+          ]
+        },
+        {
+          "type": "text",
+          "text": "O is water."
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "content": [
+        {
+          "type": "text",
+          "text": "x"
+        },
+        {
+          "type": "text",
+          "text": "2",
+          "marks": [
+            {
+              "type": "subsup",
+              "attrs": {"type":"sup"}
+            }
+          ]
+        },
+        {
+          "type": "text",
+          "text": " + y"
+        },
+        {
+          "type": "text",
+          "text": "2",
+          "marks": [
+            {
+              "type": "subsup",
+              "attrs": {"type":"sup"}
+            }
+          ]
+        },
+        {
+          "type": "text",
+          "text": " = z"
+        },
+        {
+          "type": "text",
+          "text": "2",
+          "marks": [
+            {
+              "type": "subsup",
+              "attrs": {"type":"sup"}
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
