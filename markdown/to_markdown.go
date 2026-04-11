@@ -142,8 +142,18 @@ func adfBulletListToGFM(node *jira4claude.ADFNode, skipped *skippedCollector) st
 
 // adfOrderedListToGFM converts an ADF orderedList to markdown.
 func adfOrderedListToGFM(node *jira4claude.ADFNode, skipped *skippedCollector) string {
+	startNum := 1
+	if node.Attrs != nil {
+		var attrs map[string]any
+		if err := json.Unmarshal(node.Attrs, &attrs); err == nil {
+			if order, ok := attrs["order"].(float64); ok {
+				startNum = int(order)
+			}
+		}
+	}
+
 	items := make([]string, 0, len(node.Content))
-	num := 0
+	num := startNum - 1
 	for i := range node.Content {
 		child := &node.Content[i]
 		if child.Type != "listItem" {
@@ -158,22 +168,39 @@ func adfOrderedListToGFM(node *jira4claude.ADFNode, skipped *skippedCollector) s
 }
 
 // adfListItemToGFM extracts the text content from a list item.
+// The first child (typically a paragraph) goes on the same line as the list marker.
+// Subsequent children (nested lists, code blocks) are placed on new lines with
+// 2-space indentation to align under the list marker text.
 func adfListItemToGFM(node *jira4claude.ADFNode, skipped *skippedCollector) string {
 	if len(node.Content) == 0 {
 		return ""
 	}
 
-	// List items typically contain paragraphs or nested lists
-	parts := make([]string, 0, len(node.Content))
-	for i := range node.Content {
+	firstPart := adfNodeToGFM(&node.Content[0], skipped)
+	if len(node.Content) == 1 {
+		return firstPart
+	}
+
+	var result strings.Builder
+	result.WriteString(firstPart)
+
+	for i := 1; i < len(node.Content); i++ {
 		child := &node.Content[i]
 		part := adfNodeToGFM(child, skipped)
-		if part != "" {
-			parts = append(parts, part)
+		if part == "" {
+			continue
+		}
+		result.WriteString("\n")
+		for j, line := range strings.Split(part, "\n") {
+			if j > 0 {
+				result.WriteString("\n")
+			}
+			result.WriteString("  ")
+			result.WriteString(line)
 		}
 	}
 
-	return strings.Join(parts, " ")
+	return result.String()
 }
 
 // adfBlockquoteToGFM converts an ADF blockquote to markdown.

@@ -91,13 +91,27 @@ func convertNode(node ast.Node, source []byte, skipped *skippedCollector) []jira
 		if htmlBlock, ok := child.(*ast.HTMLBlock); ok {
 			if title, found := detectDetailsOpen(htmlBlock, source); found {
 				// Collect siblings until </details>
-				expandNode, next := collectExpandContent(child.NextSibling(), source, skipped, title)
-				content = append(content, expandNode)
-				child = next
-				if child == nil {
-					break
+				bodyContent, next, closed := collectExpandContent(child.NextSibling(), source, skipped)
+				if closed {
+					attrs, _ := json.Marshal(map[string]any{"title": title})
+					if bodyContent == nil {
+						bodyContent = []jira4claude.ADFNode{}
+					}
+					content = append(content, jira4claude.ADFNode{
+						Type:    "expand",
+						Attrs:   attrs,
+						Content: bodyContent,
+					})
+					child = next
+					if child == nil {
+						break
+					}
+					continue
 				}
-				continue
+				// No closing </details> — emit body content directly and warn
+				skipped.add("HTMLBlock")
+				content = append(content, bodyContent...)
+				break // All remaining siblings were consumed
 			}
 		}
 
@@ -226,15 +240,23 @@ func convertList(node *ast.List, source []byte, skipped *skippedCollector) jira4
 		}
 	}
 
-	return jira4claude.ADFNode{
+	result := jira4claude.ADFNode{
 		Type:    listType,
 		Content: items,
 	}
+
+	if node.IsOrdered() && node.Start != 1 {
+		attrs, _ := json.Marshal(map[string]any{"order": node.Start})
+		result.Attrs = attrs
+	}
+
+	return result
 }
 
 // convertListItem converts a goldmark list item to an ADF listItem.
 func convertListItem(node *ast.ListItem, source []byte, skipped *skippedCollector) jira4claude.ADFNode {
 	content := convertNode(node, source, skipped)
+	content = constrainChildren(content, isListItemAllowedChild, skipped)
 	return jira4claude.ADFNode{
 		Type:    "listItem",
 		Content: content,
@@ -274,6 +296,7 @@ func convertBlockquote(node *ast.Blockquote, source []byte, skipped *skippedColl
 	}
 
 	content := convertNode(node, source, skipped)
+	content = constrainChildren(content, isBlockquoteAllowedChild, skipped)
 	return jira4claude.ADFNode{
 		Type:    "blockquote",
 		Content: content,
@@ -334,6 +357,57 @@ func isPanelAllowedChild(nodeType string) bool {
 	default:
 		return false
 	}
+}
+
+// isBlockquoteAllowedChild returns true if the ADF node type is allowed inside a blockquote.
+// Per Jira Cloud ADF docs: paragraph, bulletList, orderedList, codeBlock, mediaGroup, mediaSingle.
+func isBlockquoteAllowedChild(nodeType string) bool {
+	switch nodeType {
+	case "paragraph", "bulletList", "orderedList", "codeBlock", "mediaGroup", "mediaSingle":
+		return true
+	default:
+		return false
+	}
+}
+
+// isListItemAllowedChild returns true if the ADF node type is allowed inside a listItem.
+// Per Jira Cloud ADF docs: paragraph, bulletList, orderedList, codeBlock, mediaSingle, mediaGroup.
+func isListItemAllowedChild(nodeType string) bool {
+	switch nodeType {
+	case "paragraph", "bulletList", "orderedList", "codeBlock", "mediaSingle", "mediaGroup":
+		return true
+	default:
+		return false
+	}
+}
+
+// constrainChildren filters ADF children to only allowed types for a container node.
+// Headings are downgraded to paragraphs (same inline content, different type).
+// Other disallowed containers have their children extracted and recursively constrained.
+// Truly incompatible leaf nodes are skipped with a warning.
+func constrainChildren(children []jira4claude.ADFNode, allowed func(string) bool, skipped *skippedCollector) []jira4claude.ADFNode {
+	var result []jira4claude.ADFNode
+	for _, child := range children {
+		if allowed(child.Type) {
+			result = append(result, child)
+			continue
+		}
+		// Downgrade heading → paragraph (preserve inline content)
+		if child.Type == "heading" {
+			result = append(result, jira4claude.ADFNode{
+				Type:    "paragraph",
+				Content: child.Content,
+			})
+			continue
+		}
+		// Extract content from disallowed containers (blockquote, panel, etc.)
+		if len(child.Content) > 0 {
+			result = append(result, constrainChildren(child.Content, allowed, skipped)...)
+			continue
+		}
+		skipped.add(child.Type)
+	}
+	return result
 }
 
 // convertPanelContent converts the children of a blockquote that has been identified
@@ -460,15 +534,17 @@ func isDetailsClose(node ast.Node, source []byte) bool {
 }
 
 // collectExpandContent collects sibling nodes starting from 'start' until a
-// </details> HTMLBlock is encountered. Returns the assembled expand ADF node
-// and the </details> node (so the caller can advance past it).
-func collectExpandContent(start ast.Node, source []byte, skipped *skippedCollector, title string) (jira4claude.ADFNode, ast.Node) {
+// </details> HTMLBlock is encountered. Returns the collected body content,
+// the </details> node (so the caller can advance past it), and whether a
+// closing tag was found. If no closing tag is found, the caller should emit
+// the body content directly (not wrapped in expand) and warn.
+func collectExpandContent(start ast.Node, source []byte, skipped *skippedCollector) ([]jira4claude.ADFNode, ast.Node, bool) {
 	var bodyContent []jira4claude.ADFNode
 
 	var current ast.Node
 	for current = start; current != nil; current = current.NextSibling() {
 		if isDetailsClose(current, source) {
-			break
+			return bodyContent, current, true
 		}
 		adfNode, ok := nodeToADF(current, source, skipped)
 		if ok {
@@ -476,14 +552,7 @@ func collectExpandContent(start ast.Node, source []byte, skipped *skippedCollect
 		}
 	}
 
-	attrs, _ := json.Marshal(map[string]any{"title": title})
-	expandNode := jira4claude.ADFNode{
-		Type:    "expand",
-		Attrs:   attrs,
-		Content: bodyContent,
-	}
-
-	return expandNode, current
+	return bodyContent, nil, false
 }
 
 // convertInlineContent converts the inline content of a block node to ADF text nodes.
