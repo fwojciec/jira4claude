@@ -43,6 +43,27 @@ worktree-based parallel development (unused).
 
 Single end-to-end workflow command.
 
+#### Frontmatter
+
+```yaml
+---
+description: Pick a GitHub issue, implement with TDD, review, and create PR
+allowed-tools: Bash(gh:*), Bash(git:*), Bash(make:*), Bash(jq:*), Bash(node:*), Bash(codex:*)
+---
+```
+
+#### Phase 0: Detect Resume
+
+Before anything else, check if already on a feature branch:
+
+- If branch matches `<number>-<description>` pattern:
+  - Extract issue number, fetch issue details
+  - Determine state: uncommitted changes → resume at Phase 2,
+    clean with commits → resume at Phase 3 (review),
+    PR already exists → report status and offer to address comments
+  - Ask user to confirm resume or start fresh
+- If on `main`: proceed to Phase 1
+
 #### Phase 1: Select & Setup
 
 - Pre-flight: must be on `main` with clean working tree
@@ -70,7 +91,8 @@ Runs as a Task subagent with `subagent_type="superpowers:code-reviewer"`.
 2. Returns APPROVE/REJECT verdict with structured feedback
 3. Runs reflect phase:
    - Extract issue number from branch name
-   - Find downstream issues: `gh issue list --search "blocked by #$ISSUE_NUMBER" --state open`
+   - Find downstream issues via dependency API:
+     `gh api repos/{owner}/{repo}/issues/$ISSUE_NUMBER/dependencies/blocking`
    - Get milestone: `gh issue view $ISSUE_NUMBER --json milestone --jq '.milestone.title // empty'`
    - If milestone exists, find related issues: `gh issue list --milestone "$MILESTONE" --state open`
    - For each genuinely related issue where the current work provides useful
@@ -80,10 +102,12 @@ Runs as a Task subagent with `subagent_type="superpowers:code-reviewer"`.
 
 **Track B -- Codex review:**
 
-Via `codex exec` (same approach as quiver's `codex-review` skill):
+Via `codex exec` (same approach as quiver's `codex-review` skill).
+Graceful degradation: if `codex` is not installed or not authenticated,
+skip this track and warn the user. Do not block on Codex availability.
 
 1. Detects staged or committed changes
-2. Reads CLAUDE.md and REVIEW_CRITERIA.md for project standards
+2. Reads CLAUDE.md for project standards (this repo has no REVIEW_CRITERIA.md)
 3. Reads changed files, runs `make validate`
 4. If issue number available, evaluates against issue's validation criteria
 5. Returns structured verdict
@@ -131,9 +155,11 @@ Ported from quiver with adjustments for this project.
   - Investigation Starting Points: file/code references
   - Scope Constraints: what's NOT in scope
   - Validation Requirements: testable acceptance criteria
-- **Dependencies**: "Depends on #N" convention in issue body; checking if deps
-  are closed before marking ready. Include both text-based parsing and
-  `gh api` dependency endpoints.
+- **Dependencies**: GitHub dependency API as single source of truth.
+  Use `gh api repos/{owner}/{repo}/issues/N/dependencies/blocked_by` to check
+  blockers, and `.../dependencies/blocking` to find downstream issues.
+  "Depends on #N" text in issue body is optional documentation for humans,
+  not used for programmatic dependency resolution.
 - **Milestones**: `gh api` for creating/listing, `--milestone` flag on issues
 - **PR comment replies**: inline reply syntax with
   `gh api repos/{owner}/{repo}/pulls/<pr>/comments`
@@ -164,6 +190,13 @@ Minimal changes:
 - Ensure `gh api` patterns match `gh-workflow` skill conventions
 - No Jira references to remove (already GitHub-native)
 
+### `README.md`
+
+- Remove the "Claude Code Skill" section (lines 181-195) that tells users
+  to install the jira-workflow skill via curl
+- Replace with equivalent gh-workflow installation instructions, or remove
+  entirely if the skill is project-specific and not meant for external use
+
 ## Concept Mapping Reference
 
 | Jira concept | GitHub equivalent |
@@ -173,8 +206,8 @@ Minimal changes:
 | `j4c issue create` | `gh issue create` |
 | `j4c issue transition --status="Done"` | `gh issue close` |
 | `j4c issue transition --status="Start Progress"` | Labels or implicit (branch exists) |
-| `j4c issue ready` | Parse "Depends on #N" + check if deps closed |
-| `j4c link create A Blocks B` | "Depends on #N" in issue body |
+| `j4c issue ready` | `gh api .../dependencies/blocked_by` per issue, ready if all blockers closed |
+| `j4c link create A Blocks B` | `gh api .../dependencies/blocked_by -f issue_id=<ID>` |
 | `j4c issue comment` | `gh issue comment` |
 | JQL queries | GitHub search syntax |
 | Issue keys (`J4C-42`) | Issue numbers (`#42`) |
