@@ -70,10 +70,11 @@ Before anything else, check if already on a feature branch:
 - If argument provided, use that issue number directly
 - Otherwise list open issues and filter to ready (unblocked) work:
   1. `gh issue list --state open --json number,title,labels --limit 50`
-  2. For each issue, check blockers:
-     `gh api repos/{owner}/{repo}/issues/<number>/dependencies/blocked_by --jq 'length'`
-  3. An issue is "ready" if it has zero open blockers (all blockers are closed
-     or no blockers exist). Filter out blocked issues before presenting.
+  2. For each issue, check for open blockers:
+     `gh api repos/{owner}/{repo}/issues/<number>/dependencies/blocked_by --jq 'map(select(.state == "open")) | length'`
+     (dependency records persist after a blocker is closed, so filter by state)
+  3. An issue is "ready" if it has zero open blockers. Filter out blocked
+     issues before presenting.
   4. Present only ready issues to the user.
 - User picks an issue
 - View issue details + comments: `gh issue view <number> --comments`
@@ -97,8 +98,8 @@ Runs as a Task subagent with `subagent_type="superpowers:code-reviewer"`.
 2. Returns APPROVE/REJECT verdict with structured feedback
 3. Runs reflect phase:
    - Extract issue number from branch name
-   - Find downstream issues via dependency API:
-     `gh api repos/{owner}/{repo}/issues/$ISSUE_NUMBER/dependencies/blocking`
+   - Find open downstream issues via dependency API:
+     `gh api repos/{owner}/{repo}/issues/$ISSUE_NUMBER/dependencies/blocking --jq 'map(select(.state == "open"))'`
    - Get milestone: `gh issue view $ISSUE_NUMBER --json milestone --jq '.milestone.title // empty'`
    - If milestone exists, find related issues: `gh issue list --milestone "$MILESTONE" --state open`
    - For each genuinely related issue where the current work provides useful
@@ -218,7 +219,7 @@ Minimal changes:
 | `j4c issue create` | `gh issue create` |
 | `j4c issue transition --status="Done"` | `gh issue close` |
 | `j4c issue transition --status="Start Progress"` | Labels or implicit (branch exists) |
-| `j4c issue ready` | List open issues, then for each check `gh api repos/{owner}/{repo}/issues/<number>/dependencies/blocked_by --jq 'length'`; ready if 0 |
+| `j4c issue ready` | List open issues, then for each check `gh api repos/{owner}/{repo}/issues/<number>/dependencies/blocked_by --jq 'map(select(.state == "open")) \| length'`; ready if 0 |
 | `j4c link create A Blocks B` | First get REST id: `gh api repos/{owner}/{repo}/issues/<blocker-number> --jq '.id'`, then `gh api repos/{owner}/{repo}/issues/<blocked-number>/dependencies/blocked_by -f issue_id=<REST-id>` |
 | `j4c issue comment` | `gh issue comment` |
 | JQL queries | GitHub search syntax |
