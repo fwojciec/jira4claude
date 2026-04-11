@@ -466,7 +466,7 @@ func TestConverter_ToMarkdown(t *testing.T) {
 		t.Parallel()
 
 		converter := markdown.New()
-		// ADF with an unsupported node type (e.g., "panel")
+		// ADF with an unsupported node type (e.g., "expand")
 		adfDoc := &jira4claude.ADFNode{
 			Type:    "doc",
 			Version: 1,
@@ -481,7 +481,7 @@ func TestConverter_ToMarkdown(t *testing.T) {
 					},
 				},
 				{
-					Type:    "panel",
+					Type:    "expand",
 					Content: []jira4claude.ADFNode{},
 				},
 				{
@@ -503,7 +503,7 @@ func TestConverter_ToMarkdown(t *testing.T) {
 
 		// Should return warning listing skipped content
 		require.Len(t, warnings, 1)
-		assert.Contains(t, warnings[0], "panel")
+		assert.Contains(t, warnings[0], "expand")
 	})
 
 	t.Run("accumulates multiple warnings for different skipped node types", func(t *testing.T) {
@@ -525,7 +525,7 @@ func TestConverter_ToMarkdown(t *testing.T) {
 					},
 				},
 				{
-					Type:    "panel",
+					Type:    "mediaSingle",
 					Content: []jira4claude.ADFNode{},
 				},
 				{
@@ -552,7 +552,7 @@ func TestConverter_ToMarkdown(t *testing.T) {
 		// Should return individual warnings for each skipped node type, sorted alphabetically
 		require.Len(t, warnings, 2)
 		assert.Contains(t, warnings[0], "expand")
-		assert.Contains(t, warnings[1], "panel")
+		assert.Contains(t, warnings[1], "mediaSingle")
 	})
 
 	t.Run("returns empty warnings slice when no content is skipped", func(t *testing.T) {
@@ -1184,5 +1184,115 @@ func TestConverter_ToMarkdown(t *testing.T) {
 		assert.Empty(t, w1)
 		assert.Empty(t, w2)
 		assert.Equal(t, original, result)
+	})
+
+	t.Run("converts panel with info type to NOTE alert blockquote", func(t *testing.T) {
+		t.Parallel()
+
+		converter := markdown.New()
+		adfDoc := &jira4claude.ADFNode{
+			Type:    "doc",
+			Version: 1,
+			Content: []jira4claude.ADFNode{
+				{
+					Type:  "panel",
+					Attrs: json.RawMessage(`{"panelType":"info"}`),
+					Content: []jira4claude.ADFNode{
+						{
+							Type: "paragraph",
+							Content: []jira4claude.ADFNode{
+								{Type: "text", Text: "Panel content"},
+							},
+						},
+					},
+				},
+			},
+		}
+
+		result, warnings := converter.ToMarkdown(adfDoc)
+
+		assert.Empty(t, warnings)
+		assert.Equal(t, "> [!NOTE]\n> Panel content", result)
+	})
+
+	t.Run("converts all five panel types to correct alert syntax", func(t *testing.T) {
+		t.Parallel()
+
+		cases := []struct {
+			panelType string
+			alert     string
+		}{
+			{"info", "NOTE"},
+			{"warning", "WARNING"},
+			{"error", "CAUTION"},
+			{"success", "TIP"},
+			{"note", "IMPORTANT"},
+		}
+
+		converter := markdown.New()
+		for _, tc := range cases {
+			t.Run(tc.panelType, func(t *testing.T) {
+				t.Parallel()
+
+				adfDoc := &jira4claude.ADFNode{
+					Type:    "doc",
+					Version: 1,
+					Content: []jira4claude.ADFNode{
+						{
+							Type:  "panel",
+							Attrs: json.RawMessage(`{"panelType":"` + tc.panelType + `"}`),
+							Content: []jira4claude.ADFNode{
+								{
+									Type: "paragraph",
+									Content: []jira4claude.ADFNode{
+										{Type: "text", Text: "Content"},
+									},
+								},
+							},
+						},
+					},
+				}
+
+				result, warnings := converter.ToMarkdown(adfDoc)
+
+				assert.Empty(t, warnings)
+				assert.Equal(t, "> [!"+tc.alert+"]\n> Content", result)
+			})
+		}
+	})
+
+	t.Run("converts panel with multiple paragraphs", func(t *testing.T) {
+		t.Parallel()
+
+		converter := markdown.New()
+		adfDoc := &jira4claude.ADFNode{
+			Type:    "doc",
+			Version: 1,
+			Content: []jira4claude.ADFNode{
+				{
+					Type:  "panel",
+					Attrs: json.RawMessage(`{"panelType":"warning"}`),
+					Content: []jira4claude.ADFNode{
+						{
+							Type: "paragraph",
+							Content: []jira4claude.ADFNode{
+								{Type: "text", Text: "First paragraph"},
+							},
+						},
+						{
+							Type: "paragraph",
+							Content: []jira4claude.ADFNode{
+								{Type: "text", Text: "Second paragraph"},
+							},
+						},
+					},
+				},
+			},
+		}
+
+		result, warnings := converter.ToMarkdown(adfDoc)
+
+		assert.Empty(t, warnings)
+		assert.Equal(t, "> [!WARNING]\n> First paragraph\n>\n> Second paragraph", result)
 	})
 }

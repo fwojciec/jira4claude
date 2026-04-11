@@ -1,0 +1,72 @@
+{
+  "type": "doc",
+  "version": 1,
+  "content": [
+    {
+      "type": "panel",
+      "attrs": {"panelType":"info"},
+      "content": [
+        {
+          "type": "paragraph",
+          "content": [
+            {"type": "text", "text": "This is an informational note."}
+          ]
+        },
+        {
+          "type": "paragraph",
+          "content": [
+            {"type": "text", "text": "It has multiple paragraphs."}
+          ]
+        }
+      ]
+    },
+    {
+      "type": "panel",
+      "attrs": {"panelType":"warning"},
+      "content": [
+        {
+          "type": "paragraph",
+          "content": [
+            {"type": "text", "text": "Be careful with this operation."}
+          ]
+        }
+      ]
+    },
+    {
+      "type": "panel",
+      "attrs": {"panelType":"error"},
+      "content": [
+        {
+          "type": "paragraph",
+          "content": [
+            {"type": "text", "text": "This action is irreversible."}
+          ]
+        }
+      ]
+    },
+    {
+      "type": "panel",
+      "attrs": {"panelType":"success"},
+      "content": [
+        {
+          "type": "paragraph",
+          "content": [
+            {"type": "text", "text": "Use keyboard shortcuts for efficiency."}
+          ]
+        }
+      ]
+    },
+    {
+      "type": "panel",
+      "attrs": {"panelType":"note"},
+      "content": [
+        {
+          "type": "paragraph",
+          "content": [
+            {"type": "text", "text": "Read the documentation before proceeding."}
+          ]
+        }
+      ]
+    }
+  ]
+}

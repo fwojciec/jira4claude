@@ -47,6 +47,8 @@ func adfNodeToGFM(node *jira4claude.ADFNode, skipped *skippedCollector) string {
 		return adfOrderedListToGFM(node, skipped)
 	case "blockquote":
 		return adfBlockquoteToGFM(node, skipped)
+	case "panel":
+		return adfPanelToGFM(node, skipped)
 	case "rule":
 		return "---"
 	case "table":
@@ -166,6 +168,54 @@ func adfBlockquoteToGFM(node *jira4claude.ADFNode, skipped *skippedCollector) st
 		child := &node.Content[i]
 		text := adfNodeToGFM(child, skipped)
 		// Prefix each line with >
+		for _, line := range strings.Split(text, "\n") {
+			lines = append(lines, "> "+line)
+		}
+	}
+
+	return strings.Join(lines, "\n")
+}
+
+// panelTypeToAlert maps ADF panel types to GitHub alert names.
+func panelTypeToAlert(panelType string) string {
+	switch panelType {
+	case "info":
+		return "NOTE"
+	case "warning":
+		return "WARNING"
+	case "error":
+		return "CAUTION"
+	case "success":
+		return "TIP"
+	case "note":
+		return "IMPORTANT"
+	default:
+		return "NOTE"
+	}
+}
+
+// adfPanelToGFM converts an ADF panel to a GitHub alert blockquote.
+func adfPanelToGFM(node *jira4claude.ADFNode, skipped *skippedCollector) string {
+	panelType := "info"
+	if node.Attrs != nil {
+		var attrs map[string]any
+		if err := json.Unmarshal(node.Attrs, &attrs); err == nil {
+			if pt, ok := attrs["panelType"].(string); ok {
+				panelType = pt
+			}
+		}
+	}
+
+	alert := panelTypeToAlert(panelType)
+	var lines []string
+	lines = append(lines, "> [!"+alert+"]")
+
+	for i := range node.Content {
+		text := adfNodeToGFM(&node.Content[i], skipped)
+		if i > 0 {
+			// Blank blockquote line to separate paragraphs
+			lines = append(lines, ">")
+		}
 		for _, line := range strings.Split(text, "\n") {
 			lines = append(lines, "> "+line)
 		}

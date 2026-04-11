@@ -224,12 +224,154 @@ func convertListItem(node *ast.ListItem, source []byte, skipped *skippedCollecto
 	}
 }
 
-// convertBlockquote converts a goldmark blockquote to an ADF blockquote.
+// alertNameToPanelType maps GitHub alert names to ADF panel types.
+func alertNameToPanelType(name string) (string, bool) {
+	switch name {
+	case "!NOTE":
+		return "info", true
+	case "!WARNING":
+		return "warning", true
+	case "!CAUTION":
+		return "error", true
+	case "!TIP":
+		return "success", true
+	case "!IMPORTANT":
+		return "note", true
+	default:
+		return "", false
+	}
+}
+
+// convertBlockquote converts a goldmark blockquote to an ADF blockquote or panel.
+// If the first paragraph starts with a GitHub alert prefix (e.g., [!NOTE]),
+// it emits a panel node instead of a blockquote.
 func convertBlockquote(node *ast.Blockquote, source []byte, skipped *skippedCollector) jira4claude.ADFNode {
+	if panelType, ok := detectAlertPrefix(node, source); ok {
+		content := convertPanelContent(node, source, skipped)
+		attrs, _ := json.Marshal(map[string]any{"panelType": panelType})
+		return jira4claude.ADFNode{
+			Type:    "panel",
+			Attrs:   attrs,
+			Content: content,
+		}
+	}
+
 	content := convertNode(node, source, skipped)
 	return jira4claude.ADFNode{
 		Type:    "blockquote",
 		Content: content,
+	}
+}
+
+// detectAlertPrefix checks if the blockquote's first paragraph starts with a
+// GitHub alert prefix like [!NOTE]. Goldmark parses "> [!NOTE]" as three
+// separate text nodes: "[", "!NOTE", "]". Returns the ADF panel type and true if found.
+func detectAlertPrefix(node *ast.Blockquote, source []byte) (string, bool) {
+	firstChild := node.FirstChild()
+	if firstChild == nil {
+		return "", false
+	}
+	para, ok := firstChild.(*ast.Paragraph)
+	if !ok {
+		return "", false
+	}
+
+	// Collect the first 3 text nodes: should be "[", "!ALERT_NAME", "]"
+	child := para.FirstChild()
+	if child == nil {
+		return "", false
+	}
+	t1, ok := child.(*ast.Text)
+	if !ok || string(t1.Segment.Value(source)) != "[" {
+		return "", false
+	}
+
+	child = child.NextSibling()
+	if child == nil {
+		return "", false
+	}
+	t2, ok := child.(*ast.Text)
+	if !ok {
+		return "", false
+	}
+	alertName := string(t2.Segment.Value(source))
+
+	child = child.NextSibling()
+	if child == nil {
+		return "", false
+	}
+	t3, ok := child.(*ast.Text)
+	if !ok || string(t3.Segment.Value(source)) != "]" {
+		return "", false
+	}
+
+	return alertNameToPanelType(alertName)
+}
+
+// isPanelAllowedChild returns true if the ADF node type is allowed inside a panel.
+// Per the ADF spec, panel can contain: paragraph, heading, bulletList, orderedList.
+func isPanelAllowedChild(nodeType string) bool {
+	switch nodeType {
+	case "paragraph", "heading", "bulletList", "orderedList":
+		return true
+	default:
+		return false
+	}
+}
+
+// convertPanelContent converts the children of a blockquote that has been identified
+// as a panel. It strips the alert prefix from the first paragraph's text and filters
+// out child types not allowed in ADF panels.
+func convertPanelContent(node *ast.Blockquote, source []byte, skipped *skippedCollector) []jira4claude.ADFNode {
+	var content []jira4claude.ADFNode
+	isFirst := true
+
+	for child := node.FirstChild(); child != nil; child = child.NextSibling() {
+		if isFirst {
+			isFirst = false
+			if para, ok := child.(*ast.Paragraph); ok {
+				panelPara := convertPanelFirstParagraph(para, source)
+				if panelPara != nil {
+					content = append(content, *panelPara)
+				}
+				continue
+			}
+		}
+		adfNode, ok := nodeToADF(child, source, skipped)
+		if ok {
+			if !isPanelAllowedChild(adfNode.Type) {
+				skipped.add(adfNode.Type)
+				continue
+			}
+			content = append(content, adfNode)
+		}
+	}
+
+	return content
+}
+
+// convertPanelFirstParagraph converts the first paragraph of a panel blockquote,
+// skipping the first 3 text nodes that form the alert prefix ("[", "!NOTE", "]").
+func convertPanelFirstParagraph(para *ast.Paragraph, source []byte) *jira4claude.ADFNode {
+	var inlineContent []jira4claude.ADFNode
+	skipCount := 3 // Skip "[", "!ALERT_NAME", "]"
+
+	for child := para.FirstChild(); child != nil; child = child.NextSibling() {
+		if skipCount > 0 {
+			skipCount--
+			continue
+		}
+		inlineContent = append(inlineContent, convertInlineNode(child, source, nil)...)
+	}
+
+	inlineContent = consolidateTextNodes(inlineContent)
+	if len(inlineContent) == 0 {
+		return nil
+	}
+
+	return &jira4claude.ADFNode{
+		Type:    "paragraph",
+		Content: inlineContent,
 	}
 }
 

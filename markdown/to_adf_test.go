@@ -1055,4 +1055,137 @@ func TestConverter_ToADF(t *testing.T) {
 		require.Len(t, result.Content, 1)
 		assert.Equal(t, "bulletList", result.Content[0].Type)
 	})
+
+	t.Run("converts NOTE alert blockquote to panel with info type", func(t *testing.T) {
+		t.Parallel()
+
+		converter := markdown.New()
+		result, warnings := converter.ToADF("> [!NOTE]\n> Panel content")
+
+		expected := &jira4claude.ADFNode{
+			Type:    "doc",
+			Version: 1,
+			Content: []jira4claude.ADFNode{
+				{
+					Type:  "panel",
+					Attrs: json.RawMessage(`{"panelType":"info"}`),
+					Content: []jira4claude.ADFNode{
+						{
+							Type: "paragraph",
+							Content: []jira4claude.ADFNode{
+								{Type: "text", Text: "Panel content"},
+							},
+						},
+					},
+				},
+			},
+		}
+
+		assert.Empty(t, warnings)
+		assert.Equal(t, expected, result)
+	})
+
+	t.Run("converts all five alert types to correct panel types", func(t *testing.T) {
+		t.Parallel()
+
+		cases := []struct {
+			alert     string
+			panelType string
+		}{
+			{"NOTE", "info"},
+			{"WARNING", "warning"},
+			{"CAUTION", "error"},
+			{"TIP", "success"},
+			{"IMPORTANT", "note"},
+		}
+
+		converter := markdown.New()
+		for _, tc := range cases {
+			t.Run(tc.alert, func(t *testing.T) {
+				t.Parallel()
+
+				input := "> [!" + tc.alert + "]\n> Content"
+				result, warnings := converter.ToADF(input)
+
+				assert.Empty(t, warnings)
+				require.Len(t, result.Content, 1)
+
+				panel := result.Content[0]
+				assert.Equal(t, "panel", panel.Type)
+
+				var attrs map[string]any
+				require.NoError(t, json.Unmarshal(panel.Attrs, &attrs))
+				assert.Equal(t, tc.panelType, attrs["panelType"])
+			})
+		}
+	})
+
+	t.Run("regular blockquote without alert prefix stays as blockquote", func(t *testing.T) {
+		t.Parallel()
+
+		converter := markdown.New()
+		result, warnings := converter.ToADF("> Regular quote")
+
+		assert.Empty(t, warnings)
+		require.Len(t, result.Content, 1)
+		assert.Equal(t, "blockquote", result.Content[0].Type)
+	})
+
+	t.Run("converts panel with multiple paragraphs", func(t *testing.T) {
+		t.Parallel()
+
+		converter := markdown.New()
+		result, warnings := converter.ToADF("> [!WARNING]\n> First paragraph\n>\n> Second paragraph")
+
+		expected := &jira4claude.ADFNode{
+			Type:    "doc",
+			Version: 1,
+			Content: []jira4claude.ADFNode{
+				{
+					Type:  "panel",
+					Attrs: json.RawMessage(`{"panelType":"warning"}`),
+					Content: []jira4claude.ADFNode{
+						{
+							Type: "paragraph",
+							Content: []jira4claude.ADFNode{
+								{Type: "text", Text: "First paragraph"},
+							},
+						},
+						{
+							Type: "paragraph",
+							Content: []jira4claude.ADFNode{
+								{Type: "text", Text: "Second paragraph"},
+							},
+						},
+					},
+				},
+			},
+		}
+
+		assert.Empty(t, warnings)
+		assert.Equal(t, expected, result)
+	})
+
+	t.Run("filters disallowed children from panel content", func(t *testing.T) {
+		t.Parallel()
+
+		converter := markdown.New()
+		// Code block inside a panel is not an allowed ADF panel child
+		result, warnings := converter.ToADF("> [!NOTE]\n> Text before\n>\n> ```go\n> code\n> ```")
+
+		require.NotNil(t, result)
+		require.Len(t, result.Content, 1)
+
+		panel := result.Content[0]
+		assert.Equal(t, "panel", panel.Type)
+
+		// Panel should only contain the paragraph, not the codeBlock
+		for _, child := range panel.Content {
+			assert.Contains(t, []string{"paragraph", "heading", "bulletList", "orderedList"}, child.Type,
+				"panel should only contain allowed child types, got %q", child.Type)
+		}
+
+		// Should warn about the dropped content
+		assert.NotEmpty(t, warnings)
+	})
 }
