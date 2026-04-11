@@ -1,0 +1,74 @@
+{
+  "type": "doc",
+  "version": 1,
+  "content": [
+    {
+      "type": "paragraph",
+      "content": [
+        {"type": "text", "text": "Assigned to "},
+        {
+          "type": "mention",
+          "attrs": {"id": "abc123", "text": "John Smith"}
+        },
+        {"type": "text", "text": " for review."}
+      ]
+    },
+    {
+      "type": "paragraph",
+      "content": [
+        {"type": "text", "text": "Great work "},
+        {
+          "type": "emoji",
+          "attrs": {"shortName": ":thumbsup:", "id": "1f44d", "text": "👍"}
+        },
+        {"type": "text", "text": " and custom "},
+        {
+          "type": "emoji",
+          "attrs": {"shortName": ":atlassian:", "id": "custom-1"}
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "content": [
+        {"type": "text", "text": "See "},
+        {
+          "type": "inlineCard",
+          "attrs": {"url": "https://jira.example.com/browse/PROJ-123"}
+        },
+        {"type": "text", "text": " for details."}
+      ]
+    },
+    {
+      "type": "paragraph",
+      "content": [
+        {"type": "text", "text": "Status: "},
+        {
+          "type": "status",
+          "attrs": {"text": "IN PROGRESS", "color": "blue"}
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "content": [
+        {"type": "text", "text": "Due: "},
+        {
+          "type": "date",
+          "attrs": {"timestamp": "1712707200000"}
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "content": [
+        {"type": "text", "text": "Enter text here"},
+        {
+          "type": "placeholder",
+          "attrs": {"text": "Type something"}
+        },
+        {"type": "text", "text": " please."}
+      ]
+    }
+  ]
+}

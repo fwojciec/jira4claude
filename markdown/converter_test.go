@@ -334,6 +334,25 @@ func TestGoldenFile_MediaADFToMD(t *testing.T) {
 	assert.Equal(t, string(expectedMD), result)
 }
 
+func TestGoldenFile_InlineNodesADFToMD(t *testing.T) {
+	t.Parallel()
+
+	adfBytes, err := os.ReadFile("testdata/inline_nodes.adf.json")
+	require.NoError(t, err)
+
+	var adfDoc jira4claude.ADFNode
+	require.NoError(t, json.Unmarshal(adfBytes, &adfDoc))
+
+	expectedMD, err := os.ReadFile("testdata/inline_nodes.md")
+	require.NoError(t, err)
+
+	converter := markdown.New()
+	result, warnings := converter.ToMarkdown(&adfDoc)
+
+	assert.Empty(t, warnings)
+	assert.Equal(t, string(expectedMD), result)
+}
+
 func TestRoundTrip_Expand(t *testing.T) {
 	t.Parallel()
 

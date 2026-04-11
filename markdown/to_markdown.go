@@ -3,7 +3,9 @@ package markdown
 import (
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/fwojciec/jira4claude"
 )
@@ -36,9 +38,9 @@ func toMarkdown(adfDoc *jira4claude.ADFNode) (string, []string) {
 func adfNodeToGFM(node *jira4claude.ADFNode, skipped *skippedCollector) string {
 	switch node.Type {
 	case "paragraph":
-		return adfInlineToGFM(node)
+		return adfInlineToGFM(node, skipped)
 	case "heading":
-		return adfHeadingToGFM(node)
+		return adfHeadingToGFM(node, skipped)
 	case "codeBlock":
 		return adfCodeBlockToGFM(node)
 	case "bulletList":
@@ -70,7 +72,7 @@ func adfNodeToGFM(node *jira4claude.ADFNode, skipped *skippedCollector) string {
 		wrapper := &jira4claude.ADFNode{
 			Content: []jira4claude.ADFNode{*node},
 		}
-		return adfInlineToGFM(wrapper)
+		return adfInlineToGFM(wrapper, skipped)
 	default:
 		// Record the skipped node type
 		skipped.add(node.Type)
@@ -79,7 +81,7 @@ func adfNodeToGFM(node *jira4claude.ADFNode, skipped *skippedCollector) string {
 }
 
 // adfHeadingToGFM converts an ADF heading to markdown.
-func adfHeadingToGFM(node *jira4claude.ADFNode) string {
+func adfHeadingToGFM(node *jira4claude.ADFNode, skipped *skippedCollector) string {
 	level := 1
 	if node.Attrs != nil {
 		var attrs map[string]any
@@ -90,7 +92,7 @@ func adfHeadingToGFM(node *jira4claude.ADFNode) string {
 		}
 	}
 
-	text := adfInlineToGFM(node)
+	text := adfInlineToGFM(node, skipped)
 	return strings.Repeat("#", level) + " " + text
 }
 
@@ -360,34 +362,50 @@ func adfTaskListToGFM(node *jira4claude.ADFNode, skipped *skippedCollector) stri
 }
 
 // adfInlineToGFM converts inline content to markdown.
-func adfInlineToGFM(node *jira4claude.ADFNode) string {
+func adfInlineToGFM(node *jira4claude.ADFNode, skipped *skippedCollector) string {
 	if len(node.Content) == 0 {
 		return ""
 	}
 
 	var result strings.Builder
-	for _, child := range node.Content {
-		if child.Type == "hardBreak" {
+	for i := range node.Content {
+		child := &node.Content[i]
+		switch child.Type {
+		case "text":
+			if len(child.Marks) == 0 {
+				result.WriteString(child.Text)
+			} else {
+				result.WriteString(applyMarks(child.Text, child.Marks))
+			}
+		case "hardBreak":
 			result.WriteString("\n")
-			continue
+		case "mediaInline":
+			result.WriteString(adfMediaInlineToGFM(child))
+		case "mention":
+			result.WriteString(adfMentionToGFM(child))
+		case "emoji":
+			result.WriteString(adfEmojiToGFM(child))
+		case "inlineCard":
+			if text := adfInlineCardToGFM(child); text != "" {
+				result.WriteString(text)
+			} else if skipped != nil {
+				skipped.add("inlineCard")
+			}
+		case "status":
+			result.WriteString(adfStatusToGFM(child))
+		case "date":
+			result.WriteString(adfDateToGFM(child))
+		case "placeholder":
+			// Drop silently — placeholder nodes produce no output.
+		case "inlineExtension":
+			if skipped != nil {
+				skipped.add("inlineExtension")
+			}
+		default:
+			if skipped != nil {
+				skipped.add(child.Type)
+			}
 		}
-
-		if child.Type == "mediaInline" {
-			result.WriteString(adfMediaInlineToGFM(&child))
-			continue
-		}
-
-		if child.Type != "text" {
-			continue
-		}
-
-		if len(child.Marks) == 0 {
-			result.WriteString(child.Text)
-			continue
-		}
-
-		// Apply marks
-		result.WriteString(applyMarks(child.Text, child.Marks))
 	}
 
 	return result.String()
@@ -446,6 +464,92 @@ func applyMarks(text string, marks []jira4claude.ADFMark) string {
 	}
 
 	return result
+}
+
+// adfMentionToGFM converts an ADF mention node to @DisplayName.
+func adfMentionToGFM(node *jira4claude.ADFNode) string {
+	if node.Attrs == nil {
+		return ""
+	}
+	var attrs map[string]any
+	if err := json.Unmarshal(node.Attrs, &attrs); err != nil {
+		return ""
+	}
+	if text, ok := attrs["text"].(string); ok && text != "" {
+		// Some Jira payloads include the @ prefix in text, some don't.
+		return "@" + strings.TrimPrefix(text, "@")
+	}
+	if id, ok := attrs["id"].(string); ok && id != "" {
+		return "@" + id
+	}
+	return ""
+}
+
+// adfEmojiToGFM converts an ADF emoji node to its Unicode character or :shortName:.
+func adfEmojiToGFM(node *jira4claude.ADFNode) string {
+	if node.Attrs == nil {
+		return ""
+	}
+	var attrs map[string]any
+	if err := json.Unmarshal(node.Attrs, &attrs); err != nil {
+		return ""
+	}
+	if text, ok := attrs["text"].(string); ok && text != "" {
+		return text
+	}
+	if shortName, ok := attrs["shortName"].(string); ok && shortName != "" {
+		return shortName
+	}
+	return ""
+}
+
+// adfInlineCardToGFM converts an ADF inlineCard node to a markdown link.
+func adfInlineCardToGFM(node *jira4claude.ADFNode) string {
+	if node.Attrs == nil {
+		return ""
+	}
+	var attrs map[string]any
+	if err := json.Unmarshal(node.Attrs, &attrs); err != nil {
+		return ""
+	}
+	if url, ok := attrs["url"].(string); ok && url != "" {
+		return fmt.Sprintf("[%s](%s)", url, url)
+	}
+	return ""
+}
+
+// adfStatusToGFM converts an ADF status node to bold text.
+func adfStatusToGFM(node *jira4claude.ADFNode) string {
+	if node.Attrs == nil {
+		return ""
+	}
+	var attrs map[string]any
+	if err := json.Unmarshal(node.Attrs, &attrs); err != nil {
+		return ""
+	}
+	if text, ok := attrs["text"].(string); ok && text != "" {
+		return "**" + text + "**"
+	}
+	return ""
+}
+
+// adfDateToGFM converts an ADF date node to a human-readable date string.
+func adfDateToGFM(node *jira4claude.ADFNode) string {
+	if node.Attrs == nil {
+		return ""
+	}
+	var attrs map[string]any
+	if err := json.Unmarshal(node.Attrs, &attrs); err != nil {
+		return ""
+	}
+	if ts, ok := attrs["timestamp"].(string); ok && ts != "" {
+		ms, err := strconv.ParseInt(ts, 10, 64)
+		if err != nil {
+			return ts
+		}
+		return time.UnixMilli(ms).UTC().Format("2006-01-02")
+	}
+	return ""
 }
 
 // mediaAttrs extracts common attributes from a media node's attrs JSON.

@@ -1622,4 +1622,306 @@ func TestConverter_ToMarkdown(t *testing.T) {
 		assert.Empty(t, warnings)
 		assert.Equal(t, "See [attachment] attached.", result)
 	})
+
+	t.Run("converts mention with display name", func(t *testing.T) {
+		t.Parallel()
+
+		converter := markdown.New()
+		adfDoc := &jira4claude.ADFNode{
+			Type:    "doc",
+			Version: 1,
+			Content: []jira4claude.ADFNode{
+				{
+					Type: "paragraph",
+					Content: []jira4claude.ADFNode{
+						{Type: "text", Text: "Assigned to "},
+						{
+							Type:  "mention",
+							Attrs: json.RawMessage(`{"id":"abc123","text":"John Smith"}`),
+						},
+						{Type: "text", Text: " for review."},
+					},
+				},
+			},
+		}
+
+		result, warnings := converter.ToMarkdown(adfDoc)
+
+		assert.Empty(t, warnings)
+		assert.Equal(t, "Assigned to @John Smith for review.", result)
+	})
+
+	t.Run("converts mention with @ prefix in text avoids double @", func(t *testing.T) {
+		t.Parallel()
+
+		converter := markdown.New()
+		adfDoc := &jira4claude.ADFNode{
+			Type:    "doc",
+			Version: 1,
+			Content: []jira4claude.ADFNode{
+				{
+					Type: "paragraph",
+					Content: []jira4claude.ADFNode{
+						{Type: "text", Text: "Ask "},
+						{
+							Type:  "mention",
+							Attrs: json.RawMessage(`{"id":"abc123","text":"@Bradley Ayers"}`),
+						},
+					},
+				},
+			},
+		}
+
+		result, warnings := converter.ToMarkdown(adfDoc)
+
+		assert.Empty(t, warnings)
+		assert.Equal(t, "Ask @Bradley Ayers", result)
+	})
+
+	t.Run("converts mention without display name falls back to id", func(t *testing.T) {
+		t.Parallel()
+
+		converter := markdown.New()
+		adfDoc := &jira4claude.ADFNode{
+			Type:    "doc",
+			Version: 1,
+			Content: []jira4claude.ADFNode{
+				{
+					Type: "paragraph",
+					Content: []jira4claude.ADFNode{
+						{Type: "text", Text: "Ask "},
+						{
+							Type:  "mention",
+							Attrs: json.RawMessage(`{"id":"user-456"}`),
+						},
+						{Type: "text", Text: " about it."},
+					},
+				},
+			},
+		}
+
+		result, warnings := converter.ToMarkdown(adfDoc)
+
+		assert.Empty(t, warnings)
+		assert.Equal(t, "Ask @user-456 about it.", result)
+	})
+
+	t.Run("converts emoji with unicode text", func(t *testing.T) {
+		t.Parallel()
+
+		converter := markdown.New()
+		adfDoc := &jira4claude.ADFNode{
+			Type:    "doc",
+			Version: 1,
+			Content: []jira4claude.ADFNode{
+				{
+					Type: "paragraph",
+					Content: []jira4claude.ADFNode{
+						{Type: "text", Text: "Great work "},
+						{
+							Type:  "emoji",
+							Attrs: json.RawMessage(`{"shortName":":thumbsup:","id":"1f44d","text":"👍"}`),
+						},
+					},
+				},
+			},
+		}
+
+		result, warnings := converter.ToMarkdown(adfDoc)
+
+		assert.Empty(t, warnings)
+		assert.Equal(t, "Great work 👍", result)
+	})
+
+	t.Run("converts emoji without unicode falls back to shortName", func(t *testing.T) {
+		t.Parallel()
+
+		converter := markdown.New()
+		adfDoc := &jira4claude.ADFNode{
+			Type:    "doc",
+			Version: 1,
+			Content: []jira4claude.ADFNode{
+				{
+					Type: "paragraph",
+					Content: []jira4claude.ADFNode{
+						{Type: "text", Text: "Custom "},
+						{
+							Type:  "emoji",
+							Attrs: json.RawMessage(`{"shortName":":atlassian:","id":"custom-1"}`),
+						},
+					},
+				},
+			},
+		}
+
+		result, warnings := converter.ToMarkdown(adfDoc)
+
+		assert.Empty(t, warnings)
+		assert.Equal(t, "Custom :atlassian:", result)
+	})
+
+	t.Run("converts inlineCard to markdown link", func(t *testing.T) {
+		t.Parallel()
+
+		converter := markdown.New()
+		adfDoc := &jira4claude.ADFNode{
+			Type:    "doc",
+			Version: 1,
+			Content: []jira4claude.ADFNode{
+				{
+					Type: "paragraph",
+					Content: []jira4claude.ADFNode{
+						{Type: "text", Text: "See "},
+						{
+							Type:  "inlineCard",
+							Attrs: json.RawMessage(`{"url":"https://jira.example.com/browse/PROJ-123"}`),
+						},
+						{Type: "text", Text: " for details."},
+					},
+				},
+			},
+		}
+
+		result, warnings := converter.ToMarkdown(adfDoc)
+
+		assert.Empty(t, warnings)
+		assert.Equal(t, "See [https://jira.example.com/browse/PROJ-123](https://jira.example.com/browse/PROJ-123) for details.", result)
+	})
+
+	t.Run("converts status to bold text", func(t *testing.T) {
+		t.Parallel()
+
+		converter := markdown.New()
+		adfDoc := &jira4claude.ADFNode{
+			Type:    "doc",
+			Version: 1,
+			Content: []jira4claude.ADFNode{
+				{
+					Type: "paragraph",
+					Content: []jira4claude.ADFNode{
+						{Type: "text", Text: "Status: "},
+						{
+							Type:  "status",
+							Attrs: json.RawMessage(`{"text":"IN PROGRESS","color":"blue"}`),
+						},
+					},
+				},
+			},
+		}
+
+		result, warnings := converter.ToMarkdown(adfDoc)
+
+		assert.Empty(t, warnings)
+		assert.Equal(t, "Status: **IN PROGRESS**", result)
+	})
+
+	t.Run("converts date to human-readable format", func(t *testing.T) {
+		t.Parallel()
+
+		converter := markdown.New()
+		adfDoc := &jira4claude.ADFNode{
+			Type:    "doc",
+			Version: 1,
+			Content: []jira4claude.ADFNode{
+				{
+					Type: "paragraph",
+					Content: []jira4claude.ADFNode{
+						{Type: "text", Text: "Due: "},
+						{
+							Type:  "date",
+							Attrs: json.RawMessage(`{"timestamp":"1712707200000"}`),
+						},
+					},
+				},
+			},
+		}
+
+		result, warnings := converter.ToMarkdown(adfDoc)
+
+		assert.Empty(t, warnings)
+		assert.Equal(t, "Due: 2024-04-10", result)
+	})
+
+	t.Run("drops placeholder silently", func(t *testing.T) {
+		t.Parallel()
+
+		converter := markdown.New()
+		adfDoc := &jira4claude.ADFNode{
+			Type:    "doc",
+			Version: 1,
+			Content: []jira4claude.ADFNode{
+				{
+					Type: "paragraph",
+					Content: []jira4claude.ADFNode{
+						{Type: "text", Text: "Enter text here"},
+						{
+							Type:  "placeholder",
+							Attrs: json.RawMessage(`{"text":"Type something here"}`),
+						},
+						{Type: "text", Text: " please."},
+					},
+				},
+			},
+		}
+
+		result, warnings := converter.ToMarkdown(adfDoc)
+
+		assert.Empty(t, warnings)
+		assert.Equal(t, "Enter text here please.", result)
+	})
+
+	t.Run("drops inlineExtension with warning", func(t *testing.T) {
+		t.Parallel()
+
+		converter := markdown.New()
+		adfDoc := &jira4claude.ADFNode{
+			Type:    "doc",
+			Version: 1,
+			Content: []jira4claude.ADFNode{
+				{
+					Type: "paragraph",
+					Content: []jira4claude.ADFNode{
+						{Type: "text", Text: "Content: "},
+						{
+							Type:  "inlineExtension",
+							Attrs: json.RawMessage(`{"extensionType":"com.atlassian.macro","extensionKey":"jira"}`),
+						},
+						{Type: "text", Text: " end."},
+					},
+				},
+			},
+		}
+
+		result, warnings := converter.ToMarkdown(adfDoc)
+
+		assert.Equal(t, "Content:  end.", result)
+		require.Len(t, warnings, 1)
+		assert.Contains(t, warnings[0], "inlineExtension")
+	})
+
+	t.Run("handles unknown inline node with warning", func(t *testing.T) {
+		t.Parallel()
+
+		converter := markdown.New()
+		adfDoc := &jira4claude.ADFNode{
+			Type:    "doc",
+			Version: 1,
+			Content: []jira4claude.ADFNode{
+				{
+					Type: "paragraph",
+					Content: []jira4claude.ADFNode{
+						{Type: "text", Text: "Before "},
+						{Type: "futureInlineNode"},
+						{Type: "text", Text: " after."},
+					},
+				},
+			},
+		}
+
+		result, warnings := converter.ToMarkdown(adfDoc)
+
+		assert.Equal(t, "Before  after.", result)
+		require.Len(t, warnings, 1)
+		assert.Contains(t, warnings[0], "futureInlineNode")
+	})
 }
