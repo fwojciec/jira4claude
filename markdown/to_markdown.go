@@ -59,10 +59,17 @@ func adfNodeToGFM(node *jira4claude.ADFNode, skipped *skippedCollector) string {
 		return adfTableToGFM(node, skipped)
 	case "taskList":
 		return adfTaskListToGFM(node, skipped)
+	case "decisionList":
+		return adfDecisionListToGFM(node, skipped)
+	case "layoutSection", "layoutColumn":
+		return adfFlattenToGFM(node, skipped)
 	case "mediaSingle":
 		return adfMediaSingleToGFM(node)
 	case "mediaGroup":
 		return adfMediaGroupToGFM(node)
+	case "bodiedExtension", "extension", "multiBodiedExtension", "extensionFrame":
+		skipped.add(node.Type)
+		return ""
 	case "hardBreak":
 		return "\n"
 	case "text":
@@ -358,6 +365,35 @@ func adfTaskListToGFM(node *jira4claude.ADFNode, skipped *skippedCollector) stri
 		items = append(items, "- "+checkbox+" "+text)
 	}
 
+	return strings.Join(items, "\n")
+}
+
+// adfFlattenToGFM flattens a container node's content sequentially, ignoring
+// the container's own structure (e.g., layoutSection columns become sequential blocks).
+func adfFlattenToGFM(node *jira4claude.ADFNode, skipped *skippedCollector) string {
+	var parts []string
+	for i := range node.Content {
+		part := adfNodeToGFM(&node.Content[i], skipped)
+		if part != "" {
+			parts = append(parts, part)
+		}
+	}
+	return strings.Join(parts, "\n\n")
+}
+
+// adfDecisionListToGFM converts an ADF decisionList to a plain bullet list.
+func adfDecisionListToGFM(node *jira4claude.ADFNode, skipped *skippedCollector) string {
+	var items []string
+	for i := range node.Content {
+		child := &node.Content[i]
+		if child.Type != "decisionItem" {
+			continue
+		}
+		text := adfListItemToGFM(child, skipped)
+		if text != "" {
+			items = append(items, "- "+text)
+		}
+	}
 	return strings.Join(items, "\n")
 }
 

@@ -525,7 +525,7 @@ func TestConverter_ToMarkdown(t *testing.T) {
 					},
 				},
 				{
-					Type:    "layoutSection",
+					Type:    "extension",
 					Content: []jira4claude.ADFNode{},
 				},
 				{
@@ -552,7 +552,7 @@ func TestConverter_ToMarkdown(t *testing.T) {
 		// Should return individual warnings for each skipped node type, sorted alphabetically
 		require.Len(t, warnings, 2)
 		assert.Contains(t, warnings[0], "bodiedExtension")
-		assert.Contains(t, warnings[1], "layoutSection")
+		assert.Contains(t, warnings[1], "extension")
 	})
 
 	t.Run("returns empty warnings slice when no content is skipped", func(t *testing.T) {
@@ -2273,5 +2273,275 @@ func TestConverter_ToMarkdown(t *testing.T) {
 
 		assert.Empty(t, warnings)
 		assert.Equal(t, "**colored text**", result)
+	})
+
+	t.Run("converts decisionList to plain bullet list", func(t *testing.T) {
+		t.Parallel()
+
+		converter := markdown.New()
+		adfDoc := &jira4claude.ADFNode{
+			Type:    "doc",
+			Version: 1,
+			Content: []jira4claude.ADFNode{
+				{
+					Type: "decisionList",
+					Content: []jira4claude.ADFNode{
+						{
+							Type: "decisionItem",
+							Content: []jira4claude.ADFNode{
+								{
+									Type: "paragraph",
+									Content: []jira4claude.ADFNode{
+										{Type: "text", Text: "Use Go for the backend"},
+									},
+								},
+							},
+						},
+						{
+							Type: "decisionItem",
+							Content: []jira4claude.ADFNode{
+								{
+									Type: "paragraph",
+									Content: []jira4claude.ADFNode{
+										{Type: "text", Text: "Deploy to AWS"},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		}
+
+		result, warnings := converter.ToMarkdown(adfDoc)
+
+		assert.Empty(t, warnings)
+		assert.Equal(t, "- Use Go for the backend\n- Deploy to AWS", result)
+	})
+
+	t.Run("converts decisionList with empty items", func(t *testing.T) {
+		t.Parallel()
+
+		converter := markdown.New()
+		adfDoc := &jira4claude.ADFNode{
+			Type:    "doc",
+			Version: 1,
+			Content: []jira4claude.ADFNode{
+				{
+					Type: "decisionList",
+					Content: []jira4claude.ADFNode{
+						{
+							Type:    "decisionItem",
+							Content: []jira4claude.ADFNode{},
+						},
+					},
+				},
+			},
+		}
+
+		result, warnings := converter.ToMarkdown(adfDoc)
+
+		assert.Empty(t, warnings)
+		assert.Empty(t, result)
+	})
+
+	t.Run("flattens layoutSection content sequentially", func(t *testing.T) {
+		t.Parallel()
+
+		converter := markdown.New()
+		adfDoc := &jira4claude.ADFNode{
+			Type:    "doc",
+			Version: 1,
+			Content: []jira4claude.ADFNode{
+				{
+					Type: "layoutSection",
+					Content: []jira4claude.ADFNode{
+						{
+							Type: "layoutColumn",
+							Content: []jira4claude.ADFNode{
+								{
+									Type: "paragraph",
+									Content: []jira4claude.ADFNode{
+										{Type: "text", Text: "Column one content"},
+									},
+								},
+							},
+						},
+						{
+							Type: "layoutColumn",
+							Content: []jira4claude.ADFNode{
+								{
+									Type: "paragraph",
+									Content: []jira4claude.ADFNode{
+										{Type: "text", Text: "Column two content"},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		}
+
+		result, warnings := converter.ToMarkdown(adfDoc)
+
+		assert.Empty(t, warnings)
+		assert.Equal(t, "Column one content\n\nColumn two content", result)
+	})
+
+	t.Run("flattens layoutSection without layoutColumn wrapper", func(t *testing.T) {
+		t.Parallel()
+
+		converter := markdown.New()
+		adfDoc := &jira4claude.ADFNode{
+			Type:    "doc",
+			Version: 1,
+			Content: []jira4claude.ADFNode{
+				{
+					Type: "layoutSection",
+					Content: []jira4claude.ADFNode{
+						{
+							Type: "paragraph",
+							Content: []jira4claude.ADFNode{
+								{Type: "text", Text: "Direct content"},
+							},
+						},
+					},
+				},
+			},
+		}
+
+		result, warnings := converter.ToMarkdown(adfDoc)
+
+		assert.Empty(t, warnings)
+		assert.Equal(t, "Direct content", result)
+	})
+
+	t.Run("drops extension nodes with warning", func(t *testing.T) {
+		t.Parallel()
+
+		converter := markdown.New()
+		adfDoc := &jira4claude.ADFNode{
+			Type:    "doc",
+			Version: 1,
+			Content: []jira4claude.ADFNode{
+				{
+					Type: "paragraph",
+					Content: []jira4claude.ADFNode{
+						{Type: "text", Text: "Before"},
+					},
+				},
+				{Type: "bodiedExtension", Content: []jira4claude.ADFNode{}},
+				{Type: "extension", Content: []jira4claude.ADFNode{}},
+				{Type: "multiBodiedExtension", Content: []jira4claude.ADFNode{}},
+				{Type: "extensionFrame", Content: []jira4claude.ADFNode{}},
+				{
+					Type: "paragraph",
+					Content: []jira4claude.ADFNode{
+						{Type: "text", Text: "After"},
+					},
+				},
+			},
+		}
+
+		result, warnings := converter.ToMarkdown(adfDoc)
+
+		assert.Equal(t, "Before\n\nAfter", result)
+		require.Len(t, warnings, 4)
+		assert.Contains(t, warnings[0], "bodiedExtension")
+		assert.Contains(t, warnings[1], "extension")
+		assert.Contains(t, warnings[2], "extensionFrame")
+		assert.Contains(t, warnings[3], "multiBodiedExtension")
+	})
+
+	t.Run("silently drops annotation mark preserving text", func(t *testing.T) {
+		t.Parallel()
+
+		converter := markdown.New()
+		annotationAttrs, _ := json.Marshal(map[string]any{"id": "abc-123"})
+		adfDoc := &jira4claude.ADFNode{
+			Type:    "doc",
+			Version: 1,
+			Content: []jira4claude.ADFNode{
+				{
+					Type: "paragraph",
+					Content: []jira4claude.ADFNode{
+						{
+							Type: "text",
+							Text: "annotated text",
+							Marks: []jira4claude.ADFMark{
+								{Type: "annotation", Attrs: annotationAttrs},
+							},
+						},
+					},
+				},
+			},
+		}
+
+		result, warnings := converter.ToMarkdown(adfDoc)
+
+		assert.Empty(t, warnings)
+		assert.Equal(t, "annotated text", result)
+	})
+
+	t.Run("silently drops border mark preserving text", func(t *testing.T) {
+		t.Parallel()
+
+		converter := markdown.New()
+		borderAttrs, _ := json.Marshal(map[string]any{"size": 1, "color": "#000"})
+		adfDoc := &jira4claude.ADFNode{
+			Type:    "doc",
+			Version: 1,
+			Content: []jira4claude.ADFNode{
+				{
+					Type: "paragraph",
+					Content: []jira4claude.ADFNode{
+						{
+							Type: "text",
+							Text: "bordered text",
+							Marks: []jira4claude.ADFMark{
+								{Type: "border", Attrs: borderAttrs},
+								{Type: "strong"},
+							},
+						},
+					},
+				},
+			},
+		}
+
+		result, warnings := converter.ToMarkdown(adfDoc)
+
+		assert.Empty(t, warnings)
+		assert.Equal(t, "**bordered text**", result)
+	})
+
+	t.Run("silently drops backgroundColor mark preserving text", func(t *testing.T) {
+		t.Parallel()
+
+		converter := markdown.New()
+		bgAttrs, _ := json.Marshal(map[string]any{"color": "#ffff00"})
+		adfDoc := &jira4claude.ADFNode{
+			Type:    "doc",
+			Version: 1,
+			Content: []jira4claude.ADFNode{
+				{
+					Type: "paragraph",
+					Content: []jira4claude.ADFNode{
+						{
+							Type: "text",
+							Text: "highlighted text",
+							Marks: []jira4claude.ADFMark{
+								{Type: "backgroundColor", Attrs: bgAttrs},
+							},
+						},
+					},
+				},
+			},
+		}
+
+		result, warnings := converter.ToMarkdown(adfDoc)
+
+		assert.Empty(t, warnings)
+		assert.Equal(t, "highlighted text", result)
 	})
 }
