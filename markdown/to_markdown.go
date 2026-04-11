@@ -412,6 +412,15 @@ func adfInlineToGFM(node *jira4claude.ADFNode, skipped *skippedCollector) string
 }
 
 // applyMarks wraps text with the appropriate markdown syntax for its marks.
+//
+// Mark nesting order (outermost → innermost):
+//
+//	link → subsup → underline → strong → em → strike → code
+//
+// Code is exclusive: when present it suppresses em, strong, and strike
+// because Markdown doesn't support emphasis inside backticks.
+// Whitespace expulsion: leading/trailing whitespace is moved outside all
+// mark delimiters to avoid producing broken syntax like "**bold **".
 func applyMarks(text string, marks []jira4claude.ADFMark) string {
 	var hasStrong, hasEm, hasCode, hasStrike, hasUnderline bool
 	var linkHref string
@@ -450,26 +459,29 @@ func applyMarks(text string, marks []jira4claude.ADFMark) string {
 		}
 	}
 
-	// Apply marks in specific order.
-	// If code is present, skip em/strong/strike since markdown doesn't support emphasis inside backticks.
-	// HTML tags (underline, subsup) are applied outside code since they work in rendered markdown.
-	result := text
+	// Expel leading/trailing whitespace so delimiters hug content.
+	// If text is whitespace-only, skip all marks to avoid empty delimiters.
+	trimmed := strings.Trim(text, " \t")
+	if trimmed == "" {
+		return text
+	}
+	leading := text[:len(text)-len(strings.TrimLeft(text, " \t"))]
+	trailing := text[len(strings.TrimRight(text, " \t")):]
+	result := trimmed
 
+	// Apply marks innermost → outermost.
+	// Code is exclusive: suppresses em/strong/strike.
 	if hasCode {
 		result = "`" + result + "`"
 	} else {
-		if hasEm && hasStrong {
-			result = "***" + result + "***"
-		} else {
-			if hasEm {
-				result = "*" + result + "*"
-			}
-			if hasStrong {
-				result = "**" + result + "**"
-			}
-		}
 		if hasStrike {
 			result = "~~" + result + "~~"
+		}
+		if hasEm {
+			result = "*" + result + "*"
+		}
+		if hasStrong {
+			result = "**" + result + "**"
 		}
 	}
 	if hasUnderline {
@@ -485,7 +497,7 @@ func applyMarks(text string, marks []jira4claude.ADFMark) string {
 		result = "[" + result + "](" + linkHref + ")"
 	}
 
-	return result
+	return leading + result + trailing
 }
 
 // adfMentionToGFM converts an ADF mention node to @DisplayName.

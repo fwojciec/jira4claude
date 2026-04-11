@@ -1169,7 +1169,7 @@ func TestConverter_ToMarkdown(t *testing.T) {
 		result, warnings := converter.ToMarkdown(adfDoc)
 
 		assert.Empty(t, warnings)
-		assert.Equal(t, "~~**bold deleted**~~", result)
+		assert.Equal(t, "**~~bold deleted~~**", result)
 	})
 
 	t.Run("round trips strikethrough through MD to ADF to MD", func(t *testing.T) {
@@ -2028,5 +2028,250 @@ func TestConverter_ToMarkdown(t *testing.T) {
 
 		assert.Empty(t, warnings)
 		assert.Equal(t, "x<sup>2</sup>", result)
+	})
+
+	t.Run("link+bold renders link outermost", func(t *testing.T) {
+		t.Parallel()
+
+		converter := markdown.New()
+		linkAttrs, _ := json.Marshal(map[string]any{"href": "https://example.com"})
+		adfDoc := &jira4claude.ADFNode{
+			Type:    "doc",
+			Version: 1,
+			Content: []jira4claude.ADFNode{
+				{
+					Type: "paragraph",
+					Content: []jira4claude.ADFNode{
+						{
+							Type: "text",
+							Text: "click here",
+							Marks: []jira4claude.ADFMark{
+								{Type: "strong"},
+								{Type: "link", Attrs: linkAttrs},
+							},
+						},
+					},
+				},
+			},
+		}
+
+		result, warnings := converter.ToMarkdown(adfDoc)
+
+		assert.Empty(t, warnings)
+		assert.Equal(t, "[**click here**](https://example.com)", result)
+	})
+
+	t.Run("bold+italic+strike renders with correct nesting", func(t *testing.T) {
+		t.Parallel()
+
+		converter := markdown.New()
+		adfDoc := &jira4claude.ADFNode{
+			Type:    "doc",
+			Version: 1,
+			Content: []jira4claude.ADFNode{
+				{
+					Type: "paragraph",
+					Content: []jira4claude.ADFNode{
+						{
+							Type: "text",
+							Text: "formatted",
+							Marks: []jira4claude.ADFMark{
+								{Type: "strike"},
+								{Type: "em"},
+								{Type: "strong"},
+							},
+						},
+					},
+				},
+			},
+		}
+
+		result, warnings := converter.ToMarkdown(adfDoc)
+
+		assert.Empty(t, warnings)
+		// Order: strong (outer) > em > strike (inner before code)
+		assert.Equal(t, "***~~formatted~~***", result)
+	})
+
+	t.Run("expels trailing whitespace from bold mark", func(t *testing.T) {
+		t.Parallel()
+
+		converter := markdown.New()
+		adfDoc := &jira4claude.ADFNode{
+			Type:    "doc",
+			Version: 1,
+			Content: []jira4claude.ADFNode{
+				{
+					Type: "paragraph",
+					Content: []jira4claude.ADFNode{
+						{
+							Type:  "text",
+							Text:  "bold ",
+							Marks: []jira4claude.ADFMark{{Type: "strong"}},
+						},
+						{
+							Type: "text",
+							Text: "after",
+						},
+					},
+				},
+			},
+		}
+
+		result, warnings := converter.ToMarkdown(adfDoc)
+
+		assert.Empty(t, warnings)
+		assert.Equal(t, "**bold** after", result)
+	})
+
+	t.Run("expels leading whitespace from italic mark", func(t *testing.T) {
+		t.Parallel()
+
+		converter := markdown.New()
+		adfDoc := &jira4claude.ADFNode{
+			Type:    "doc",
+			Version: 1,
+			Content: []jira4claude.ADFNode{
+				{
+					Type: "paragraph",
+					Content: []jira4claude.ADFNode{
+						{
+							Type: "text",
+							Text: "before",
+						},
+						{
+							Type:  "text",
+							Text:  " italic",
+							Marks: []jira4claude.ADFMark{{Type: "em"}},
+						},
+					},
+				},
+			},
+		}
+
+		result, warnings := converter.ToMarkdown(adfDoc)
+
+		assert.Empty(t, warnings)
+		assert.Equal(t, "before *italic*", result)
+	})
+
+	t.Run("whitespace-only text with marks produces no delimiters", func(t *testing.T) {
+		t.Parallel()
+
+		converter := markdown.New()
+		adfDoc := &jira4claude.ADFNode{
+			Type:    "doc",
+			Version: 1,
+			Content: []jira4claude.ADFNode{
+				{
+					Type: "paragraph",
+					Content: []jira4claude.ADFNode{
+						{
+							Type:  "text",
+							Text:  " ",
+							Marks: []jira4claude.ADFMark{{Type: "strong"}},
+						},
+					},
+				},
+			},
+		}
+
+		result, warnings := converter.ToMarkdown(adfDoc)
+
+		assert.Empty(t, warnings)
+		// Whitespace-only text should not produce empty delimiters like "** **"
+		assert.Equal(t, " ", result)
+	})
+
+	t.Run("expels both leading and trailing whitespace", func(t *testing.T) {
+		t.Parallel()
+
+		converter := markdown.New()
+		adfDoc := &jira4claude.ADFNode{
+			Type:    "doc",
+			Version: 1,
+			Content: []jira4claude.ADFNode{
+				{
+					Type: "paragraph",
+					Content: []jira4claude.ADFNode{
+						{
+							Type:  "text",
+							Text:  " bold text ",
+							Marks: []jira4claude.ADFMark{{Type: "strong"}},
+						},
+					},
+				},
+			},
+		}
+
+		result, warnings := converter.ToMarkdown(adfDoc)
+
+		assert.Empty(t, warnings)
+		assert.Equal(t, " **bold text** ", result)
+	})
+
+	t.Run("all marks combined with correct nesting order", func(t *testing.T) {
+		t.Parallel()
+
+		converter := markdown.New()
+		linkAttrs, _ := json.Marshal(map[string]any{"href": "https://example.com"})
+		adfDoc := &jira4claude.ADFNode{
+			Type:    "doc",
+			Version: 1,
+			Content: []jira4claude.ADFNode{
+				{
+					Type: "paragraph",
+					Content: []jira4claude.ADFNode{
+						{
+							Type: "text",
+							Text: "text",
+							Marks: []jira4claude.ADFMark{
+								{Type: "em"},
+								{Type: "link", Attrs: linkAttrs},
+								{Type: "strong"},
+								{Type: "strike"},
+							},
+						},
+					},
+				},
+			},
+		}
+
+		result, warnings := converter.ToMarkdown(adfDoc)
+
+		assert.Empty(t, warnings)
+		// link (outermost) > strong > em > strike (innermost before code)
+		assert.Equal(t, "[***~~text~~***](https://example.com)", result)
+	})
+
+	t.Run("drops textColor and backgroundColor marks silently", func(t *testing.T) {
+		t.Parallel()
+
+		converter := markdown.New()
+		colorAttrs, _ := json.Marshal(map[string]any{"color": "#ff0000"})
+		adfDoc := &jira4claude.ADFNode{
+			Type:    "doc",
+			Version: 1,
+			Content: []jira4claude.ADFNode{
+				{
+					Type: "paragraph",
+					Content: []jira4claude.ADFNode{
+						{
+							Type: "text",
+							Text: "colored text",
+							Marks: []jira4claude.ADFMark{
+								{Type: "textColor", Attrs: colorAttrs},
+								{Type: "strong"},
+							},
+						},
+					},
+				},
+			},
+		}
+
+		result, warnings := converter.ToMarkdown(adfDoc)
+
+		assert.Empty(t, warnings)
+		assert.Equal(t, "**colored text**", result)
 	})
 }
