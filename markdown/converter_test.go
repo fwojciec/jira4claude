@@ -58,6 +58,7 @@ This is a paragraph with **bold** and *italic* text.
 			// Markdown -> ADF -> Markdown
 			adfDoc, warnings := converter.ToADF(tc.markdown)
 			assert.Empty(t, warnings)
+			requireValidADF(t, adfDoc)
 
 			result, warnings := converter.ToMarkdown(adfDoc)
 			assert.Empty(t, warnings)
@@ -74,6 +75,7 @@ This is a paragraph with **bold** and *italic* text.
 		converter := markdown.New()
 		adfDoc, warnings := converter.ToADF(input)
 		assert.Empty(t, warnings)
+		requireValidADF(t, adfDoc)
 
 		result, warnings := converter.ToMarkdown(adfDoc)
 		assert.Empty(t, warnings)
@@ -89,6 +91,7 @@ This is a paragraph with **bold** and *italic* text.
 		converter := markdown.New()
 		adfDoc, warnings := converter.ToADF(input)
 		assert.Empty(t, warnings)
+		requireValidADF(t, adfDoc)
 
 		result, warnings := converter.ToMarkdown(adfDoc)
 		assert.Empty(t, warnings)
@@ -108,6 +111,7 @@ This is a paragraph with **bold** and *italic* text.
 				input := "> [!" + alert + "]\n> Content here"
 				adfDoc, w1 := converter.ToADF(input)
 				assert.Empty(t, w1)
+				requireValidADF(t, adfDoc)
 				result, w2 := converter.ToMarkdown(adfDoc)
 				assert.Empty(t, w2)
 				assertMarkdownEqual(t, input, result)
@@ -123,6 +127,7 @@ This is a paragraph with **bold** and *italic* text.
 		converter := markdown.New()
 		adfDoc, warnings := converter.ToADF(input)
 		assert.Empty(t, warnings)
+		requireValidADF(t, adfDoc)
 
 		result, warnings := converter.ToMarkdown(adfDoc)
 		assert.Empty(t, warnings)
@@ -138,6 +143,7 @@ This is a paragraph with **bold** and *italic* text.
 		converter := markdown.New()
 		adfDoc, warnings := converter.ToADF(input)
 		assert.Empty(t, warnings)
+		requireValidADF(t, adfDoc)
 
 		result, warnings := converter.ToMarkdown(adfDoc)
 		assert.Empty(t, warnings)
@@ -162,6 +168,7 @@ func TestGoldenFile_PanelMDToADF(t *testing.T) {
 	result, warnings := converter.ToADF(string(mdBytes))
 
 	assert.Empty(t, warnings)
+	requireValidADF(t, result)
 	assert.Equal(t, &expected, result)
 }
 
@@ -200,6 +207,7 @@ func TestGoldenFile_TableMDToADF(t *testing.T) {
 	result, warnings := converter.ToADF(string(mdBytes))
 
 	assert.Empty(t, warnings)
+	requireValidADF(t, result)
 	assert.Equal(t, &expected, result)
 }
 
@@ -213,12 +221,18 @@ func TestGoldenFile_TaskListMDToADF(t *testing.T) {
 	result, warnings := converter.ToADF(string(mdBytes))
 
 	assert.Empty(t, warnings)
+	requireValidADF(t, result)
 	require.Equal(t, "doc", result.Type)
 	require.Len(t, result.Content, 1)
 
 	taskList := result.Content[0]
 	assert.Equal(t, "taskList", taskList.Type)
 	require.Len(t, taskList.Content, 3)
+
+	// Verify taskList has localId attr
+	var taskListAttrs map[string]any
+	require.NoError(t, json.Unmarshal(taskList.Attrs, &taskListAttrs))
+	assert.NotEmpty(t, taskListAttrs["localId"])
 
 	// Verify structure matches golden file (ignoring dynamic localId)
 	expectedStates := []string{"TODO", "DONE", "TODO"}
@@ -232,11 +246,10 @@ func TestGoldenFile_TaskListMDToADF(t *testing.T) {
 		assert.Equal(t, expectedStates[i], attrs["state"])
 		assert.NotEmpty(t, attrs["localId"])
 
+		// taskItem content is inline nodes directly (not wrapped in paragraph)
 		require.Len(t, item.Content, 1)
-		para := item.Content[0]
-		assert.Equal(t, "paragraph", para.Type)
-		require.Len(t, para.Content, 1)
-		assert.Equal(t, expectedTexts[i], para.Content[0].Text)
+		assert.Equal(t, "text", item.Content[0].Type)
+		assert.Equal(t, expectedTexts[i], item.Content[0].Text)
 	}
 }
 
@@ -294,6 +307,7 @@ func TestGoldenFile_ExpandMDToADF(t *testing.T) {
 	result, warnings := converter.ToADF(string(mdBytes))
 
 	assert.Empty(t, warnings)
+	requireValidADF(t, result)
 	assert.Equal(t, &expected, result)
 }
 
@@ -362,6 +376,7 @@ func TestRoundTrip_Expand(t *testing.T) {
 	converter := markdown.New()
 	adfDoc, w1 := converter.ToADF(input)
 	assert.Empty(t, w1)
+	requireValidADF(t, adfDoc)
 
 	result, w2 := converter.ToMarkdown(adfDoc)
 	assert.Empty(t, w2)
@@ -385,6 +400,7 @@ func TestGoldenFile_MarksMDToADF(t *testing.T) {
 	result, warnings := converter.ToADF(string(mdBytes))
 
 	assert.Empty(t, warnings)
+	requireValidADF(t, result)
 	assert.Equal(t, &expected, result)
 }
 
@@ -415,6 +431,7 @@ func TestRoundTrip_Underline(t *testing.T) {
 	converter := markdown.New()
 	adfDoc, w1 := converter.ToADF(input)
 	assert.Empty(t, w1)
+	requireValidADF(t, adfDoc)
 
 	result, w2 := converter.ToMarkdown(adfDoc)
 	assert.Empty(t, w2)
@@ -430,6 +447,7 @@ func TestRoundTrip_Subscript(t *testing.T) {
 	converter := markdown.New()
 	adfDoc, w1 := converter.ToADF(input)
 	assert.Empty(t, w1)
+	requireValidADF(t, adfDoc)
 
 	result, w2 := converter.ToMarkdown(adfDoc)
 	assert.Empty(t, w2)
@@ -445,6 +463,7 @@ func TestRoundTrip_Superscript(t *testing.T) {
 	converter := markdown.New()
 	adfDoc, w1 := converter.ToADF(input)
 	assert.Empty(t, w1)
+	requireValidADF(t, adfDoc)
 
 	result, w2 := converter.ToMarkdown(adfDoc)
 	assert.Empty(t, w2)
@@ -499,12 +518,16 @@ func markdownEquivalent(t *testing.T, a, b string) bool {
 // assertMarkdownEqual asserts that two markdown strings are semantically
 // equivalent by comparing their normalized ADF representations.
 // Warnings from ToADF are checked to prevent false positives when content is dropped.
+// Both ADF representations are validated against the embedded ADF JSON schema.
 func assertMarkdownEqual(t *testing.T, expected, actual string) {
 	t.Helper()
 	conv := markdown.New()
 
 	expectedADF, wExpected := conv.ToADF(expected)
 	actualADF, wActual := conv.ToADF(actual)
+
+	requireValidADF(t, expectedADF)
+	requireValidADF(t, actualADF)
 
 	assert.Equal(t, wExpected, wActual, "ToADF warnings differ between expected and actual markdown")
 
@@ -530,8 +553,8 @@ func normalizeADF(node *jira4claude.ADFNode) {
 		})
 	}
 
-	// Strip non-deterministic attrs (localId in taskItem)
-	if node.Type == "taskItem" && node.Attrs != nil {
+	// Strip non-deterministic attrs (localId in taskItem and taskList)
+	if (node.Type == "taskItem" || node.Type == "taskList") && node.Attrs != nil {
 		var attrs map[string]any
 		if err := json.Unmarshal(node.Attrs, &attrs); err == nil {
 			delete(attrs, "localId")

@@ -754,8 +754,12 @@ func convertTaskList(node *ast.List, source []byte, skipped *skippedCollector) j
 		}
 		items = append(items, convertTaskItem(listItem, source, skipped))
 	}
+	attrs, _ := json.Marshal(map[string]any{
+		"localId": generateLocalID(),
+	})
 	return jira4claude.ADFNode{
 		Type:    "taskList",
+		Attrs:   attrs,
 		Content: items,
 	}
 }
@@ -821,12 +825,7 @@ func convertTaskItemContent(node *ast.ListItem, source []byte, skipped *skippedC
 			inlineContent = append(inlineContent, convertInlineNode(child, source, marks, skipped)...)
 		}
 		inlineContent = consolidateTextNodes(inlineContent)
-		if len(inlineContent) > 0 {
-			content = append(content, jira4claude.ADFNode{
-				Type:    "paragraph",
-				Content: inlineContent,
-			})
-		}
+		content = append(content, inlineContent...)
 	}
 	return content
 }

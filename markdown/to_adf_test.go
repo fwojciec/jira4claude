@@ -36,6 +36,7 @@ func TestConverter_ToADF(t *testing.T) {
 		}
 
 		assert.Empty(t, warnings)
+		requireValidADF(t, result)
 		assert.Equal(t, expected, result)
 	})
 
@@ -73,6 +74,7 @@ func TestConverter_ToADF(t *testing.T) {
 		}
 
 		assert.Empty(t, warnings)
+		requireValidADF(t, result)
 		assert.Equal(t, expected, result)
 	})
 
@@ -110,6 +112,7 @@ func TestConverter_ToADF(t *testing.T) {
 		}
 
 		assert.Empty(t, warnings)
+		requireValidADF(t, result)
 		assert.Equal(t, expected, result)
 	})
 
@@ -147,6 +150,7 @@ func TestConverter_ToADF(t *testing.T) {
 		}
 
 		assert.Empty(t, warnings)
+		requireValidADF(t, result)
 		assert.Equal(t, expected, result)
 	})
 
@@ -174,6 +178,7 @@ func TestConverter_ToADF(t *testing.T) {
 		}
 
 		assert.Empty(t, warnings)
+		requireValidADF(t, result)
 		assert.Equal(t, expected, result)
 	})
 
@@ -211,6 +216,7 @@ func TestConverter_ToADF(t *testing.T) {
 		}
 
 		assert.Empty(t, warnings)
+		requireValidADF(t, result)
 		assert.Equal(t, expected, result)
 	})
 
@@ -261,6 +267,7 @@ func TestConverter_ToADF(t *testing.T) {
 		}
 
 		assert.Empty(t, warnings)
+		requireValidADF(t, result)
 		assert.Equal(t, expected, result)
 	})
 
@@ -311,6 +318,7 @@ func TestConverter_ToADF(t *testing.T) {
 		}
 
 		assert.Empty(t, warnings)
+		requireValidADF(t, result)
 		assert.Equal(t, expected, result)
 	})
 
@@ -351,6 +359,7 @@ func TestConverter_ToADF(t *testing.T) {
 		}
 
 		assert.Empty(t, warnings)
+		requireValidADF(t, result)
 		assert.Equal(t, expected, result)
 	})
 
@@ -382,6 +391,7 @@ func TestConverter_ToADF(t *testing.T) {
 		}
 
 		assert.Empty(t, warnings)
+		requireValidADF(t, result)
 		assert.Equal(t, expected, result)
 	})
 
@@ -420,6 +430,7 @@ func TestConverter_ToADF(t *testing.T) {
 		}
 
 		assert.Empty(t, warnings)
+		requireValidADF(t, result)
 		assert.Equal(t, expected, result)
 	})
 
@@ -436,6 +447,7 @@ func TestConverter_ToADF(t *testing.T) {
 		}
 
 		assert.Empty(t, warnings)
+		requireValidADF(t, result)
 		assert.Equal(t, expected, result)
 	})
 
@@ -466,6 +478,7 @@ func TestConverter_ToADF(t *testing.T) {
 		}
 
 		assert.Empty(t, warnings)
+		requireValidADF(t, result)
 		assert.Equal(t, expected, result)
 	})
 
@@ -493,6 +506,7 @@ func TestConverter_ToADF(t *testing.T) {
 
 		require.NotNil(t, result)
 		assert.Empty(t, warnings)
+		requireValidADF(t, result)
 	})
 
 	// Tests for consolidateTextNodes via marksEqual and mapEqual.
@@ -523,6 +537,7 @@ func TestConverter_ToADF(t *testing.T) {
 		}
 
 		assert.Empty(t, warnings)
+		requireValidADF(t, result)
 		assert.Equal(t, expected, result)
 	})
 
@@ -535,6 +550,7 @@ func TestConverter_ToADF(t *testing.T) {
 
 		require.NotNil(t, result)
 		assert.Empty(t, warnings)
+		requireValidADF(t, result)
 
 		require.Len(t, result.Content, 1)
 
@@ -574,6 +590,7 @@ func TestConverter_ToADF(t *testing.T) {
 		}
 
 		assert.Empty(t, warnings)
+		requireValidADF(t, result)
 		assert.Equal(t, expected, result)
 	})
 
@@ -586,6 +603,7 @@ func TestConverter_ToADF(t *testing.T) {
 
 		require.NotNil(t, result)
 		assert.Empty(t, warnings)
+		requireValidADF(t, result)
 
 		require.Len(t, result.Content, 1)
 
@@ -603,6 +621,7 @@ func TestConverter_ToADF(t *testing.T) {
 
 		require.NotNil(t, result)
 		assert.Empty(t, warnings)
+		requireValidADF(t, result)
 
 		require.Len(t, result.Content, 1)
 
@@ -620,6 +639,7 @@ func TestConverter_ToADF(t *testing.T) {
 
 		require.NotNil(t, result)
 		assert.Empty(t, warnings)
+		requireValidADF(t, result)
 
 		require.Len(t, result.Content, 1)
 
@@ -665,6 +685,7 @@ func TestConverter_ToADF(t *testing.T) {
 		}
 
 		assert.Empty(t, warnings)
+		requireValidADF(t, result)
 		assert.Equal(t, expected, result)
 	})
 
@@ -705,6 +726,7 @@ func TestConverter_ToADF(t *testing.T) {
 		}
 
 		assert.Empty(t, warnings)
+		requireValidADF(t, result)
 		assert.Equal(t, expected, result)
 	})
 
@@ -731,6 +753,7 @@ func TestConverter_ToADF(t *testing.T) {
 		}
 
 		assert.Empty(t, warnings)
+		requireValidADF(t, result)
 		assert.Equal(t, expected, result)
 	})
 
@@ -757,6 +780,7 @@ func TestConverter_ToADF(t *testing.T) {
 		}
 
 		assert.Empty(t, warnings)
+		requireValidADF(t, result)
 		assert.Equal(t, expected, result)
 	})
 
@@ -788,6 +812,7 @@ func TestConverter_ToADF(t *testing.T) {
 		}
 
 		assert.Empty(t, warnings)
+		requireValidADF(t, result)
 		assert.Equal(t, expected, result)
 	})
 
@@ -818,6 +843,7 @@ func TestConverter_ToADF(t *testing.T) {
 		}
 
 		assert.Empty(t, warnings)
+		requireValidADF(t, result)
 		assert.Equal(t, expected, result)
 	})
 
@@ -894,6 +920,7 @@ func TestConverter_ToADF(t *testing.T) {
 		}
 
 		assert.Empty(t, warnings)
+		requireValidADF(t, result)
 		assert.Equal(t, expected, result)
 	})
 
@@ -905,6 +932,7 @@ func TestConverter_ToADF(t *testing.T) {
 
 		require.NotNil(t, result)
 		assert.Empty(t, warnings)
+		requireValidADF(t, result)
 		require.Len(t, result.Content, 1)
 
 		table := result.Content[0]
@@ -931,6 +959,7 @@ func TestConverter_ToADF(t *testing.T) {
 
 		require.NotNil(t, result)
 		assert.Empty(t, warnings)
+		requireValidADF(t, result)
 
 		table := result.Content[0]
 		// Data row, first cell should have bold text
@@ -953,6 +982,7 @@ func TestConverter_ToADF(t *testing.T) {
 
 		require.NotNil(t, result)
 		assert.Empty(t, warnings)
+		requireValidADF(t, result)
 		// paragraph, table, paragraph
 		require.Len(t, result.Content, 3)
 		assert.Equal(t, "paragraph", result.Content[0].Type)
@@ -968,6 +998,7 @@ func TestConverter_ToADF(t *testing.T) {
 
 		require.NotNil(t, result)
 		assert.Empty(t, warnings)
+		requireValidADF(t, result)
 		require.Len(t, result.Content, 1)
 
 		taskList := result.Content[0]
@@ -982,11 +1013,10 @@ func TestConverter_ToADF(t *testing.T) {
 		require.NoError(t, json.Unmarshal(item0.Attrs, &attrs0))
 		assert.Equal(t, "TODO", attrs0["state"])
 		assert.NotEmpty(t, attrs0["localId"])
-		// Content should be paragraph with text
+		// Content should be inline text nodes directly
 		require.Len(t, item0.Content, 1)
-		assert.Equal(t, "paragraph", item0.Content[0].Type)
-		require.Len(t, item0.Content[0].Content, 1)
-		assert.Equal(t, "Buy milk", item0.Content[0].Content[0].Text)
+		assert.Equal(t, "text", item0.Content[0].Type)
+		assert.Equal(t, "Buy milk", item0.Content[0].Text)
 
 		// Second task item
 		item1 := taskList.Content[1]
@@ -1004,6 +1034,7 @@ func TestConverter_ToADF(t *testing.T) {
 
 		require.NotNil(t, result)
 		assert.Empty(t, warnings)
+		requireValidADF(t, result)
 		require.Len(t, result.Content, 1)
 
 		taskList := result.Content[0]
@@ -1026,6 +1057,7 @@ func TestConverter_ToADF(t *testing.T) {
 
 		converter := markdown.New()
 		result, _ := converter.ToADF("- [ ] One\n- [ ] Two\n- [ ] Three")
+		requireValidADF(t, result)
 
 		require.Len(t, result.Content, 1)
 		taskList := result.Content[0]
@@ -1052,6 +1084,7 @@ func TestConverter_ToADF(t *testing.T) {
 
 		require.NotNil(t, result)
 		assert.Empty(t, warnings)
+		requireValidADF(t, result)
 		require.Len(t, result.Content, 1)
 		assert.Equal(t, "bulletList", result.Content[0].Type)
 	})
@@ -1082,6 +1115,7 @@ func TestConverter_ToADF(t *testing.T) {
 		}
 
 		assert.Empty(t, warnings)
+		requireValidADF(t, result)
 		assert.Equal(t, expected, result)
 	})
 
@@ -1108,6 +1142,7 @@ func TestConverter_ToADF(t *testing.T) {
 				result, warnings := converter.ToADF(input)
 
 				assert.Empty(t, warnings)
+				requireValidADF(t, result)
 				require.Len(t, result.Content, 1)
 
 				panel := result.Content[0]
@@ -1127,6 +1162,7 @@ func TestConverter_ToADF(t *testing.T) {
 		result, warnings := converter.ToADF("> Regular quote")
 
 		assert.Empty(t, warnings)
+		requireValidADF(t, result)
 		require.Len(t, result.Content, 1)
 		assert.Equal(t, "blockquote", result.Content[0].Type)
 	})
@@ -1163,6 +1199,7 @@ func TestConverter_ToADF(t *testing.T) {
 		}
 
 		assert.Empty(t, warnings)
+		requireValidADF(t, result)
 		assert.Equal(t, expected, result)
 	})
 
@@ -1193,6 +1230,7 @@ func TestConverter_ToADF(t *testing.T) {
 		}
 
 		assert.Empty(t, warnings)
+		requireValidADF(t, result)
 		assert.Equal(t, expected, result)
 	})
 
@@ -1236,6 +1274,7 @@ func TestConverter_ToADF(t *testing.T) {
 		}
 
 		assert.Empty(t, warnings)
+		requireValidADF(t, result)
 		assert.Equal(t, expected, result)
 	})
 
@@ -1247,6 +1286,7 @@ func TestConverter_ToADF(t *testing.T) {
 		result, warnings := converter.ToADF(input)
 
 		assert.Empty(t, warnings)
+		requireValidADF(t, result)
 		require.Len(t, result.Content, 3)
 		assert.Equal(t, "paragraph", result.Content[0].Type)
 		assert.Equal(t, "expand", result.Content[1].Type)
@@ -1346,6 +1386,7 @@ func TestConverter_ToADF(t *testing.T) {
 		}
 
 		assert.Empty(t, warnings)
+		requireValidADF(t, result)
 		assert.Equal(t, expected, result)
 	})
 
@@ -1382,6 +1423,7 @@ func TestConverter_ToADF(t *testing.T) {
 		}
 
 		assert.Empty(t, warnings)
+		requireValidADF(t, result)
 		assert.Equal(t, expected, result)
 	})
 
@@ -1414,6 +1456,7 @@ func TestConverter_ToADF(t *testing.T) {
 		}
 
 		assert.Empty(t, warnings)
+		requireValidADF(t, result)
 		assert.Equal(t, expected, result)
 	})
 
@@ -1454,6 +1497,7 @@ func TestConverter_ToADF(t *testing.T) {
 		}
 
 		assert.Empty(t, warnings)
+		requireValidADF(t, result)
 		assert.Equal(t, expected, result)
 	})
 }

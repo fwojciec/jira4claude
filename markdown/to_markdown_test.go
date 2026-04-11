@@ -1179,9 +1179,10 @@ func TestConverter_ToMarkdown(t *testing.T) {
 		original := "This is ~~strikethrough~~ text."
 
 		adf, w1 := converter.ToADF(original)
-		result, w2 := converter.ToMarkdown(adf)
-
 		assert.Empty(t, w1)
+		requireValidADF(t, adf)
+
+		result, w2 := converter.ToMarkdown(adf)
 		assert.Empty(t, w2)
 		assert.Equal(t, original, result)
 	})

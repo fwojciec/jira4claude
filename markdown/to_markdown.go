@@ -361,11 +361,26 @@ func adfTaskListToGFM(node *jira4claude.ADFNode, skipped *skippedCollector) stri
 			}
 		}
 
-		text := adfListItemToGFM(taskItem, skipped)
+		text := adfTaskItemContentToGFM(taskItem, skipped)
 		items = append(items, "- "+checkbox+" "+text)
 	}
 
 	return strings.Join(items, "\n")
+}
+
+// adfTaskItemContentToGFM extracts text from a taskItem node.
+// Handles both inline content (schema-compliant) and paragraph-wrapped content
+// (legacy format that may appear in ADF from Jira).
+func adfTaskItemContentToGFM(node *jira4claude.ADFNode, skipped *skippedCollector) string {
+	if len(node.Content) == 0 {
+		return ""
+	}
+	// Check if content is block nodes (paragraph) or inline nodes (text, etc.)
+	if node.Content[0].Type == "paragraph" || node.Content[0].Type == "bulletList" ||
+		node.Content[0].Type == "orderedList" || node.Content[0].Type == "codeBlock" {
+		return adfListItemToGFM(node, skipped)
+	}
+	return adfInlineToGFM(node, skipped)
 }
 
 // adfFlattenToGFM flattens a container node's content sequentially, ignoring
