@@ -1576,4 +1576,145 @@ func TestConverter_ToADF(t *testing.T) {
 		// Should produce a warning for the unmatched HTML
 		assert.NotEmpty(t, warnings)
 	})
+
+	// Regression tests: ADF's code mark is exclusive — a text node with a
+	// code mark may only carry link (or annotation) marks. Earlier versions
+	// of the converter combined inherited strong/em/strike/etc. marks with
+	// code, producing documents that Jira rejected with INVALID_INPUT.
+	// See https://developer.atlassian.com/cloud/jira/platform/apis/document/marks/code/
+	t.Run("inline code inside bold drops strong from code text", func(t *testing.T) {
+		t.Parallel()
+
+		converter := markdown.New()
+		result, warnings := converter.ToADF("**a `b` c**")
+
+		assert.Empty(t, warnings)
+		requireValidADF(t, result)
+
+		expected := &jira4claude.ADFNode{
+			Type:    "doc",
+			Version: 1,
+			Content: []jira4claude.ADFNode{
+				{
+					Type: "paragraph",
+					Content: []jira4claude.ADFNode{
+						{Type: "text", Text: "a ", Marks: []jira4claude.ADFMark{{Type: "strong"}}},
+						{Type: "text", Text: "b", Marks: []jira4claude.ADFMark{{Type: "code"}}},
+						{Type: "text", Text: " c", Marks: []jira4claude.ADFMark{{Type: "strong"}}},
+					},
+				},
+			},
+		}
+		assert.Equal(t, expected, result)
+	})
+
+	t.Run("inline code inside italic drops em from code text", func(t *testing.T) {
+		t.Parallel()
+
+		converter := markdown.New()
+		result, warnings := converter.ToADF("*a `b` c*")
+
+		assert.Empty(t, warnings)
+		requireValidADF(t, result)
+
+		// Code text node must not carry the em mark.
+		paragraph := result.Content[0]
+		require.Len(t, paragraph.Content, 3)
+		codeNode := paragraph.Content[1]
+		require.Len(t, codeNode.Marks, 1)
+		assert.Equal(t, "code", codeNode.Marks[0].Type)
+	})
+
+	t.Run("inline code inside strikethrough drops strike from code text", func(t *testing.T) {
+		t.Parallel()
+
+		converter := markdown.New()
+		result, warnings := converter.ToADF("~~a `b` c~~")
+
+		assert.Empty(t, warnings)
+		requireValidADF(t, result)
+
+		paragraph := result.Content[0]
+		require.Len(t, paragraph.Content, 3)
+		codeNode := paragraph.Content[1]
+		require.Len(t, codeNode.Marks, 1)
+		assert.Equal(t, "code", codeNode.Marks[0].Type)
+	})
+
+	t.Run("inline code inside underline drops underline from code text", func(t *testing.T) {
+		t.Parallel()
+
+		converter := markdown.New()
+		result, warnings := converter.ToADF("<u>a `b` c</u>")
+
+		assert.Empty(t, warnings)
+		requireValidADF(t, result)
+
+		paragraph := result.Content[0]
+		require.Len(t, paragraph.Content, 3)
+		codeNode := paragraph.Content[1]
+		require.Len(t, codeNode.Marks, 1)
+		assert.Equal(t, "code", codeNode.Marks[0].Type)
+	})
+
+	t.Run("inline code inside subscript drops subsup from code text", func(t *testing.T) {
+		t.Parallel()
+
+		converter := markdown.New()
+		result, warnings := converter.ToADF("<sub>a `b` c</sub>")
+
+		assert.Empty(t, warnings)
+		requireValidADF(t, result)
+
+		paragraph := result.Content[0]
+		require.Len(t, paragraph.Content, 3)
+		codeNode := paragraph.Content[1]
+		require.Len(t, codeNode.Marks, 1)
+		assert.Equal(t, "code", codeNode.Marks[0].Type)
+	})
+
+	t.Run("inline code inside link keeps link mark alongside code", func(t *testing.T) {
+		t.Parallel()
+
+		converter := markdown.New()
+		result, warnings := converter.ToADF("[some `b` text](https://example.com)")
+
+		assert.Empty(t, warnings)
+		requireValidADF(t, result)
+
+		paragraph := result.Content[0]
+		require.Len(t, paragraph.Content, 3)
+		codeNode := paragraph.Content[1]
+		assert.Equal(t, "b", codeNode.Text)
+
+		// link must be preserved alongside code per ADF code_inline_node schema
+		require.Len(t, codeNode.Marks, 2)
+		markTypes := []string{codeNode.Marks[0].Type, codeNode.Marks[1].Type}
+		assert.Contains(t, markTypes, "link")
+		assert.Contains(t, markTypes, "code")
+	})
+
+	t.Run("inline code inside nested bold and italic drops both from code text", func(t *testing.T) {
+		t.Parallel()
+
+		converter := markdown.New()
+		result, warnings := converter.ToADF("**outer *inner `code` more* end**")
+
+		assert.Empty(t, warnings)
+		requireValidADF(t, result)
+
+		// Walk the paragraph to find the code text node and verify it has only the code mark.
+		paragraph := result.Content[0]
+		var codeNode *jira4claude.ADFNode
+		for i := range paragraph.Content {
+			n := &paragraph.Content[i]
+			if n.Type == "text" && n.Text == "code" {
+				codeNode = n
+				break
+			}
+		}
+		require.NotNil(t, codeNode, "expected a text node with content 'code'")
+		require.Len(t, codeNode.Marks, 1)
+		assert.Equal(t, "code", codeNode.Marks[0].Type)
+	})
 }

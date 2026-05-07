@@ -762,7 +762,13 @@ func convertInlineNode(node ast.Node, source []byte, marks []jira4claude.ADFMark
 				codeText += string(textNode.Segment.Value(source))
 			}
 		}
-		newMarks := append(cloneMarks(marks), jira4claude.ADFMark{Type: "code"})
+		// ADF's code mark is exclusive: per the schema, a text node carrying
+		// the code mark may only also carry link (or annotation). Inherited
+		// strong/em/strike/underline/subsup marks would produce an invalid doc
+		// that Jira rejects with INVALID_INPUT, so drop them here. Sibling
+		// text nodes around the code span retain the parent marks, so visual
+		// formatting is preserved everywhere except the code span itself.
+		newMarks := append(filterCodeCompatibleMarks(marks), jira4claude.ADFMark{Type: "code"})
 		return []jira4claude.ADFNode{textNodeWithMarks(codeText, newMarks)}
 
 	case *ast.Link:
@@ -961,6 +967,22 @@ func convertTableRow(node ast.Node, source []byte, isHeader bool, skipped *skipp
 		Type:    "tableRow",
 		Content: cells,
 	}
+}
+
+// filterCodeCompatibleMarks returns the subset of marks that may co-exist with
+// the ADF code mark. Per Atlassian's ADF spec the code mark is exclusive — only
+// link may be applied to the same text node alongside code.
+func filterCodeCompatibleMarks(marks []jira4claude.ADFMark) []jira4claude.ADFMark {
+	if len(marks) == 0 {
+		return nil
+	}
+	var result []jira4claude.ADFMark
+	for _, m := range marks {
+		if m.Type == "link" {
+			result = append(result, m)
+		}
+	}
+	return result
 }
 
 // cloneMarks creates a shallow copy of a marks slice to avoid mutation via append.
