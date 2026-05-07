@@ -132,6 +132,9 @@ type IssueService interface {
 	// The body is an ADF document; conversion from markdown happens at CLI boundary.
 	AddComment(ctx context.Context, key string, body *ADFNode) (*Comment, error)
 
+	// DeleteComment deletes a comment from an issue.
+	DeleteComment(ctx context.Context, key, commentID string) error
+
 	// Transitions returns available workflow transitions for an issue.
 	Transitions(ctx context.Context, key string) ([]*Transition, error)
 

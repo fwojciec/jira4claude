@@ -3,6 +3,7 @@ package main_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"testing"
 	"time"
 
@@ -852,6 +853,62 @@ func TestIssueCommentCmd(t *testing.T) {
 		require.NoError(t, err)
 		// Plain text is valid GFM and should be converted to ADF
 		assert.Equal(t, "doc", capturedBody.Type)
+	})
+}
+
+// IssueDeleteCommentCmd tests
+
+func TestIssueDeleteCommentCmd(t *testing.T) {
+	t.Parallel()
+
+	t.Run("calls DeleteComment with key and comment id", func(t *testing.T) {
+		t.Parallel()
+
+		var capturedKey, capturedID string
+		svc := &mock.IssueService{
+			DeleteCommentFn: func(ctx context.Context, key, commentID string) error {
+				capturedKey = key
+				capturedID = commentID
+				return nil
+			},
+		}
+
+		printer := &mock.Printer{}
+		ctx := &main.IssueContext{
+			Service:   svc,
+			Printer:   printer,
+			Converter: mockConverter(),
+			Config:    &jira4claude.Config{Project: "TEST", Server: "https://test.atlassian.net"},
+		}
+		cmd := main.IssueDeleteCommentCmd{Key: "TEST-1", CommentID: "10001"}
+		err := cmd.Run(ctx)
+
+		require.NoError(t, err)
+		assert.Equal(t, "TEST-1", capturedKey)
+		assert.Equal(t, "10001", capturedID)
+	})
+
+	t.Run("returns service error", func(t *testing.T) {
+		t.Parallel()
+
+		svc := &mock.IssueService{
+			DeleteCommentFn: func(ctx context.Context, key, commentID string) error {
+				return errors.New("not found")
+			},
+		}
+
+		printer := &mock.Printer{}
+		ctx := &main.IssueContext{
+			Service:   svc,
+			Printer:   printer,
+			Converter: mockConverter(),
+			Config:    &jira4claude.Config{Project: "TEST", Server: "https://test.atlassian.net"},
+		}
+		cmd := main.IssueDeleteCommentCmd{Key: "TEST-1", CommentID: "99999"}
+		err := cmd.Run(ctx)
+
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "not found")
 	})
 }
 

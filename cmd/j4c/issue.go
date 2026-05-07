@@ -9,15 +9,16 @@ import (
 
 // IssueCmd groups issue subcommands.
 type IssueCmd struct {
-	View        IssueViewCmd        `cmd:"" help:"View an issue"`
-	List        IssueListCmd        `cmd:"" help:"List issues"`
-	Ready       IssueReadyCmd       `cmd:"" help:"List issues ready to work on"`
-	Create      IssueCreateCmd      `cmd:"" help:"Create an issue"`
-	Update      IssueUpdateCmd      `cmd:"" help:"Update an issue"`
-	Transitions IssueTransitionsCmd `cmd:"" help:"List available transitions"`
-	Transition  IssueTransitionCmd  `cmd:"" help:"Transition an issue"`
-	Assign      IssueAssignCmd      `cmd:"" help:"Assign an issue"`
-	Comment     IssueCommentCmd     `cmd:"" help:"Add a comment to an issue"`
+	View          IssueViewCmd          `cmd:"" help:"View an issue"`
+	List          IssueListCmd          `cmd:"" help:"List issues"`
+	Ready         IssueReadyCmd         `cmd:"" help:"List issues ready to work on"`
+	Create        IssueCreateCmd        `cmd:"" help:"Create an issue"`
+	Update        IssueUpdateCmd        `cmd:"" help:"Update an issue"`
+	Transitions   IssueTransitionsCmd   `cmd:"" help:"List available transitions"`
+	Transition    IssueTransitionCmd    `cmd:"" help:"Transition an issue"`
+	Assign        IssueAssignCmd        `cmd:"" help:"Assign an issue"`
+	Comment       IssueCommentCmd       `cmd:"" help:"Add a comment to an issue"`
+	DeleteComment IssueDeleteCommentCmd `cmd:"delete-comment" help:"Delete a comment from an issue"`
 }
 
 // IssueViewCmd views an issue.
@@ -358,5 +359,20 @@ func (c *IssueCommentCmd) Run(ctx *IssueContext) error {
 	}
 
 	ctx.Printer.Success("Added comment "+comment.ID+" to", c.Key)
+	return nil
+}
+
+// IssueDeleteCommentCmd deletes a comment from an issue.
+type IssueDeleteCommentCmd struct {
+	Key       string `arg:"" help:"Issue key"`
+	CommentID string `arg:"" name:"comment-id" help:"Comment ID (visible in 'issue view' output)"`
+}
+
+// Run executes the delete-comment command.
+func (c *IssueDeleteCommentCmd) Run(ctx *IssueContext) error {
+	if err := ctx.Service.DeleteComment(context.Background(), c.Key, c.CommentID); err != nil {
+		return err
+	}
+	ctx.Printer.Success("Deleted comment "+c.CommentID+" from", c.Key)
 	return nil
 }

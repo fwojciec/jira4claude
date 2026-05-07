@@ -1681,6 +1681,51 @@ func TestIssueService_Delete(t *testing.T) {
 	})
 }
 
+func TestIssueService_DeleteComment(t *testing.T) {
+	t.Parallel()
+
+	t.Run("deletes comment successfully", func(t *testing.T) {
+		t.Parallel()
+
+		var deleteCalled bool
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Method == http.MethodDelete && r.URL.Path == "/rest/api/3/issue/TEST-1/comment/10001" {
+				deleteCalled = true
+				w.WriteHeader(http.StatusNoContent)
+				return
+			}
+			w.WriteHeader(http.StatusNotFound)
+		}))
+		defer server.Close()
+
+		client := newTestClient(t, server.URL, "user@example.com", "api-token")
+		svc := jirahttp.NewIssueService(client)
+
+		err := svc.DeleteComment(context.Background(), "TEST-1", "10001")
+
+		require.NoError(t, err)
+		assert.True(t, deleteCalled)
+	})
+
+	t.Run("returns error when comment not found", func(t *testing.T) {
+		t.Parallel()
+
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = w.Write([]byte(`{"errorMessages": ["Comment does not exist"], "errors": {}}`))
+		}))
+		defer server.Close()
+
+		client := newTestClient(t, server.URL, "user@example.com", "api-token")
+		svc := jirahttp.NewIssueService(client)
+
+		err := svc.DeleteComment(context.Background(), "TEST-1", "99999")
+
+		require.Error(t, err)
+		assert.Equal(t, jira4claude.ENotFound, jira4claude.ErrorCode(err))
+	})
+}
+
 func TestIssueService_Transitions(t *testing.T) {
 	t.Parallel()
 

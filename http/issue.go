@@ -270,6 +270,21 @@ func (s *IssueService) AddComment(ctx context.Context, key string, body *jira4cl
 	return parseCommentResponse(respBody)
 }
 
+// DeleteComment deletes a comment from an issue.
+func (s *IssueService) DeleteComment(ctx context.Context, key, commentID string) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, issuePath(key, "comment", commentID), nil)
+	if err != nil {
+		return &jira4claude.Error{
+			Code:    jira4claude.EInternal,
+			Message: "failed to create request",
+			Inner:   err,
+		}
+	}
+
+	_, err = s.client.DoRequest(req, http.StatusNoContent)
+	return err
+}
+
 // Transitions returns available workflow transitions for an issue.
 func (s *IssueService) Transitions(ctx context.Context, key string) ([]*jira4claude.Transition, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, issuePath(key, "transitions"), nil)
