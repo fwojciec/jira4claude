@@ -730,7 +730,7 @@ func TestConverter_ToADF(t *testing.T) {
 		assert.Equal(t, expected, result)
 	})
 
-	t.Run("normalizes Unicode symbols to spaces in ADF output", func(t *testing.T) {
+	t.Run("preserves Unicode symbols in ADF output", func(t *testing.T) {
 		t.Parallel()
 
 		converter := markdown.New()
@@ -745,7 +745,7 @@ func TestConverter_ToADF(t *testing.T) {
 					Content: []jira4claude.ADFNode{
 						{
 							Type: "text",
-							Text: "Use this   see results   important",
+							Text: "Use this → see results — important",
 						},
 					},
 				},
