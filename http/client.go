@@ -152,8 +152,8 @@ func (c *Client) Do(req *http.Request) (*http.Response, error) {
 	reqURL := c.baseURL.ResolveReference(req.URL)
 	req.URL = reqURL
 
-	// Set Basic auth
-	req.SetBasicAuth(c.username, c.password)
+	// Jira Server PATs require Bearer auth; Basic auth gets redirected by SSO.
+	req.Header.Set("Authorization", "Bearer "+c.password)
 
 	// Jira API always returns JSON
 	req.Header.Set("Accept", "application/json")
@@ -290,9 +290,13 @@ type ErrorResponse struct {
 func ParseErrorResponse(statusCode int, body []byte) error {
 	var errResp ErrorResponse
 	if err := json.Unmarshal(body, &errResp); err != nil {
+		snippet := string(body)
+		if len(snippet) > 200 {
+			snippet = snippet[:200] + "..."
+		}
 		return &jira4claude.Error{
 			Code:    statusCodeToErrorCode(statusCode),
-			Message: "failed to parse error response",
+			Message: fmt.Sprintf("non-JSON response (status %d): %s", statusCode, snippet),
 			Inner:   err,
 		}
 	}

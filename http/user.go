@@ -25,7 +25,7 @@ func NewUserService(client *Client) *UserService {
 
 // GetMyself returns the currently authenticated user.
 func (s *UserService) GetMyself(ctx context.Context) (*jira4claude.User, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "/rest/api/3/myself", nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "/rest/api/2/myself", nil)
 	if err != nil {
 		return nil, &jira4claude.Error{
 			Code:    jira4claude.EInternal,
@@ -53,7 +53,7 @@ func (s *UserService) GetMyself(ctx context.Context) (*jira4claude.User, error) 
 
 // FindUsers searches for users matching the given query string.
 func (s *UserService) FindUsers(ctx context.Context, query string) ([]*jira4claude.User, error) {
-	path := "/rest/api/3/user/search?query=" + url.QueryEscape(query)
+	path := "/rest/api/2/user/search?username=" + url.QueryEscape(query)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, path, nil)
 	if err != nil {

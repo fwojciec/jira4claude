@@ -54,24 +54,24 @@ type updateFields struct {
 	Parent      *parentField   `json:"parent,omitempty"`
 }
 
-// assigneeRef identifies an assignee by account ID.
+// assigneeRef identifies an assignee by username (Jira Server).
 type assigneeRef struct {
-	AccountID string `json:"accountId"`
+	Name string `json:"name"`
 }
 
 // assigneeField wraps an optional assignee value.
-// When AccountID is nil, it marshals to JSON null (for unassignment).
-// When AccountID is set, it marshals to {"accountId": "..."}.
+// When Name is nil, it marshals to JSON null (for unassignment).
+// When Name is set, it marshals to {"name": "..."}.
 type assigneeField struct {
-	AccountID *string
+	Name *string
 }
 
 // MarshalJSON implements json.Marshaler for assigneeField.
 func (a assigneeField) MarshalJSON() ([]byte, error) {
-	if a.AccountID == nil {
+	if a.Name == nil {
 		return []byte("null"), nil
 	}
-	return json.Marshal(assigneeRef{AccountID: *a.AccountID})
+	return json.Marshal(assigneeRef{Name: *a.Name})
 }
 
 // parentField wraps an optional parent value for updates.

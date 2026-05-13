@@ -52,27 +52,20 @@ type RelatedIssueView struct {
 }
 
 // ToIssueView converts a domain Issue to a display-ready IssueView.
-// The converter is used to convert ADF to markdown, and any warnings are passed to the warn callback.
+// Jira Server stores descriptions and comments as plain text; no conversion is needed.
+// The converter and warn callback are retained for signature stability but unused.
 func ToIssueView(issue *Issue, conv Converter, warn func(string), serverURL string) IssueView {
-	var description string
-	if issue.Description != nil {
-		desc, warnings := conv.ToMarkdown(issue.Description)
-		description = desc
-		for _, w := range warnings {
-			warn(w)
-		}
-	}
+	_ = conv
+	_ = warn
+
+	description := issue.Description
 
 	comments := make([]CommentView, 0, len(issue.Comments))
 	for _, c := range issue.Comments {
-		body, warnings := conv.ToMarkdown(c.Body)
-		for _, w := range warnings {
-			warn(w)
-		}
 		comments = append(comments, CommentView{
 			ID:      c.ID,
 			Author:  displayName(c.Author),
-			Body:    body,
+			Body:    c.Body,
 			Created: c.Created.Format(time.RFC3339),
 		})
 	}
@@ -129,15 +122,14 @@ func ToIssueListItems(issues []*Issue) []IssueListItem {
 }
 
 // ToCommentView converts a domain Comment to a display-ready CommentView.
+// conv and warn are retained for signature stability but unused on Jira Server.
 func ToCommentView(comment *Comment, conv Converter, warn func(string)) CommentView {
-	body, warnings := conv.ToMarkdown(comment.Body)
-	for _, w := range warnings {
-		warn(w)
-	}
+	_ = conv
+	_ = warn
 	return CommentView{
 		ID:      comment.ID,
 		Author:  displayName(comment.Author),
-		Body:    body,
+		Body:    comment.Body,
 		Created: comment.Created.Format(time.RFC3339),
 	}
 }

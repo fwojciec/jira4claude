@@ -100,7 +100,7 @@ func TestNewClient(t *testing.T) {
 func TestClient_Do(t *testing.T) {
 	t.Parallel()
 
-	t.Run("adds Basic auth header to requests", func(t *testing.T) {
+	t.Run("adds Bearer auth header to requests", func(t *testing.T) {
 		t.Parallel()
 
 		var receivedAuth string
@@ -113,15 +113,14 @@ func TestClient_Do(t *testing.T) {
 
 		client := newTestClient(t, server.URL, "user@example.com", "api-token")
 
-		req, err := http.NewRequestWithContext(context.Background(), "GET", "/rest/api/3/myself", nil)
+		req, err := http.NewRequestWithContext(context.Background(), "GET", "/rest/api/2/myself", nil)
 		require.NoError(t, err)
 
 		resp, err := client.Do(req)
 		require.NoError(t, err)
 		defer resp.Body.Close()
 
-		// Basic auth: base64("user@example.com:api-token")
-		assert.Equal(t, "Basic dXNlckBleGFtcGxlLmNvbTphcGktdG9rZW4=", receivedAuth)
+		assert.Equal(t, "Bearer api-token", receivedAuth)
 	})
 
 	t.Run("prepends base URL to relative paths", func(t *testing.T) {

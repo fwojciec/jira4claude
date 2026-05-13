@@ -57,7 +57,7 @@ type LinkedIssue struct {
 type Comment struct {
 	ID      string
 	Author  *User
-	Body    *ADFNode // ADF document; conversion to markdown happens at CLI boundary
+	Body    string // Jira Server stores comments as plain/wiki text
 	Created time.Time
 }
 
@@ -66,7 +66,7 @@ type Issue struct {
 	Key         string
 	Project     string
 	Summary     string
-	Description *ADFNode // ADF document; conversion to markdown happens at CLI boundary
+	Description string // Jira Server stores descriptions as plain/wiki text
 	Status      string
 	Type        string
 	Priority    string
@@ -103,7 +103,7 @@ type IssueFilter struct {
 // For Parent: nil means no change, empty string means clear, non-empty means set.
 type IssueUpdate struct {
 	Summary     *string
-	Description **ADFNode // nil = no change, non-nil = set; conversion from markdown happens at CLI boundary
+	Description *string // nil = no change, non-nil = set (plain/wiki text)
 	Priority    *string
 	Assignee    *string
 	Labels      *[]string
@@ -128,9 +128,8 @@ type IssueService interface {
 	// Delete deletes an issue by its key.
 	Delete(ctx context.Context, key string) error
 
-	// AddComment adds a comment to an issue.
-	// The body is an ADF document; conversion from markdown happens at CLI boundary.
-	AddComment(ctx context.Context, key string, body *ADFNode) (*Comment, error)
+	// AddComment adds a comment to an issue. Body is plain/wiki text.
+	AddComment(ctx context.Context, key string, body string) (*Comment, error)
 
 	// DeleteComment deletes a comment from an issue.
 	DeleteComment(ctx context.Context, key, commentID string) error

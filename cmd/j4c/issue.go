@@ -139,16 +139,6 @@ func (c *IssueCreateCmd) Run(ctx *IssueContext) error {
 		issueType = "Sub-task"
 	}
 
-	// Convert description to ADF (plain text is valid GFM)
-	var description *jira4claude.ADFNode
-	if c.Description != "" {
-		var warnings []string
-		description, warnings = ctx.Converter.ToADF(c.Description)
-		for _, w := range warnings {
-			ctx.Printer.Warning(w)
-		}
-	}
-
 	var parent *jira4claude.LinkedIssue
 	if c.Parent != "" {
 		parent = &jira4claude.LinkedIssue{Key: c.Parent}
@@ -158,7 +148,7 @@ func (c *IssueCreateCmd) Run(ctx *IssueContext) error {
 		Project:     project,
 		Type:        issueType,
 		Summary:     c.Summary,
-		Description: description,
+		Description: c.Description,
 		Priority:    c.Priority,
 		Labels:      c.Labels,
 		Parent:      parent,
@@ -208,19 +198,9 @@ func (c *IssueUpdateCmd) Run(ctx *IssueContext) error {
 		c.Assignee = &accountID
 	}
 
-	// Convert description to ADF (plain text is valid GFM)
-	var description **jira4claude.ADFNode
-	if c.Description != nil && *c.Description != "" {
-		adfDoc, warnings := ctx.Converter.ToADF(*c.Description)
-		for _, w := range warnings {
-			ctx.Printer.Warning(w)
-		}
-		description = &adfDoc
-	}
-
 	update := jira4claude.IssueUpdate{
 		Summary:     c.Summary,
-		Description: description,
+		Description: c.Description,
 		Priority:    c.Priority,
 		Assignee:    c.Assignee,
 	}
@@ -347,13 +327,7 @@ type IssueCommentCmd struct {
 
 // Run executes the comment command.
 func (c *IssueCommentCmd) Run(ctx *IssueContext) error {
-	// Convert body to ADF (plain text is valid GFM)
-	body, warnings := ctx.Converter.ToADF(c.Body)
-	for _, w := range warnings {
-		ctx.Printer.Warning(w)
-	}
-
-	comment, err := ctx.Service.AddComment(context.Background(), c.Key, body)
+	comment, err := ctx.Service.AddComment(context.Background(), c.Key, c.Body)
 	if err != nil {
 		return err
 	}

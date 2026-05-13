@@ -20,7 +20,7 @@ type IssueService struct {
 
 // issuePath builds an escaped URL path for issue API endpoints.
 func issuePath(key string, segments ...string) string {
-	path := "/rest/api/3/issue/" + url.PathEscape(key)
+	path := "/rest/api/2/issue/" + url.PathEscape(key)
 	for _, seg := range segments {
 		path += "/" + url.PathEscape(seg)
 	}
@@ -46,7 +46,7 @@ func (s *IssueService) Create(ctx context.Context, issue *jira4claude.Issue) (*j
 		},
 	}
 
-	if issue.Description != nil {
+	if issue.Description != "" {
 		reqBody.Fields.Description = issue.Description
 	}
 	if issue.Priority != "" {
@@ -59,7 +59,7 @@ func (s *IssueService) Create(ctx context.Context, issue *jira4claude.Issue) (*j
 		reqBody.Fields.Parent = &parentRef{Key: issue.Parent.Key}
 	}
 
-	req, err := s.client.NewJSONRequest(ctx, http.MethodPost, "/rest/api/3/issue", reqBody)
+	req, err := s.client.NewJSONRequest(ctx, http.MethodPost, "/rest/api/2/issue", reqBody)
 	if err != nil {
 		return nil, err
 	}
@@ -116,9 +116,8 @@ func (s *IssueService) List(ctx context.Context, filter jira4claude.IssueFilter)
 	}
 
 	// Build request URL with query parameters
-	// The /search/jql endpoint requires explicit field selection
 	fields := "key,summary,status,issuetype,project,priority,assignee,reporter,labels,issuelinks,parent,created,updated,description"
-	reqURL := "/rest/api/3/search/jql?jql=" + url.QueryEscape(jql) + "&fields=" + fields
+	reqURL := "/rest/api/2/search?jql=" + url.QueryEscape(jql) + "&fields=" + fields
 	if filter.Limit > 0 {
 		reqURL += "&maxResults=" + strconv.Itoa(filter.Limit)
 	}
@@ -206,9 +205,9 @@ func (s *IssueService) Update(ctx context.Context, key string, update jira4claud
 	}
 	if update.Assignee != nil {
 		if *update.Assignee == "" {
-			reqBody.Fields.Assignee = &assigneeField{AccountID: nil}
+			reqBody.Fields.Assignee = &assigneeField{Name: nil}
 		} else {
-			reqBody.Fields.Assignee = &assigneeField{AccountID: update.Assignee}
+			reqBody.Fields.Assignee = &assigneeField{Name: update.Assignee}
 		}
 	}
 	if update.Labels != nil {
@@ -252,7 +251,7 @@ func (s *IssueService) Delete(ctx context.Context, key string) error {
 }
 
 // AddComment adds a comment to an issue.
-func (s *IssueService) AddComment(ctx context.Context, key string, body *jira4claude.ADFNode) (*jira4claude.Comment, error) {
+func (s *IssueService) AddComment(ctx context.Context, key string, body string) (*jira4claude.Comment, error) {
 	reqBody := map[string]any{
 		"body": body,
 	}
@@ -330,14 +329,14 @@ func (s *IssueService) Transition(ctx context.Context, key, transitionID string)
 	return err
 }
 
-// Assign assigns an issue to a user by account ID.
-// If accountID is empty, the issue is unassigned.
-func (s *IssueService) Assign(ctx context.Context, key, accountID string) error {
+// Assign assigns an issue to a user by username.
+// If name is empty, the issue is unassigned.
+func (s *IssueService) Assign(ctx context.Context, key, name string) error {
 	var reqBody map[string]any
-	if accountID == "" {
-		reqBody = map[string]any{"accountId": nil}
+	if name == "" {
+		reqBody = map[string]any{"name": nil}
 	} else {
-		reqBody = map[string]any{"accountId": accountID}
+		reqBody = map[string]any{"name": name}
 	}
 
 	req, err := s.client.NewJSONRequest(ctx, http.MethodPut, issuePath(key, "assignee"), reqBody)
@@ -355,7 +354,7 @@ type issueResponse struct {
 	Fields struct {
 		Project     struct{ Key string }  `json:"project"`
 		Summary     string                `json:"summary"`
-		Description *jira4claude.ADFNode  `json:"description"`
+		Description string                `json:"description"`
 		Status      struct{ Name string } `json:"status"`
 		IssueType   struct{ Name string } `json:"issuetype"`
 		Priority    struct{ Name string } `json:"priority"`
@@ -379,10 +378,10 @@ type commentsResponse struct {
 
 // commentAPIResponse represents a single comment in the issue response.
 type commentAPIResponse struct {
-	ID      string               `json:"id"`
-	Author  *userResponse        `json:"author"`
-	Body    *jira4claude.ADFNode `json:"body"`
-	Created string               `json:"created"`
+	ID      string        `json:"id"`
+	Author  *userResponse `json:"author"`
+	Body    string        `json:"body"`
+	Created string        `json:"created"`
 }
 
 // issueLinkResponse represents a link in the Jira API response.
@@ -407,8 +406,10 @@ type linkedIssueResponse struct {
 	} `json:"fields"`
 }
 
+// userResponse mirrors the Jira Server user JSON.
+// Server identifies users by `name` (username) rather than the Cloud-only `accountId`.
 type userResponse struct {
-	AccountID    string `json:"accountId"`
+	Name         string `json:"name"`
 	DisplayName  string `json:"displayName"`
 	EmailAddress string `json:"emailAddress"`
 }
@@ -505,7 +506,7 @@ func mapUser(resp *userResponse) *jira4claude.User {
 		return nil
 	}
 	return &jira4claude.User{
-		AccountID:   resp.AccountID,
+		AccountID:   resp.Name,
 		DisplayName: resp.DisplayName,
 		Email:       resp.EmailAddress,
 	}
@@ -607,7 +608,7 @@ func (s *IssueService) Link(ctx context.Context, inwardKey, linkType, outwardKey
 		"outwardIssue": map[string]any{"key": outwardKey},
 	}
 
-	req, err := s.client.NewJSONRequest(ctx, http.MethodPost, "/rest/api/3/issueLink", reqBody)
+	req, err := s.client.NewJSONRequest(ctx, http.MethodPost, "/rest/api/2/issueLink", reqBody)
 	if err != nil {
 		return err
 	}
@@ -625,7 +626,7 @@ func (s *IssueService) Unlink(ctx context.Context, key1, key2 string) error {
 	}
 
 	// Delete the link
-	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, "/rest/api/3/issueLink/"+url.PathEscape(linkID), nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, "/rest/api/2/issueLink/"+url.PathEscape(linkID), nil)
 	if err != nil {
 		return &jira4claude.Error{
 			Code:    jira4claude.EInternal,
@@ -683,10 +684,10 @@ func (s *IssueService) findLinkID(ctx context.Context, key1, key2 string) (strin
 
 // commentResponse represents the JSON structure returned by Jira API for a comment.
 type commentResponse struct {
-	ID      string               `json:"id"`
-	Author  *userResponse        `json:"author"`
-	Body    *jira4claude.ADFNode `json:"body"`
-	Created string               `json:"created"`
+	ID      string        `json:"id"`
+	Author  *userResponse `json:"author"`
+	Body    string        `json:"body"`
+	Created string        `json:"created"`
 }
 
 // parseCommentResponse parses the JSON response from Jira into a domain Comment.
@@ -707,7 +708,7 @@ func parseCommentResponse(body []byte) (*jira4claude.Comment, error) {
 
 	if resp.Author != nil {
 		comment.Author = &jira4claude.User{
-			AccountID:   resp.Author.AccountID,
+			AccountID:   resp.Author.Name,
 			DisplayName: resp.Author.DisplayName,
 			Email:       resp.Author.EmailAddress,
 		}
