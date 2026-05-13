@@ -24,7 +24,7 @@ AI coding agents run in non-interactive contexts where prompts hang and complex 
 
 ```bash
 # Install
-brew install fwojciec/tap/j4c
+go install github.com/kzleong/jira4claude/cmd/j4c@latest
 
 # Configure credentials (~/.netrc)
 echo "machine yourcompany.atlassian.net
@@ -201,16 +201,10 @@ The error shows which transition was attempted, why it failed, and what transiti
 
 ## Installation
 
-### Homebrew (macOS/Linux)
+### From Source (Windows)
 
 ```bash
-brew install fwojciec/tap/j4c
-```
-
-### From Source
-
-```bash
-go install github.com/fwojciec/jira4claude/cmd/j4c@latest
+go install github.com/kzleong/jira4claude/cmd/j4c@latest
 ```
 
 ### From Releases
