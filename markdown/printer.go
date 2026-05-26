@@ -62,6 +62,15 @@ func (p *Printer) Issue(view jira4claude.IssueView) {
 	if len(view.Labels) > 0 {
 		fmt.Fprintf(p.out, "**Labels:** %s\n", strings.Join(view.Labels, ", "))
 	}
+	if len(view.Components) > 0 {
+		fmt.Fprintf(p.out, "**Components:** %s\n", strings.Join(view.Components, ", "))
+	}
+	if view.StoryPoints != nil {
+		fmt.Fprintf(p.out, "**Story Points:** %g\n", *view.StoryPoints)
+	}
+	if view.Sprint != "" {
+		fmt.Fprintf(p.out, "**Sprint:** %s\n", view.Sprint)
+	}
 
 	// Description - passes through as-is (already markdown)
 	if view.Description != "" {
@@ -132,6 +141,37 @@ func (p *Printer) Links(key string, links []jira4claude.RelatedIssueView) {
 	}
 
 	p.renderRelatedIssuesGrouped(links)
+}
+
+// Boards prints a list of boards.
+func (p *Printer) Boards(items []jira4claude.BoardView) {
+	if len(items) == 0 {
+		fmt.Fprintln(p.out, "[info] No boards found")
+		return
+	}
+	for _, b := range items {
+		boardType := b.Type
+		if boardType != "" {
+			fmt.Fprintf(p.out, "- **%d** %s (%s)\n", b.ID, b.Name, boardType)
+		} else {
+			fmt.Fprintf(p.out, "- **%d** %s\n", b.ID, b.Name)
+		}
+	}
+}
+
+// Sprints prints a list of sprints.
+func (p *Printer) Sprints(items []jira4claude.SprintView) {
+	if len(items) == 0 {
+		fmt.Fprintln(p.out, "[info] No sprints found")
+		return
+	}
+	for _, s := range items {
+		if s.State != "" {
+			fmt.Fprintf(p.out, "- **%d** %s [%s]\n", s.ID, s.Name, s.State)
+		} else {
+			fmt.Fprintf(p.out, "- **%d** %s\n", s.ID, s.Name)
+		}
+	}
 }
 
 // Success prints a success message to stdout.

@@ -77,6 +77,9 @@ type Issue struct {
 	Comments    []*Comment     // Comments on the issue
 	Parent      *LinkedIssue   // Parent issue (for subtasks or epic children); nil otherwise
 	Subtasks    []*LinkedIssue // Subtasks or epic children; nil if none
+	Components  []string       // Component names assigned to the issue
+	StoryPoints *float64       // Story points (customfield_10006); nil if not set
+	Sprint      *Sprint        // Active or next sprint; nil if not in a sprint
 	Created     time.Time
 	Updated     time.Time
 }
@@ -101,13 +104,19 @@ type IssueFilter struct {
 // For Assignee: empty string means unassign.
 // For Labels: nil means no change, empty slice means clear all labels.
 // For Parent: nil means no change, empty string means clear, non-empty means set.
+// For Components: nil means no change, empty slice means clear, non-empty means replace.
+// For StoryPoints: nil means no change, non-nil means set (use 0.0 to clear/zero).
+// For Sprint: nil means no change, 0 means clear sprint, positive integer means set sprint by ID.
 type IssueUpdate struct {
 	Summary     *string
 	Description *string // nil = no change, non-nil = set (plain/wiki text)
 	Priority    *string
 	Assignee    *string
 	Labels      *[]string
-	Parent      *string // nil = no change, "" = clear parent, "KEY" = set parent
+	Parent      *string  // nil = no change, "" = clear parent, "KEY" = set parent
+	Components  *[]string // nil = no change, empty = clear, non-empty = replace
+	StoryPoints *float64 // nil = no change, non-nil = set
+	Sprint      *int     // nil = no change, 0 = clear sprint, positive = set by sprint ID
 }
 
 // IssueService defines operations for managing Jira issues.

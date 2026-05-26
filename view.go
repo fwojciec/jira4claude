@@ -17,6 +17,9 @@ type IssueView struct {
 	Assignee      string             `json:"assignee,omitempty"`
 	Reporter      string             `json:"reporter,omitempty"`
 	Labels        []string           `json:"labels,omitempty"`
+	Components    []string           `json:"components,omitempty"`
+	StoryPoints   *float64           `json:"storyPoints,omitempty"`
+	Sprint        string             `json:"sprint,omitempty"`
 	RelatedIssues []RelatedIssueView `json:"relatedIssues"`
 	Comments      []CommentView      `json:"comments,omitempty"`
 	Created       string             `json:"created"`
@@ -88,6 +91,9 @@ func ToIssueView(issue *Issue, conv Converter, warn func(string), serverURL stri
 		Assignee:      displayName(issue.Assignee),
 		Reporter:      displayName(issue.Reporter),
 		Labels:        issue.Labels,
+		Components:    issue.Components,
+		StoryPoints:   issue.StoryPoints,
+		Sprint:        sprintName(issue.Sprint),
 		RelatedIssues: relatedIssues,
 		Comments:      comments,
 		Created:       issue.Created.Format(time.RFC3339),
@@ -173,6 +179,45 @@ func displayName(user *User) string {
 		return ""
 	}
 	return user.DisplayName
+}
+
+func sprintName(s *Sprint) string {
+	if s == nil {
+		return ""
+	}
+	return s.Name
+}
+
+// BoardView is a display-ready representation of a Jira board.
+type BoardView struct {
+	ID   int    `json:"id"`
+	Name string `json:"name"`
+	Type string `json:"type,omitempty"`
+}
+
+// SprintView is a display-ready representation of a Jira sprint.
+type SprintView struct {
+	ID    int    `json:"id"`
+	Name  string `json:"name"`
+	State string `json:"state,omitempty"`
+}
+
+// ToBoardViews converts domain boards to display-ready views.
+func ToBoardViews(boards []*Board) []BoardView {
+	items := make([]BoardView, len(boards))
+	for i, b := range boards {
+		items[i] = BoardView{ID: b.ID, Name: b.Name, Type: b.Type}
+	}
+	return items
+}
+
+// ToSprintViews converts domain sprints to display-ready views.
+func ToSprintViews(sprints []*Sprint) []SprintView {
+	items := make([]SprintView, len(sprints))
+	for i, s := range sprints {
+		items[i] = SprintView{ID: s.ID, Name: s.Name, State: s.State}
+	}
+	return items
 }
 
 // ToRelatedIssuesView converts all related issues (parent, subtasks, links) into a unified slice.

@@ -68,6 +68,16 @@ func (p *Printer) Links(_ string, links []jira4claude.RelatedIssueView) {
 	p.encode(links)
 }
 
+// Boards prints boards as JSON array.
+func (p *Printer) Boards(items []jira4claude.BoardView) {
+	p.encode(items)
+}
+
+// Sprints prints sprints as JSON array.
+func (p *Printer) Sprints(items []jira4claude.SprintView) {
+	p.encode(items)
+}
+
 // Success prints a success message as JSON.
 func (p *Printer) Success(msg string, keys ...string) {
 	result := map[string]any{

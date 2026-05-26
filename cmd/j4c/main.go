@@ -26,18 +26,22 @@ type CLI struct {
 	JSON    bool             `help:"Output in JSON format" short:"j"`
 	Version kong.VersionFlag `help:"Show version information"`
 
-	Issue IssueCmd `cmd:"" help:"Issue operations"`
-	Link  LinkCmd  `cmd:"" help:"Link operations"`
-	Init  InitCmd  `cmd:"" help:"Initialize config file"`
+	Issue  IssueCmd  `cmd:"" help:"Issue operations"`
+	Link   LinkCmd   `cmd:"" help:"Link operations"`
+	Board  BoardCmd  `cmd:"" help:"Board operations"`
+	Sprint SprintCmd `cmd:"" help:"Sprint operations"`
+	Init   InitCmd   `cmd:"" help:"Initialize config file"`
 }
 
 // IssueContext provides dependencies for issue commands.
 type IssueContext struct {
-	Service     jira4claude.IssueService
-	UserService jira4claude.UserService
-	Printer     jira4claude.Printer
-	Converter   jira4claude.Converter
-	Config      *jira4claude.Config
+	Service       jira4claude.IssueService
+	UserService   jira4claude.UserService
+	BoardService  jira4claude.BoardService
+	SprintService jira4claude.SprintService
+	Printer       jira4claude.Printer
+	Converter     jira4claude.Converter
+	Config        *jira4claude.Config
 }
 
 // LinkContext provides dependencies for link commands.
@@ -115,14 +119,17 @@ func main() {
 	}
 	svc := http.NewIssueService(client)
 	userSvc := http.NewUserService(client)
+	boardSvc := http.NewBoardService(client)
+	sprintSvc := http.NewSprintService(client)
 
 	// Build contexts
 	conv := markdown.New()
-	issueCtx := &IssueContext{Service: svc, UserService: userSvc, Printer: printer, Converter: conv, Config: cfg}
+	issueCtx := &IssueContext{Service: svc, UserService: userSvc, BoardService: boardSvc, SprintService: sprintSvc, Printer: printer, Converter: conv, Config: cfg}
 	linkCtx := &LinkContext{Service: svc, Printer: printer, Config: cfg}
+	sprintCtx := &SprintContext{BoardService: boardSvc, SprintService: sprintSvc, Printer: printer, Config: cfg}
 
 	// Run command
-	if err := ctx.Run(issueCtx, linkCtx); err != nil {
+	if err := ctx.Run(issueCtx, linkCtx, sprintCtx); err != nil {
 		printer.Error(err)
 		os.Exit(jira4claude.ExitCode(err))
 	}

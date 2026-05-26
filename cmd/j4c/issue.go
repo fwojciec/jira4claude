@@ -125,6 +125,9 @@ type IssueCreateCmd struct {
 	Labels      []string `help:"Issue labels" short:"l"`
 	Parent      string   `help:"Parent issue key (creates a Subtask)" short:"P"`
 	Assignee    string   `help:"Assignee: 'me', email, or account ID" short:"A"`
+	Components  []string `help:"Component names" short:"c"`
+	StoryPoints float64  `help:"Story points" name:"story-points" default:"0"`
+	Sprint      string   `help:"Sprint: name or numeric ID"`
 }
 
 // Run executes the create command.
@@ -152,6 +155,19 @@ func (c *IssueCreateCmd) Run(ctx *IssueContext) error {
 		Priority:    c.Priority,
 		Labels:      c.Labels,
 		Parent:      parent,
+		Components:  c.Components,
+	}
+
+	if c.StoryPoints != 0 {
+		issue.StoryPoints = &c.StoryPoints
+	}
+
+	if c.Sprint != "" {
+		sprintID, err := ResolveSprint(context.Background(), c.Sprint, project, ctx.BoardService, ctx.SprintService)
+		if err != nil {
+			return err
+		}
+		issue.Sprint = &jira4claude.Sprint{ID: sprintID}
 	}
 
 	created, err := ctx.Service.Create(context.Background(), issue)
@@ -185,6 +201,11 @@ type IssueUpdateCmd struct {
 	ClearLabels bool     `help:"Clear all labels" name:"clear-labels"`
 	Parent      *string  `help:"Parent issue key" short:"P" xor:"parent"`
 	ClearParent bool     `help:"Remove from parent" name:"clear-parent" xor:"parent"`
+	Components  []string `help:"Component names (replaces existing)" short:"c"`
+	ClearComponents bool `help:"Remove all components" name:"clear-components"`
+	StoryPoints *float64 `help:"Story points" name:"story-points"`
+	Sprint      string   `help:"Sprint: name or numeric ID" xor:"sprint"`
+	ClearSprint bool     `help:"Remove from sprint" name:"clear-sprint" xor:"sprint"`
 }
 
 // Run executes the update command.
@@ -217,6 +238,29 @@ func (c *IssueUpdateCmd) Run(ctx *IssueContext) error {
 	} else if c.ClearParent {
 		empty := ""
 		update.Parent = &empty
+	}
+
+	if len(c.Components) > 0 {
+		update.Components = &c.Components
+	} else if c.ClearComponents {
+		empty := []string{}
+		update.Components = &empty
+	}
+
+	if c.StoryPoints != nil {
+		update.StoryPoints = c.StoryPoints
+	}
+
+	if c.Sprint != "" {
+		project := ctx.Config.Project
+		sprintID, err := ResolveSprint(context.Background(), c.Sprint, project, ctx.BoardService, ctx.SprintService)
+		if err != nil {
+			return err
+		}
+		update.Sprint = &sprintID
+	} else if c.ClearSprint {
+		zero := 0
+		update.Sprint = &zero
 	}
 
 	updated, err := ctx.Service.Update(context.Background(), c.Key, update)

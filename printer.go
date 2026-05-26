@@ -13,6 +13,12 @@ type LinkPrinter interface {
 	Links(key string, links []RelatedIssueView)
 }
 
+// SprintPrinter handles board and sprint command output.
+type SprintPrinter interface {
+	Boards(items []BoardView)
+	Sprints(items []SprintView)
+}
+
 // MessagePrinter handles success/error/warning output.
 type MessagePrinter interface {
 	Success(msg string, keys ...string)
@@ -24,5 +30,6 @@ type MessagePrinter interface {
 type Printer interface {
 	IssuePrinter
 	LinkPrinter
+	SprintPrinter
 	MessagePrinter
 }

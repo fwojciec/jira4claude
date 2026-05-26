@@ -16,6 +16,9 @@ type createFields struct {
 	Priority    *priorityRef `json:"priority,omitempty"`
 	Labels      []string     `json:"labels,omitempty"`
 	Parent      *parentRef   `json:"parent,omitempty"`
+	Components  []componentRef `json:"components,omitempty"`
+	StoryPoints *float64       `json:"customfield_10006,omitempty"`
+	Sprint      *int           `json:"customfield_10001,omitempty"`
 }
 
 // projectRef identifies a project by key.
@@ -38,6 +41,26 @@ type parentRef struct {
 	Key string `json:"key"`
 }
 
+// componentRef identifies a component by name.
+type componentRef struct {
+	Name string `json:"name"`
+}
+
+// sprintField handles the sprint custom field (customfield_10001) for updates.
+// It marshals to JSON null when ID is nil (to clear the sprint) or to the integer
+// sprint ID otherwise.
+type sprintField struct {
+	ID *int
+}
+
+// MarshalJSON implements json.Marshaler for sprintField.
+func (s sprintField) MarshalJSON() ([]byte, error) {
+	if s.ID == nil {
+		return []byte("null"), nil
+	}
+	return json.Marshal(*s.ID)
+}
+
 // updateRequest represents the request body for updating a Jira issue.
 type updateRequest struct {
 	Fields updateFields `json:"fields"`
@@ -46,12 +69,15 @@ type updateRequest struct {
 // updateFields contains the fields for updating an issue.
 // All fields are optional - only set fields will be sent.
 type updateFields struct {
-	Summary     *string        `json:"summary,omitempty"`
-	Description any            `json:"description,omitempty"`
-	Priority    *priorityRef   `json:"priority,omitempty"`
-	Assignee    *assigneeField `json:"assignee,omitempty"`
-	Labels      *[]string      `json:"labels,omitempty"`
-	Parent      *parentField   `json:"parent,omitempty"`
+	Summary     *string          `json:"summary,omitempty"`
+	Description any              `json:"description,omitempty"`
+	Priority    *priorityRef     `json:"priority,omitempty"`
+	Assignee    *assigneeField   `json:"assignee,omitempty"`
+	Labels      *[]string        `json:"labels,omitempty"`
+	Parent      *parentField     `json:"parent,omitempty"`
+	Components  *[]componentRef  `json:"components,omitempty"`
+	StoryPoints *float64         `json:"customfield_10006,omitempty"`
+	Sprint      *sprintField     `json:"customfield_10001,omitempty"`
 }
 
 // assigneeRef identifies an assignee by username (Jira Server).

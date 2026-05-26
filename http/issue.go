@@ -58,6 +58,19 @@ func (s *IssueService) Create(ctx context.Context, issue *jira4claude.Issue) (*j
 	if issue.Parent != nil {
 		reqBody.Fields.Parent = &parentRef{Key: issue.Parent.Key}
 	}
+	if len(issue.Components) > 0 {
+		comps := make([]componentRef, len(issue.Components))
+		for i, c := range issue.Components {
+			comps[i] = componentRef{Name: c}
+		}
+		reqBody.Fields.Components = comps
+	}
+	if issue.StoryPoints != nil {
+		reqBody.Fields.StoryPoints = issue.StoryPoints
+	}
+	if issue.Sprint != nil {
+		reqBody.Fields.Sprint = &issue.Sprint.ID
+	}
 
 	req, err := s.client.NewJSONRequest(ctx, http.MethodPost, "/rest/api/2/issue", reqBody)
 	if err != nil {
@@ -116,7 +129,7 @@ func (s *IssueService) List(ctx context.Context, filter jira4claude.IssueFilter)
 	}
 
 	// Build request URL with query parameters
-	fields := "key,summary,status,issuetype,project,priority,assignee,reporter,labels,issuelinks,parent,created,updated,description"
+	fields := "key,summary,status,issuetype,project,priority,assignee,reporter,labels,issuelinks,parent,created,updated,description,components,customfield_10006,customfield_10001"
 	reqURL := "/rest/api/2/search?jql=" + url.QueryEscape(jql) + "&fields=" + fields
 	if filter.Limit > 0 {
 		reqURL += "&maxResults=" + strconv.Itoa(filter.Limit)
@@ -218,6 +231,23 @@ func (s *IssueService) Update(ctx context.Context, key string, update jira4claud
 			reqBody.Fields.Parent = &parentField{Key: nil}
 		} else {
 			reqBody.Fields.Parent = &parentField{Key: update.Parent}
+		}
+	}
+	if update.Components != nil {
+		comps := make([]componentRef, len(*update.Components))
+		for i, c := range *update.Components {
+			comps[i] = componentRef{Name: c}
+		}
+		reqBody.Fields.Components = &comps
+	}
+	if update.StoryPoints != nil {
+		reqBody.Fields.StoryPoints = update.StoryPoints
+	}
+	if update.Sprint != nil {
+		if *update.Sprint == 0 {
+			reqBody.Fields.Sprint = &sprintField{ID: nil}
+		} else {
+			reqBody.Fields.Sprint = &sprintField{ID: update.Sprint}
 		}
 	}
 
@@ -365,9 +395,93 @@ type issueResponse struct {
 		Subtasks    []linkedIssueResponse `json:"subtasks"`
 		Comment     *commentsResponse     `json:"comment"`
 		Parent      *linkedIssueResponse  `json:"parent"`
+		Components  []componentResponse   `json:"components"`
+		StoryPoints *float64              `json:"customfield_10006"`
+		Sprint      sprintAPIList         `json:"customfield_10001"`
 		Created     string                `json:"created"`
 		Updated     string                `json:"updated"`
 	} `json:"fields"`
+}
+
+// componentResponse represents a component in the Jira API response.
+type componentResponse struct {
+	Name string `json:"name"`
+}
+
+// sprintAPIResponse represents a sprint entry in the Jira API response.
+// Jira Server returns sprint(s) as an array under the custom field.
+type sprintAPIResponse struct {
+	ID    int    `json:"id"`
+	Name  string `json:"name"`
+	State string `json:"state"`
+}
+
+// sprintAPIList handles two Jira Server response formats for customfield_10001:
+//   - Array of objects: [{"id":44182,"name":"Sprint 7","state":"active"}]
+//   - Legacy GreenHopper string: "Sprint@...[id=44182,state=active,name=Sprint 7,...]"
+type sprintAPIList []sprintAPIResponse
+
+// UnmarshalJSON implements json.Unmarshaler for sprintAPIList.
+func (s *sprintAPIList) UnmarshalJSON(data []byte) error {
+	// try array of objects first
+	var arr []sprintAPIResponse
+	if err := json.Unmarshal(data, &arr); err == nil {
+		*s = arr
+		return nil
+	}
+	// try array of legacy GreenHopper strings: ["Sprint@...[id=N,...]"]
+	var strs []string
+	if err := json.Unmarshal(data, &strs); err == nil {
+		for _, str := range strs {
+			if sp := parseSprintString(str); sp != nil {
+				*s = append(*s, *sp)
+			}
+		}
+		return nil
+	}
+	// try single legacy string (some Jira versions return unwrapped)
+	var str string
+	if err := json.Unmarshal(data, &str); err != nil {
+		return nil // null or unknown format — ignore silently
+	}
+	if sp := parseSprintString(str); sp != nil {
+		*s = []sprintAPIResponse{*sp}
+	}
+	return nil
+}
+
+// parseSprintString parses the legacy GreenHopper sprint string format:
+// "Sprint@...[id=44182,rapidViewId=7261,state=active,name=My Sprint,...]"
+func parseSprintString(s string) *sprintAPIResponse {
+	start := strings.Index(s, "[")
+	end := strings.LastIndex(s, "]")
+	if start < 0 || end <= start {
+		return nil
+	}
+	content := s[start+1 : end]
+	result := &sprintAPIResponse{}
+	for _, part := range strings.Split(content, ",") {
+		kv := strings.SplitN(part, "=", 2)
+		if len(kv) != 2 {
+			continue
+		}
+		key, val := kv[0], kv[1]
+		switch key {
+		case "id":
+			id, err := strconv.Atoi(val)
+			if err == nil {
+				result.ID = id
+			}
+		case "state":
+			result.State = val
+		case "name":
+			result.Name = val
+		}
+	}
+	if result.ID == 0 {
+		return nil
+	}
+	return result
 }
 
 // commentsResponse represents the comment container in the Jira API response.
@@ -474,6 +588,31 @@ func parseIssueResponse(body []byte) (*jira4claude.Issue, error) {
 		Type:        resp.Fields.IssueType.Name,
 		Priority:    resp.Fields.Priority.Name,
 		Labels:      resp.Fields.Labels,
+		StoryPoints: resp.Fields.StoryPoints,
+	}
+
+	// Components
+	if len(resp.Fields.Components) > 0 {
+		issue.Components = make([]string, len(resp.Fields.Components))
+		for i, c := range resp.Fields.Components {
+			issue.Components[i] = c.Name
+		}
+	}
+
+	// Sprint — prefer active sprint, fall back to first entry
+	if len(resp.Fields.Sprint) > 0 {
+		chosen := resp.Fields.Sprint[0]
+		for _, s := range resp.Fields.Sprint {
+			if s.State == "active" {
+				chosen = s
+				break
+			}
+		}
+		issue.Sprint = &jira4claude.Sprint{
+			ID:    chosen.ID,
+			Name:  chosen.Name,
+			State: chosen.State,
+		}
 	}
 
 	issue.Parent = mapLinkedIssue(resp.Fields.Parent)
