@@ -29,18 +29,20 @@ var _ jira4claude.IssueService = (*IssueService)(nil)
 // Each method delegates to its corresponding function field (e.g., Get calls GetFn).
 // Calling a method without setting its function field will panic.
 type IssueService struct {
-	CreateFn        func(ctx context.Context, issue *jira4claude.Issue) (*jira4claude.Issue, error)
-	GetFn           func(ctx context.Context, key string) (*jira4claude.Issue, error)
-	ListFn          func(ctx context.Context, filter jira4claude.IssueFilter) ([]*jira4claude.Issue, error)
-	UpdateFn        func(ctx context.Context, key string, update jira4claude.IssueUpdate) (*jira4claude.Issue, error)
-	DeleteFn        func(ctx context.Context, key string) error
-	AddCommentFn    func(ctx context.Context, key string, body *jira4claude.ADFNode) (*jira4claude.Comment, error)
-	DeleteCommentFn func(ctx context.Context, key, commentID string) error
-	TransitionsFn   func(ctx context.Context, key string) ([]*jira4claude.Transition, error)
-	TransitionFn    func(ctx context.Context, key, transitionID string) error
-	AssignFn        func(ctx context.Context, key, accountID string) error
-	LinkFn          func(ctx context.Context, inwardKey, linkType, outwardKey string) error
-	UnlinkFn        func(ctx context.Context, key1, key2 string) error
+	CreateFn          func(ctx context.Context, issue *jira4claude.Issue) (*jira4claude.Issue, error)
+	GetFn             func(ctx context.Context, key string) (*jira4claude.Issue, error)
+	ListFn            func(ctx context.Context, filter jira4claude.IssueFilter) ([]*jira4claude.Issue, error)
+	UpdateFn          func(ctx context.Context, key string, update jira4claude.IssueUpdate) (*jira4claude.Issue, error)
+	DeleteFn          func(ctx context.Context, key string) error
+	AddCommentFn      func(ctx context.Context, key string, body *jira4claude.ADFNode) (*jira4claude.Comment, error)
+	DeleteCommentFn   func(ctx context.Context, key, commentID string) error
+	TransitionsFn     func(ctx context.Context, key string) ([]*jira4claude.Transition, error)
+	TransitionFn      func(ctx context.Context, key, transitionID string) error
+	AssignFn          func(ctx context.Context, key, accountID string) error
+	LinkFn            func(ctx context.Context, inwardKey, linkType, outwardKey string) error
+	UnlinkFn          func(ctx context.Context, key1, key2 string) error
+	GetCreateFieldsFn func(ctx context.Context, projectKey, issueType string) ([]*jira4claude.IssueField, error)
+	GetEditFieldsFn   func(ctx context.Context, key string) ([]*jira4claude.IssueField, error)
 }
 
 func (s *IssueService) Create(ctx context.Context, issue *jira4claude.Issue) (*jira4claude.Issue, error) {
@@ -89,4 +91,12 @@ func (s *IssueService) Link(ctx context.Context, inwardKey, linkType, outwardKey
 
 func (s *IssueService) Unlink(ctx context.Context, key1, key2 string) error {
 	return s.UnlinkFn(ctx, key1, key2)
+}
+
+func (s *IssueService) GetCreateFields(ctx context.Context, projectKey, issueType string) ([]*jira4claude.IssueField, error) {
+	return s.GetCreateFieldsFn(ctx, projectKey, issueType)
+}
+
+func (s *IssueService) GetEditFields(ctx context.Context, key string) ([]*jira4claude.IssueField, error) {
+	return s.GetEditFieldsFn(ctx, key)
 }
