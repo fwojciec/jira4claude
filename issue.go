@@ -64,22 +64,23 @@ type Comment struct {
 
 // Issue represents a Jira issue with its core fields.
 type Issue struct {
-	Key         string
-	Project     string
-	Summary     string
-	Description *ADFNode // ADF document; conversion to markdown happens at CLI boundary
-	Status      string
-	Type        string
-	Priority    string
-	Assignee    *User
-	Reporter    *User
-	Labels      []string
-	Links       []*IssueLink
-	Comments    []*Comment     // Comments on the issue
-	Parent      *LinkedIssue   // Parent issue (for subtasks or epic children); nil otherwise
-	Subtasks    []*LinkedIssue // Subtasks or epic children; nil if none
-	Created     time.Time
-	Updated     time.Time
+	Key          string
+	Project      string
+	Summary      string
+	Description  *ADFNode // ADF document; conversion to markdown happens at CLI boundary
+	Status       string
+	Type         string
+	Priority     string
+	Assignee     *User
+	Reporter     *User
+	Labels       []string
+	Links        []*IssueLink
+	Comments     []*Comment     // Comments on the issue
+	Parent       *LinkedIssue   // Parent issue (for subtasks or epic children); nil otherwise
+	Subtasks     []*LinkedIssue // Subtasks or epic children; nil if none
+	Created      time.Time
+	Updated      time.Time
+	CustomFields map[string]json.RawMessage // write-only on Create; populated from --field-json. Get/List leave empty (read-side exposure is a separate future feature).
 }
 
 // IssueFilter specifies criteria for listing issues.
@@ -103,12 +104,13 @@ type IssueFilter struct {
 // For Labels: nil means no change, empty slice means clear all labels.
 // For Parent: nil means no change, empty string means clear, non-empty means set.
 type IssueUpdate struct {
-	Summary     *string
-	Description **ADFNode // nil = no change, non-nil = set; conversion from markdown happens at CLI boundary
-	Priority    *string
-	Assignee    *string
-	Labels      *[]string
-	Parent      *string // nil = no change, "" = clear parent, "KEY" = set parent
+	Summary      *string
+	Description  **ADFNode // nil = no change, non-nil = set; conversion from markdown happens at CLI boundary
+	Priority     *string
+	Assignee     *string
+	Labels       *[]string
+	Parent       *string                    // nil = no change, "" = clear parent, "KEY" = set parent
+	CustomFields map[string]json.RawMessage // nil = no change
 }
 
 // IssueField describes a single settable field as reported by Jira's

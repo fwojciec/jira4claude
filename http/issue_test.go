@@ -3,6 +3,7 @@ package http_test
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -2169,5 +2170,145 @@ func TestIssueService_Assign(t *testing.T) {
 
 		require.Error(t, err)
 		assert.Equal(t, jira4claude.ENotFound, jira4claude.ErrorCode(err))
+	})
+}
+
+func TestIssueService_CustomFields(t *testing.T) {
+	t.Parallel()
+
+	t.Run("Create merges CustomFields into fields object", func(t *testing.T) {
+		t.Parallel()
+
+		var receivedRequest map[string]any
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			_ = json.NewDecoder(r.Body).Decode(&receivedRequest)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusCreated)
+			_, _ = w.Write([]byte(`{"key":"INT-1"}`))
+		}))
+		defer server.Close()
+
+		client := newTestClient(t, server.URL, "user", "pass")
+		svc := jirahttp.NewIssueService(client)
+
+		issue := &jira4claude.Issue{
+			Project: "INT",
+			Type:    "Bug",
+			Summary: "Webhook 500s",
+			CustomFields: map[string]json.RawMessage{
+				"customfield_10801": json.RawMessage(`{"value":"High"}`),
+				"customfield_10838": json.RawMessage(`[{"value":"Integrations"}]`),
+			},
+		}
+
+		_, err := svc.Create(context.Background(), issue)
+		require.NoError(t, err)
+
+		fields := receivedRequest["fields"].(map[string]any)
+		assert.Equal(t, map[string]any{"value": "High"}, fields["customfield_10801"])
+		assert.Equal(t, []any{map[string]any{"value": "Integrations"}}, fields["customfield_10838"])
+
+		// Typed fields still present.
+		assert.Equal(t, "Webhook 500s", fields["summary"])
+		assert.Equal(t, map[string]any{"key": "INT"}, fields["project"])
+		assert.Equal(t, map[string]any{"name": "Bug"}, fields["issuetype"])
+	})
+
+	t.Run("Update merges CustomFields into fields object", func(t *testing.T) {
+		t.Parallel()
+
+		var receivedRequest map[string]any
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			switch r.Method {
+			case http.MethodPut:
+				_ = json.NewDecoder(r.Body).Decode(&receivedRequest)
+				w.WriteHeader(http.StatusNoContent)
+			case http.MethodGet:
+				// Update fetches the issue afterward; return a minimal valid response.
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusOK)
+				_, _ = w.Write([]byte(`{"key":"INT-1","fields":{}}`))
+			}
+		}))
+		defer server.Close()
+
+		client := newTestClient(t, server.URL, "user", "pass")
+		svc := jirahttp.NewIssueService(client)
+
+		update := jira4claude.IssueUpdate{
+			CustomFields: map[string]json.RawMessage{
+				"customfield_10801": json.RawMessage(`{"value":"Low"}`),
+			},
+		}
+
+		_, err := svc.Update(context.Background(), "INT-1", update)
+		require.NoError(t, err)
+
+		fields := receivedRequest["fields"].(map[string]any)
+		assert.Equal(t, map[string]any{"value": "Low"}, fields["customfield_10801"])
+	})
+
+	t.Run("Create with nil CustomFields produces byte-identical body to pre-CustomFields behavior", func(t *testing.T) {
+		t.Parallel()
+
+		var capturedBody []byte
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			capturedBody, _ = io.ReadAll(r.Body)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusCreated)
+			_, _ = w.Write([]byte(`{"key":"INT-1"}`))
+		}))
+		defer server.Close()
+
+		client := newTestClient(t, server.URL, "user", "pass")
+		svc := jirahttp.NewIssueService(client)
+
+		// Minimal Issue: only the required fields are set, CustomFields nil.
+		issue := &jira4claude.Issue{
+			Project: "INT",
+			Type:    "Task",
+			Summary: "Hi",
+		}
+
+		_, err := svc.Create(context.Background(), issue)
+		require.NoError(t, err)
+
+		// Golden: struct-declaration order preserved when CustomFields is empty.
+		// Byte-identical (not JSON-equal) is the non-regression invariant —
+		// proves no key reordering or extra emission from the MarshalJSON path.
+		const golden = `{"fields":{"project":{"key":"INT"},"summary":"Hi","issuetype":{"name":"Task"}}}`
+		//nolint:testifylint // byte-identity is the invariant; JSONEq would tolerate reordering and miss regressions.
+		assert.Equal(t, golden, strings.TrimSpace(string(capturedBody)))
+	})
+
+	t.Run("CustomFields wins on key collision with typed field", func(t *testing.T) {
+		t.Parallel()
+
+		var receivedRequest map[string]any
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			_ = json.NewDecoder(r.Body).Decode(&receivedRequest)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusCreated)
+			_, _ = w.Write([]byte(`{"key":"INT-1"}`))
+		}))
+		defer server.Close()
+
+		client := newTestClient(t, server.URL, "user", "pass")
+		svc := jirahttp.NewIssueService(client)
+
+		issue := &jira4claude.Issue{
+			Project: "INT",
+			Type:    "Task",
+			Summary: "Typed summary",
+			CustomFields: map[string]json.RawMessage{
+				"summary": json.RawMessage(`"Custom summary"`),
+			},
+		}
+
+		_, err := svc.Create(context.Background(), issue)
+		require.NoError(t, err)
+
+		fields := receivedRequest["fields"].(map[string]any)
+		assert.Equal(t, "Custom summary", fields["summary"])
 	})
 }
