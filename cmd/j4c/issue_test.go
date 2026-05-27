@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/alecthomas/kong"
 	"github.com/fwojciec/jira4claude"
 	main "github.com/fwojciec/jira4claude/cmd/j4c"
 	"github.com/fwojciec/jira4claude/mock"
@@ -1822,5 +1823,531 @@ func TestIssueAssignCmd(t *testing.T) {
 
 		require.Error(t, err)
 		assert.Equal(t, jira4claude.ENotFound, jira4claude.ErrorCode(err))
+	})
+}
+
+// IssueCreateCmd --field-json plumbing tests
+
+func TestIssueCreateCmd_FieldJSON(t *testing.T) {
+	t.Parallel()
+
+	t.Run("populates Issue.CustomFields and reaches service", func(t *testing.T) {
+		t.Parallel()
+
+		var capturedIssue *jira4claude.Issue
+		svc := &mock.IssueService{
+			CreateFn: func(ctx context.Context, issue *jira4claude.Issue) (*jira4claude.Issue, error) {
+				capturedIssue = issue
+				return &jira4claude.Issue{Key: "TEST-1"}, nil
+			},
+		}
+
+		printer := &mock.Printer{}
+		ctx := &main.IssueContext{
+			Service:   svc,
+			Printer:   printer,
+			Converter: mockConverter(),
+			Config:    &jira4claude.Config{Project: "TEST", Server: "https://test.atlassian.net"},
+		}
+		cmd := main.IssueCreateCmd{
+			Summary: "Test issue",
+			FieldJSON: []string{
+				`customfield_10801={"value":"High"}`,
+				`customfield_10838=[{"value":"Integrations"}]`,
+			},
+		}
+		err := cmd.Run(ctx)
+
+		require.NoError(t, err)
+		require.NotNil(t, capturedIssue)
+		require.Len(t, capturedIssue.CustomFields, 2)
+		assert.JSONEq(t, `{"value":"High"}`, string(capturedIssue.CustomFields["customfield_10801"]))
+		assert.JSONEq(t, `[{"value":"Integrations"}]`, string(capturedIssue.CustomFields["customfield_10838"]))
+	})
+
+	t.Run("nil CustomFields when no --field-json provided", func(t *testing.T) {
+		t.Parallel()
+
+		var capturedIssue *jira4claude.Issue
+		svc := &mock.IssueService{
+			CreateFn: func(ctx context.Context, issue *jira4claude.Issue) (*jira4claude.Issue, error) {
+				capturedIssue = issue
+				return &jira4claude.Issue{Key: "TEST-1"}, nil
+			},
+		}
+
+		printer := &mock.Printer{}
+		ctx := &main.IssueContext{
+			Service:   svc,
+			Printer:   printer,
+			Converter: mockConverter(),
+			Config:    &jira4claude.Config{Project: "TEST", Server: "https://test.atlassian.net"},
+		}
+		cmd := main.IssueCreateCmd{Summary: "Test issue"}
+		err := cmd.Run(ctx)
+
+		require.NoError(t, err)
+		require.NotNil(t, capturedIssue)
+		assert.Nil(t, capturedIssue.CustomFields)
+	})
+
+	t.Run("invalid --field-json returns error without calling service", func(t *testing.T) {
+		t.Parallel()
+
+		createCalled := false
+		svc := &mock.IssueService{
+			CreateFn: func(ctx context.Context, issue *jira4claude.Issue) (*jira4claude.Issue, error) {
+				createCalled = true
+				return &jira4claude.Issue{Key: "TEST-1"}, nil
+			},
+		}
+
+		printer := &mock.Printer{}
+		ctx := &main.IssueContext{
+			Service:   svc,
+			Printer:   printer,
+			Converter: mockConverter(),
+			Config:    &jira4claude.Config{Project: "TEST", Server: "https://test.atlassian.net"},
+		}
+		cmd := main.IssueCreateCmd{
+			Summary:   "Test issue",
+			FieldJSON: []string{`customfield_10801=not-json`},
+		}
+		err := cmd.Run(ctx)
+
+		require.Error(t, err)
+		assert.Equal(t, jira4claude.EValidation, jira4claude.ErrorCode(err))
+		assert.False(t, createCalled, "service should not be called when --field-json is invalid")
+		assert.Empty(t, printer.SuccessCalls)
+	})
+}
+
+// IssueUpdateCmd --field-json plumbing tests
+
+func TestIssueUpdateCmd_FieldJSON(t *testing.T) {
+	t.Parallel()
+
+	t.Run("populates IssueUpdate.CustomFields and reaches service", func(t *testing.T) {
+		t.Parallel()
+
+		var capturedUpdate jira4claude.IssueUpdate
+		svc := &mock.IssueService{
+			UpdateFn: func(ctx context.Context, key string, update jira4claude.IssueUpdate) (*jira4claude.Issue, error) {
+				capturedUpdate = update
+				return makeIssue(key), nil
+			},
+		}
+
+		printer := &mock.Printer{}
+		ctx := &main.IssueContext{
+			Service:   svc,
+			Printer:   printer,
+			Converter: mockConverter(),
+			Config:    &jira4claude.Config{Project: "TEST", Server: "https://test.atlassian.net"},
+		}
+		cmd := main.IssueUpdateCmd{
+			Key: "TEST-1",
+			FieldJSON: []string{
+				`customfield_10801={"value":"Low"}`,
+			},
+		}
+		err := cmd.Run(ctx)
+
+		require.NoError(t, err)
+		require.Len(t, capturedUpdate.CustomFields, 1)
+		assert.JSONEq(t, `{"value":"Low"}`, string(capturedUpdate.CustomFields["customfield_10801"]))
+	})
+
+	t.Run("nil CustomFields when no --field-json provided", func(t *testing.T) {
+		t.Parallel()
+
+		var capturedUpdate jira4claude.IssueUpdate
+		svc := &mock.IssueService{
+			UpdateFn: func(ctx context.Context, key string, update jira4claude.IssueUpdate) (*jira4claude.Issue, error) {
+				capturedUpdate = update
+				return makeIssue(key), nil
+			},
+		}
+
+		printer := &mock.Printer{}
+		ctx := &main.IssueContext{
+			Service:   svc,
+			Printer:   printer,
+			Converter: mockConverter(),
+			Config:    &jira4claude.Config{Project: "TEST", Server: "https://test.atlassian.net"},
+		}
+		summary := "Updated"
+		cmd := main.IssueUpdateCmd{Key: "TEST-1", Summary: &summary}
+		err := cmd.Run(ctx)
+
+		require.NoError(t, err)
+		assert.Nil(t, capturedUpdate.CustomFields)
+	})
+
+	t.Run("invalid --field-json returns error without calling service", func(t *testing.T) {
+		t.Parallel()
+
+		updateCalled := false
+		svc := &mock.IssueService{
+			UpdateFn: func(ctx context.Context, key string, update jira4claude.IssueUpdate) (*jira4claude.Issue, error) {
+				updateCalled = true
+				return makeIssue(key), nil
+			},
+		}
+
+		printer := &mock.Printer{}
+		ctx := &main.IssueContext{
+			Service:   svc,
+			Printer:   printer,
+			Converter: mockConverter(),
+			Config:    &jira4claude.Config{Project: "TEST", Server: "https://test.atlassian.net"},
+		}
+		cmd := main.IssueUpdateCmd{
+			Key:       "TEST-1",
+			FieldJSON: []string{`bad`},
+		}
+		err := cmd.Run(ctx)
+
+		require.Error(t, err)
+		assert.Equal(t, jira4claude.EValidation, jira4claude.ErrorCode(err))
+		assert.False(t, updateCalled, "service should not be called when --field-json is invalid")
+		assert.Empty(t, printer.SuccessCalls)
+	})
+}
+
+// IssueFieldsCmd tests
+
+func TestIssueFieldsCmd(t *testing.T) {
+	t.Parallel()
+
+	t.Run("create mode: --project + --type calls GetCreateFields with those args", func(t *testing.T) {
+		t.Parallel()
+
+		var capturedProject, capturedType string
+		svc := &mock.IssueService{
+			GetCreateFieldsFn: func(ctx context.Context, projectKey, issueType string) ([]*jira4claude.IssueField, error) {
+				capturedProject = projectKey
+				capturedType = issueType
+				return []*jira4claude.IssueField{
+					{ID: "summary", Name: "Summary", Required: true, SchemaType: "string"},
+				}, nil
+			},
+		}
+
+		printer := &mock.Printer{}
+		ctx := &main.IssueContext{
+			Service:   svc,
+			Printer:   printer,
+			Converter: mockConverter(),
+			Config:    &jira4claude.Config{Project: "FALLBACK"},
+		}
+		cmd := main.IssueFieldsCmd{Project: "PROJ", Type: "Bug"}
+		err := cmd.Run(ctx)
+
+		require.NoError(t, err)
+		assert.Equal(t, "PROJ", capturedProject)
+		assert.Equal(t, "Bug", capturedType)
+		require.Len(t, printer.FieldsCalls, 1)
+		assert.Equal(t, "PROJ / Bug", printer.FieldsCalls[0].Source)
+	})
+
+	t.Run("edit mode: --key calls GetEditFields and sets edit source", func(t *testing.T) {
+		t.Parallel()
+
+		var capturedKey string
+		svc := &mock.IssueService{
+			GetEditFieldsFn: func(ctx context.Context, key string) ([]*jira4claude.IssueField, error) {
+				capturedKey = key
+				return []*jira4claude.IssueField{
+					{ID: "summary", Name: "Summary", Required: true, SchemaType: "string"},
+				}, nil
+			},
+		}
+
+		printer := &mock.Printer{}
+		ctx := &main.IssueContext{
+			Service:   svc,
+			Printer:   printer,
+			Converter: mockConverter(),
+			Config:    &jira4claude.Config{Project: "TEST"},
+		}
+		cmd := main.IssueFieldsCmd{Key: "PROJ-7"}
+		err := cmd.Run(ctx)
+
+		require.NoError(t, err)
+		assert.Equal(t, "PROJ-7", capturedKey)
+		require.Len(t, printer.FieldsCalls, 1)
+		assert.Equal(t, "PROJ-7 (edit)", printer.FieldsCalls[0].Source)
+	})
+
+	t.Run("default filter keeps required and customfield_* fields only", func(t *testing.T) {
+		t.Parallel()
+
+		svc := &mock.IssueService{
+			GetCreateFieldsFn: func(ctx context.Context, projectKey, issueType string) ([]*jira4claude.IssueField, error) {
+				return []*jira4claude.IssueField{
+					{ID: "summary", Name: "Summary", Required: true, SchemaType: "string"},          // required builtin → keep
+					{ID: "description", Name: "Description", Required: false, SchemaType: "string"}, // optional builtin → drop
+					{ID: "customfield_10010", Name: "Story Points", Required: false},                // optional custom → keep
+					{ID: "customfield_10801", Name: "Urgency", Required: true},                      // required custom → keep
+					{ID: "priority", Name: "Priority", Required: false},                             // optional builtin → drop
+				}, nil
+			},
+		}
+
+		printer := &mock.Printer{}
+		ctx := &main.IssueContext{
+			Service:   svc,
+			Printer:   printer,
+			Converter: mockConverter(),
+			Config:    &jira4claude.Config{Project: "PROJ"},
+		}
+		cmd := main.IssueFieldsCmd{Project: "PROJ", Type: "Task"}
+		err := cmd.Run(ctx)
+
+		require.NoError(t, err)
+		require.Len(t, printer.FieldsCalls, 1)
+		fields := printer.FieldsCalls[0].Fields
+		ids := make([]string, len(fields))
+		for i, f := range fields {
+			ids[i] = f.ID
+		}
+		assert.ElementsMatch(t, []string{"summary", "customfield_10010", "customfield_10801"}, ids)
+	})
+
+	t.Run("--all bypasses filter and emits every field", func(t *testing.T) {
+		t.Parallel()
+
+		svc := &mock.IssueService{
+			GetCreateFieldsFn: func(ctx context.Context, projectKey, issueType string) ([]*jira4claude.IssueField, error) {
+				return []*jira4claude.IssueField{
+					{ID: "summary", Required: true},
+					{ID: "description", Required: false},
+					{ID: "customfield_10010", Required: false},
+					{ID: "priority", Required: false},
+				}, nil
+			},
+		}
+
+		printer := &mock.Printer{}
+		ctx := &main.IssueContext{
+			Service:   svc,
+			Printer:   printer,
+			Converter: mockConverter(),
+			Config:    &jira4claude.Config{Project: "PROJ"},
+		}
+		cmd := main.IssueFieldsCmd{Project: "PROJ", Type: "Task", All: true}
+		err := cmd.Run(ctx)
+
+		require.NoError(t, err)
+		require.Len(t, printer.FieldsCalls, 1)
+		assert.Len(t, printer.FieldsCalls[0].Fields, 4)
+	})
+
+	t.Run("type falls back to Task when --type not given (Run applies the default)", func(t *testing.T) {
+		t.Parallel()
+
+		var capturedType string
+		svc := &mock.IssueService{
+			GetCreateFieldsFn: func(ctx context.Context, projectKey, issueType string) ([]*jira4claude.IssueField, error) {
+				capturedType = issueType
+				return []*jira4claude.IssueField{}, nil
+			},
+		}
+
+		printer := &mock.Printer{}
+		ctx := &main.IssueContext{
+			Service:   svc,
+			Printer:   printer,
+			Converter: mockConverter(),
+			Config:    &jira4claude.Config{Project: "PROJ"},
+		}
+		// Type left empty, mirroring Kong v1.13.0's no-default behavior.
+		cmd := main.IssueFieldsCmd{Project: "PROJ"}
+		err := cmd.Run(ctx)
+
+		require.NoError(t, err)
+		assert.Equal(t, "Task", capturedType)
+		require.Len(t, printer.FieldsCalls, 1)
+		assert.Equal(t, "PROJ / Task", printer.FieldsCalls[0].Source)
+	})
+
+	t.Run("project falls back to ctx.Config.Project when --project not given", func(t *testing.T) {
+		t.Parallel()
+
+		var capturedProject string
+		svc := &mock.IssueService{
+			GetCreateFieldsFn: func(ctx context.Context, projectKey, issueType string) ([]*jira4claude.IssueField, error) {
+				capturedProject = projectKey
+				return []*jira4claude.IssueField{}, nil
+			},
+		}
+
+		printer := &mock.Printer{}
+		ctx := &main.IssueContext{
+			Service:   svc,
+			Printer:   printer,
+			Converter: mockConverter(),
+			Config:    &jira4claude.Config{Project: "CONFIG"},
+		}
+		cmd := main.IssueFieldsCmd{Type: "Task"}
+		err := cmd.Run(ctx)
+
+		require.NoError(t, err)
+		assert.Equal(t, "CONFIG", capturedProject)
+		require.Len(t, printer.FieldsCalls, 1)
+		assert.Equal(t, "CONFIG / Task", printer.FieldsCalls[0].Source)
+	})
+
+	t.Run("returns EValidation when project missing in both flag and config", func(t *testing.T) {
+		t.Parallel()
+
+		createFieldsCalled := false
+		svc := &mock.IssueService{
+			GetCreateFieldsFn: func(ctx context.Context, projectKey, issueType string) ([]*jira4claude.IssueField, error) {
+				createFieldsCalled = true
+				return nil, nil
+			},
+		}
+
+		printer := &mock.Printer{}
+		ctx := &main.IssueContext{
+			Service:   svc,
+			Printer:   printer,
+			Converter: mockConverter(),
+			Config:    &jira4claude.Config{},
+		}
+		cmd := main.IssueFieldsCmd{Type: "Task"}
+		err := cmd.Run(ctx)
+
+		require.Error(t, err)
+		assert.Equal(t, jira4claude.EValidation, jira4claude.ErrorCode(err))
+		assert.Contains(t, err.Error(), "project")
+		assert.False(t, createFieldsCalled, "service should not be called when project is missing")
+		assert.Empty(t, printer.FieldsCalls)
+	})
+
+	t.Run("propagates GetCreateFields error", func(t *testing.T) {
+		t.Parallel()
+
+		svc := &mock.IssueService{
+			GetCreateFieldsFn: func(ctx context.Context, projectKey, issueType string) ([]*jira4claude.IssueField, error) {
+				return nil, &jira4claude.Error{Code: jira4claude.ENotFound, Message: "project not found"}
+			},
+		}
+
+		printer := &mock.Printer{}
+		ctx := &main.IssueContext{
+			Service:   svc,
+			Printer:   printer,
+			Converter: mockConverter(),
+			Config:    &jira4claude.Config{Project: "PROJ"},
+		}
+		cmd := main.IssueFieldsCmd{Project: "PROJ", Type: "Task"}
+		err := cmd.Run(ctx)
+
+		require.Error(t, err)
+		assert.Equal(t, jira4claude.ENotFound, jira4claude.ErrorCode(err))
+		assert.Empty(t, printer.FieldsCalls)
+	})
+
+	t.Run("propagates GetEditFields error", func(t *testing.T) {
+		t.Parallel()
+
+		svc := &mock.IssueService{
+			GetEditFieldsFn: func(ctx context.Context, key string) ([]*jira4claude.IssueField, error) {
+				return nil, &jira4claude.Error{Code: jira4claude.ENotFound, Message: "issue not found"}
+			},
+		}
+
+		printer := &mock.Printer{}
+		ctx := &main.IssueContext{
+			Service:   svc,
+			Printer:   printer,
+			Converter: mockConverter(),
+			Config:    &jira4claude.Config{Project: "PROJ"},
+		}
+		cmd := main.IssueFieldsCmd{Key: "PROJ-1"}
+		err := cmd.Run(ctx)
+
+		require.Error(t, err)
+		assert.Equal(t, jira4claude.ENotFound, jira4claude.ErrorCode(err))
+		assert.Empty(t, printer.FieldsCalls)
+	})
+}
+
+// IssueFieldsCmd Kong xor parsing tests
+
+func TestIssueFieldsCmd_KongXor(t *testing.T) {
+	t.Parallel()
+
+	t.Run("--key + --project is rejected (share mode-project label)", func(t *testing.T) {
+		t.Parallel()
+
+		var cli main.CLI
+		parser, err := kong.New(&cli)
+		require.NoError(t, err)
+
+		_, err = parser.Parse([]string{"issue", "fields", "--key=PROJ-1", "--project=PROJ"})
+		require.Error(t, err)
+		// Kong reports xor conflicts with a message that names the conflicting flags.
+		errMsg := err.Error()
+		assert.Contains(t, errMsg, "key")
+		assert.Contains(t, errMsg, "project")
+	})
+
+	t.Run("--key + --type is rejected (share mode-type label)", func(t *testing.T) {
+		t.Parallel()
+
+		var cli main.CLI
+		parser, err := kong.New(&cli)
+		require.NoError(t, err)
+
+		_, err = parser.Parse([]string{"issue", "fields", "--key=PROJ-1", "--type=Bug"})
+		require.Error(t, err)
+		errMsg := err.Error()
+		assert.Contains(t, errMsg, "key")
+		assert.Contains(t, errMsg, "type")
+	})
+
+	t.Run("--project + --type is accepted (no shared xor label)", func(t *testing.T) {
+		t.Parallel()
+
+		var cli main.CLI
+		parser, err := kong.New(&cli)
+		require.NoError(t, err)
+
+		_, err = parser.Parse([]string{"issue", "fields", "--project=PROJ", "--type=Bug"})
+		require.NoError(t, err)
+		assert.Equal(t, "PROJ", cli.Issue.Fields.Project)
+		assert.Equal(t, "Bug", cli.Issue.Fields.Type)
+	})
+
+	t.Run("--key alone is accepted (Type has no Kong default so does not trip xor)", func(t *testing.T) {
+		t.Parallel()
+
+		var cli main.CLI
+		parser, err := kong.New(&cli)
+		require.NoError(t, err)
+
+		_, err = parser.Parse([]string{"issue", "fields", "--key=PROJ-1"})
+		require.NoError(t, err)
+		assert.Equal(t, "PROJ-1", cli.Issue.Fields.Key)
+		// Type is left empty by Kong; Run() applies the "Task" fallback.
+		assert.Empty(t, cli.Issue.Fields.Type)
+	})
+
+	t.Run("no flags is accepted (project comes from config, type defaults in Run)", func(t *testing.T) {
+		t.Parallel()
+
+		var cli main.CLI
+		parser, err := kong.New(&cli)
+		require.NoError(t, err)
+
+		_, err = parser.Parse([]string{"issue", "fields"})
+		require.NoError(t, err)
+		assert.Empty(t, cli.Issue.Fields.Key)
+		assert.Empty(t, cli.Issue.Fields.Project)
+		assert.Empty(t, cli.Issue.Fields.Type)
 	})
 }
