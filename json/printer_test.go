@@ -605,3 +605,209 @@ func TestPrinter_Warning_MultipleWarnings(t *testing.T) {
 	assert.Contains(t, errOutput, "first warning")
 	assert.Contains(t, errOutput, "second warning")
 }
+
+func TestPrinter_Fields(t *testing.T) {
+	t.Parallel()
+
+	t.Run("output is a JSON array, not a wrapper object", func(t *testing.T) {
+		t.Parallel()
+		var out bytes.Buffer
+		p := jsonpkg.NewPrinter(&out)
+
+		view := jira4claude.IssueFieldsView{
+			Source: "INT / Bug",
+			Fields: []*jira4claude.IssueField{
+				{ID: "summary", Name: "Summary", Required: true, SchemaType: "string"},
+			},
+		}
+		p.Fields(view)
+
+		var result []map[string]any
+		err := json.Unmarshal(out.Bytes(), &result)
+		require.NoError(t, err, "output should decode as a JSON array")
+		require.Len(t, result, 1)
+		assert.Equal(t, "summary", result[0]["id"])
+	})
+
+	t.Run("Source label is not emitted in JSON", func(t *testing.T) {
+		t.Parallel()
+		var out bytes.Buffer
+		p := jsonpkg.NewPrinter(&out)
+
+		view := jira4claude.IssueFieldsView{
+			Source: "INT / Bug",
+			Fields: []*jira4claude.IssueField{
+				{ID: "summary", Name: "Summary", Required: true, SchemaType: "string"},
+			},
+		}
+		p.Fields(view)
+
+		assert.NotContains(t, out.String(), "INT / Bug")
+		assert.NotContains(t, out.String(), "source")
+	})
+
+	t.Run("emits lowercase JSON keys for required base fields", func(t *testing.T) {
+		t.Parallel()
+		var out bytes.Buffer
+		p := jsonpkg.NewPrinter(&out)
+
+		view := jira4claude.IssueFieldsView{
+			Source: "INT / Bug",
+			Fields: []*jira4claude.IssueField{
+				{ID: "customfield_10801", Name: "Urgency / Risk", Required: true, SchemaType: "option"},
+			},
+		}
+		p.Fields(view)
+
+		var result []map[string]any
+		err := json.Unmarshal(out.Bytes(), &result)
+		require.NoError(t, err)
+		require.Len(t, result, 1)
+		assert.Equal(t, "customfield_10801", result[0]["id"])
+		assert.Equal(t, "Urgency / Risk", result[0]["name"])
+		assert.Equal(t, true, result[0]["required"])
+		assert.Equal(t, "option", result[0]["schemaType"])
+	})
+
+	t.Run("omitempty drops allowedValues and example when absent", func(t *testing.T) {
+		t.Parallel()
+		var out bytes.Buffer
+		p := jsonpkg.NewPrinter(&out)
+
+		view := jira4claude.IssueFieldsView{
+			Source: "INT / Bug",
+			Fields: []*jira4claude.IssueField{
+				{ID: "summary", Name: "Summary", Required: true, SchemaType: "string"},
+			},
+		}
+		p.Fields(view)
+
+		var result []map[string]any
+		err := json.Unmarshal(out.Bytes(), &result)
+		require.NoError(t, err)
+		require.Len(t, result, 1)
+		_, hasAllowed := result[0]["allowedValues"]
+		_, hasExample := result[0]["example"]
+		_, hasItems := result[0]["schemaItems"]
+		_, hasCustom := result[0]["schemaCustom"]
+		assert.False(t, hasAllowed, "allowedValues should be omitted when empty")
+		assert.False(t, hasExample, "example should be omitted when nil")
+		assert.False(t, hasItems, "schemaItems should be omitted when empty")
+		assert.False(t, hasCustom, "schemaCustom should be omitted when empty")
+	})
+
+	t.Run("example is emitted as a JSON value, not a string", func(t *testing.T) {
+		t.Parallel()
+		var out bytes.Buffer
+		p := jsonpkg.NewPrinter(&out)
+
+		exampleRaw, err := json.Marshal(map[string]any{"value": "High"})
+		require.NoError(t, err)
+
+		view := jira4claude.IssueFieldsView{
+			Source: "INT / Bug",
+			Fields: []*jira4claude.IssueField{
+				{
+					ID: "customfield_10801", Name: "Urgency / Risk", Required: true, SchemaType: "option",
+					Example: json.RawMessage(exampleRaw),
+				},
+			},
+		}
+		p.Fields(view)
+
+		var result []map[string]any
+		err = json.Unmarshal(out.Bytes(), &result)
+		require.NoError(t, err)
+		require.Len(t, result, 1)
+		ex, ok := result[0]["example"].(map[string]any)
+		require.True(t, ok, "example should decode as a JSON object, not a string")
+		assert.Equal(t, "High", ex["value"])
+	})
+
+	t.Run("allowedValues project as id+value entries", func(t *testing.T) {
+		t.Parallel()
+		var out bytes.Buffer
+		p := jsonpkg.NewPrinter(&out)
+
+		view := jira4claude.IssueFieldsView{
+			Source: "INT / Bug",
+			Fields: []*jira4claude.IssueField{
+				{
+					ID: "customfield_10801", Name: "Urgency / Risk", Required: true, SchemaType: "option",
+					AllowedValues: []jira4claude.FieldAllowedValue{
+						{ID: "10500", Value: "High"},
+						{ID: "10501", Value: "Medium"},
+					},
+				},
+			},
+		}
+		p.Fields(view)
+
+		var result []map[string]any
+		err := json.Unmarshal(out.Bytes(), &result)
+		require.NoError(t, err)
+		require.Len(t, result, 1)
+		allowed, ok := result[0]["allowedValues"].([]any)
+		require.True(t, ok)
+		require.Len(t, allowed, 2)
+
+		first, ok := allowed[0].(map[string]any)
+		require.True(t, ok)
+		assert.Equal(t, "10500", first["id"])
+		assert.Equal(t, "High", first["value"])
+
+		second, ok := allowed[1].(map[string]any)
+		require.True(t, ok)
+		assert.Equal(t, "10501", second["id"])
+		assert.Equal(t, "Medium", second["value"])
+	})
+
+	t.Run("FieldAllowedValue.id omitempty drops when empty", func(t *testing.T) {
+		t.Parallel()
+		var out bytes.Buffer
+		p := jsonpkg.NewPrinter(&out)
+
+		view := jira4claude.IssueFieldsView{
+			Source: "INT / Bug",
+			Fields: []*jira4claude.IssueField{
+				{
+					ID: "customfield_10838", Name: "Product Area(s)", Required: true,
+					SchemaType: "array", SchemaItems: "option",
+					AllowedValues: []jira4claude.FieldAllowedValue{
+						{Value: "Integrations"}, // no ID -> should omit "id" key
+					},
+				},
+			},
+		}
+		p.Fields(view)
+
+		var result []map[string]any
+		err := json.Unmarshal(out.Bytes(), &result)
+		require.NoError(t, err)
+		require.Len(t, result, 1)
+
+		// schemaItems should be present since SchemaType == "array"
+		assert.Equal(t, "option", result[0]["schemaItems"])
+
+		allowed, ok := result[0]["allowedValues"].([]any)
+		require.True(t, ok)
+		require.Len(t, allowed, 1)
+		first, ok := allowed[0].(map[string]any)
+		require.True(t, ok)
+		_, hasID := first["id"]
+		assert.False(t, hasID, "id should be omitted for primitive-string allowed values")
+		assert.Equal(t, "Integrations", first["value"])
+	})
+
+	t.Run("nil fields list emits [] (not null) so consumers can always iterate", func(t *testing.T) {
+		t.Parallel()
+		var out bytes.Buffer
+		p := jsonpkg.NewPrinter(&out)
+
+		p.Fields(jira4claude.IssueFieldsView{Source: "INT / Bug", Fields: nil})
+
+		// Byte-assert on the raw output: json.Unmarshal can't distinguish null
+		// from [] here (both decode to a nil slice), so we pin the shape directly.
+		assert.Equal(t, "[]\n", out.String())
+	})
+}

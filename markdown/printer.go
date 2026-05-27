@@ -124,6 +124,131 @@ func (p *Printer) Transitions(key string, ts []*jira4claude.Transition) {
 	}
 }
 
+// Field rendering column widths (eyeball-aligned, not pixel-perfect).
+const (
+	fieldsIDWidth       = 18
+	fieldsNameWidth     = 28
+	fieldsMaxAllowed    = 5
+	fieldsIndent        = "  "
+	fieldsAllowedIndent = "    "
+)
+
+// Fields prints settable issue fields grouped by REQUIRED and CUSTOM (optional).
+func (p *Printer) Fields(view jira4claude.IssueFieldsView) {
+	if len(view.Fields) == 0 {
+		fmt.Fprintf(p.out, "[info] No fields for %s\n", view.Source)
+		return
+	}
+
+	// Partition into required and optional-custom buckets.
+	required := make([]*jira4claude.IssueField, 0, len(view.Fields))
+	optionalCustom := make([]*jira4claude.IssueField, 0, len(view.Fields))
+	for _, f := range view.Fields {
+		switch {
+		case f.Required:
+			required = append(required, f)
+		case strings.HasPrefix(f.ID, "customfield_"):
+			optionalCustom = append(optionalCustom, f)
+		}
+	}
+
+	// Within REQUIRED: customfields first, then builtins (stable order).
+	sortRequiredFields(required)
+
+	fmt.Fprintf(p.out, "Fields for %s:\n", view.Source)
+
+	if len(required) > 0 {
+		fmt.Fprint(p.out, "\nREQUIRED\n")
+		for _, f := range required {
+			p.renderFieldLine(f)
+		}
+	}
+
+	if len(optionalCustom) > 0 {
+		fmt.Fprint(p.out, "\nCUSTOM (optional)\n")
+		for _, f := range optionalCustom {
+			p.renderFieldLine(f)
+		}
+	}
+}
+
+// sortRequiredFields reorders the slice in place so that customfields come
+// before builtins, preserving the relative order within each group.
+func sortRequiredFields(fields []*jira4claude.IssueField) {
+	customs := make([]*jira4claude.IssueField, 0, len(fields))
+	builtins := make([]*jira4claude.IssueField, 0, len(fields))
+	for _, f := range fields {
+		if strings.HasPrefix(f.ID, "customfield_") {
+			customs = append(customs, f)
+		} else {
+			builtins = append(builtins, f)
+		}
+	}
+	copy(fields, append(customs, builtins...))
+}
+
+// renderFieldLine emits a single field row, plus an `allowed:` line when
+// the field has allowed values.
+func (p *Printer) renderFieldLine(f *jira4claude.IssueField) {
+	fmt.Fprintf(
+		p.out,
+		"%s%s  %s  %s\n",
+		fieldsIndent,
+		padRight(f.ID, fieldsIDWidth),
+		padRight(truncate(f.Name, fieldsNameWidth), fieldsNameWidth),
+		schemaTypeString(f),
+	)
+	if len(f.AllowedValues) > 0 {
+		fmt.Fprintf(p.out, "%sallowed: %s\n", fieldsAllowedIndent, formatAllowedValues(f.AllowedValues))
+	}
+}
+
+// schemaTypeString produces "array<items>" for array types, the bare type
+// otherwise, and "unknown" when the schema type is empty.
+func schemaTypeString(f *jira4claude.IssueField) string {
+	if f.SchemaType == "" {
+		return "unknown"
+	}
+	if f.SchemaType == "array" {
+		items := f.SchemaItems
+		if items == "" {
+			items = "unknown"
+		}
+		return "array<" + items + ">"
+	}
+	return f.SchemaType
+}
+
+// formatAllowedValues renders allowed values as comma-separated quoted
+// strings, truncating with `, …` past fieldsMaxAllowed.
+func formatAllowedValues(values []jira4claude.FieldAllowedValue) string {
+	limit := len(values)
+	truncated := false
+	if limit > fieldsMaxAllowed {
+		limit = fieldsMaxAllowed
+		truncated = true
+	}
+	parts := make([]string, 0, limit)
+	for i := 0; i < limit; i++ {
+		parts = append(parts, "\""+values[i].Value+"\"")
+	}
+	out := strings.Join(parts, ", ")
+	if truncated {
+		out += ", …"
+	}
+	return out
+}
+
+// padRight returns s padded with spaces on the right to width runes.
+// If s is longer than width it is returned unchanged.
+func padRight(s string, width int) string {
+	r := []rune(s)
+	if len(r) >= width {
+		return s
+	}
+	return s + strings.Repeat(" ", width-len(r))
+}
+
 // Links prints issue links using RelatedIssueView.
 func (p *Printer) Links(key string, links []jira4claude.RelatedIssueView) {
 	if len(links) == 0 {

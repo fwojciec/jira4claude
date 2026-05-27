@@ -6,6 +6,7 @@ type IssuePrinter interface {
 	Issues(items []IssueListItem)
 	Comment(view CommentView)
 	Transitions(key string, ts []*Transition)
+	Fields(view IssueFieldsView)
 }
 
 // LinkPrinter handles link command output.
