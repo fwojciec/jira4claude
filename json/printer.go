@@ -63,6 +63,19 @@ func (p *Printer) Transitions(_ string, ts []*jira4claude.Transition) {
 	p.encode(result)
 }
 
+// Fields prints settable issue fields as a JSON array.
+// The view's Source label is intentionally omitted: JSON consumers know the
+// source from the call they made and only need the structured field list.
+// Nil/empty input emits [] (not null) so downstream consumers can always
+// iterate without nil-checking the result.
+func (p *Printer) Fields(view jira4claude.IssueFieldsView) {
+	fields := view.Fields
+	if fields == nil {
+		fields = []*jira4claude.IssueField{}
+	}
+	p.encode(fields)
+}
+
 // Links prints links as JSON array.
 func (p *Printer) Links(_ string, links []jira4claude.RelatedIssueView) {
 	p.encode(links)

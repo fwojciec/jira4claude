@@ -9,6 +9,7 @@ import (
 	"github.com/fwojciec/jira4claude"
 	"github.com/fwojciec/jira4claude/markdown"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestPrinter_Issue(t *testing.T) {
@@ -520,5 +521,232 @@ func TestPrinter_Error(t *testing.T) {
 		p.Error(err)
 
 		assert.Equal(t, "[error] Issue not found\n", errOut.String())
+	})
+}
+
+func TestPrinter_Fields(t *testing.T) {
+	t.Parallel()
+
+	t.Run("renders heading using Source verbatim", func(t *testing.T) {
+		t.Parallel()
+		var out bytes.Buffer
+		p := markdown.NewPrinter(&out)
+
+		view := jira4claude.IssueFieldsView{
+			Source: "INT-1118 (edit)",
+			Fields: []*jira4claude.IssueField{
+				{ID: "summary", Name: "Summary", Required: true, SchemaType: "string"},
+			},
+		}
+
+		p.Fields(view)
+		assert.Contains(t, out.String(), "Fields for INT-1118 (edit):")
+	})
+
+	t.Run("REQUIRED appears before CUSTOM (optional)", func(t *testing.T) {
+		t.Parallel()
+		var out bytes.Buffer
+		p := markdown.NewPrinter(&out)
+
+		view := jira4claude.IssueFieldsView{
+			Source: "INT / Bug",
+			Fields: []*jira4claude.IssueField{
+				{ID: "customfield_10010", Name: "Story Points", Required: false, SchemaType: "number"},
+				{ID: "summary", Name: "Summary", Required: true, SchemaType: "string"},
+			},
+		}
+
+		p.Fields(view)
+		result := out.String()
+
+		reqIdx := strings.Index(result, "REQUIRED")
+		customIdx := strings.Index(result, "CUSTOM (optional)")
+		require.NotEqual(t, -1, reqIdx, "REQUIRED section missing")
+		require.NotEqual(t, -1, customIdx, "CUSTOM section missing")
+		assert.Less(t, reqIdx, customIdx, "REQUIRED should appear before CUSTOM")
+	})
+
+	t.Run("omits CUSTOM section when no optional customfields", func(t *testing.T) {
+		t.Parallel()
+		var out bytes.Buffer
+		p := markdown.NewPrinter(&out)
+
+		view := jira4claude.IssueFieldsView{
+			Source: "INT / Bug",
+			Fields: []*jira4claude.IssueField{
+				{ID: "summary", Name: "Summary", Required: true, SchemaType: "string"},
+				// A non-required, non-customfield builtin should be filtered out entirely.
+				{ID: "priority", Name: "Priority", Required: false, SchemaType: "priority"},
+			},
+		}
+
+		p.Fields(view)
+		result := out.String()
+
+		assert.Contains(t, result, "REQUIRED")
+		assert.NotContains(t, result, "CUSTOM (optional)")
+		// The optional builtin should also not be rendered.
+		assert.NotContains(t, result, "priority")
+	})
+
+	t.Run("omits REQUIRED section when no required fields", func(t *testing.T) {
+		t.Parallel()
+		var out bytes.Buffer
+		p := markdown.NewPrinter(&out)
+
+		view := jira4claude.IssueFieldsView{
+			Source: "INT / Bug",
+			Fields: []*jira4claude.IssueField{
+				{ID: "customfield_10010", Name: "Story Points", Required: false, SchemaType: "number"},
+			},
+		}
+
+		p.Fields(view)
+		result := out.String()
+
+		assert.NotContains(t, result, "REQUIRED")
+		assert.Contains(t, result, "CUSTOM (optional)")
+	})
+
+	t.Run("required customfields precede required builtins", func(t *testing.T) {
+		t.Parallel()
+		var out bytes.Buffer
+		p := markdown.NewPrinter(&out)
+
+		view := jira4claude.IssueFieldsView{
+			Source: "INT / Bug",
+			Fields: []*jira4claude.IssueField{
+				{ID: "summary", Name: "Summary", Required: true, SchemaType: "string"},
+				{ID: "customfield_10801", Name: "Urgency / Risk", Required: true, SchemaType: "option"},
+			},
+		}
+
+		p.Fields(view)
+		result := out.String()
+
+		customIdx := strings.Index(result, "customfield_10801")
+		summaryIdx := strings.Index(result, "summary")
+		require.NotEqual(t, -1, customIdx)
+		require.NotEqual(t, -1, summaryIdx)
+		assert.Less(t, customIdx, summaryIdx, "required customfield should come before required builtin")
+	})
+
+	t.Run("array<option> and array<string> render correctly", func(t *testing.T) {
+		t.Parallel()
+		var out bytes.Buffer
+		p := markdown.NewPrinter(&out)
+
+		view := jira4claude.IssueFieldsView{
+			Source: "INT / Bug",
+			Fields: []*jira4claude.IssueField{
+				{ID: "customfield_10838", Name: "Product Area(s)", Required: true, SchemaType: "array", SchemaItems: "option"},
+				{ID: "labels", Name: "Labels", Required: true, SchemaType: "array", SchemaItems: "string"},
+			},
+		}
+
+		p.Fields(view)
+		result := out.String()
+		assert.Contains(t, result, "array<option>")
+		assert.Contains(t, result, "array<string>")
+	})
+
+	t.Run("allowed values are quoted and comma-separated", func(t *testing.T) {
+		t.Parallel()
+		var out bytes.Buffer
+		p := markdown.NewPrinter(&out)
+
+		view := jira4claude.IssueFieldsView{
+			Source: "INT / Bug",
+			Fields: []*jira4claude.IssueField{
+				{
+					ID: "customfield_10801", Name: "Urgency / Risk", Required: true, SchemaType: "option",
+					AllowedValues: []jira4claude.FieldAllowedValue{
+						{Value: "High"}, {Value: "Medium"}, {Value: "Low"},
+					},
+				},
+			},
+		}
+
+		p.Fields(view)
+		result := out.String()
+		assert.Contains(t, result, `allowed: "High", "Medium", "Low"`)
+	})
+
+	t.Run("allowed values truncate past five entries", func(t *testing.T) {
+		t.Parallel()
+		var out bytes.Buffer
+		p := markdown.NewPrinter(&out)
+
+		view := jira4claude.IssueFieldsView{
+			Source: "INT / Bug",
+			Fields: []*jira4claude.IssueField{
+				{
+					ID: "customfield_10838", Name: "Product Area(s)", Required: true, SchemaType: "array", SchemaItems: "option",
+					AllowedValues: []jira4claude.FieldAllowedValue{
+						{Value: "A"}, {Value: "B"}, {Value: "C"}, {Value: "D"}, {Value: "E"}, {Value: "F"}, {Value: "G"},
+					},
+				},
+			},
+		}
+
+		p.Fields(view)
+		result := out.String()
+		// First five appear, sixth+ do not.
+		assert.Contains(t, result, `"A"`)
+		assert.Contains(t, result, `"E"`)
+		assert.NotContains(t, result, `"F"`)
+		assert.NotContains(t, result, `"G"`)
+		assert.Contains(t, result, "…")
+	})
+
+	t.Run("long field names are truncated", func(t *testing.T) {
+		t.Parallel()
+		var out bytes.Buffer
+		p := markdown.NewPrinter(&out)
+
+		view := jira4claude.IssueFieldsView{
+			Source: "INT / Bug",
+			Fields: []*jira4claude.IssueField{
+				{
+					ID:         "customfield_10999",
+					Name:       "This is an extremely long field name that should definitely get truncated",
+					Required:   true,
+					SchemaType: "string",
+				},
+			},
+		}
+
+		p.Fields(view)
+		result := out.String()
+		// The full long name must not appear; some truncation marker should be present.
+		assert.NotContains(t, result, "should definitely get truncated")
+		assert.Contains(t, result, "...")
+	})
+
+	t.Run("empty input renders info line", func(t *testing.T) {
+		t.Parallel()
+		var out bytes.Buffer
+		p := markdown.NewPrinter(&out)
+
+		view := jira4claude.IssueFieldsView{Source: "INT / Bug", Fields: nil}
+		p.Fields(view)
+
+		assert.Equal(t, "[info] No fields for INT / Bug\n", out.String())
+	})
+
+	t.Run("empty schema type renders as unknown", func(t *testing.T) {
+		t.Parallel()
+		var out bytes.Buffer
+		p := markdown.NewPrinter(&out)
+
+		view := jira4claude.IssueFieldsView{
+			Source: "INT / Bug",
+			Fields: []*jira4claude.IssueField{
+				{ID: "customfield_99999", Name: "Mystery", Required: true, SchemaType: ""},
+			},
+		}
+
+		p.Fields(view)
+		assert.Contains(t, out.String(), "unknown")
 	})
 }
