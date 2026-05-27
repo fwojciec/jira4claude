@@ -58,6 +58,7 @@ func (s *IssueService) Create(ctx context.Context, issue *jira4claude.Issue) (*j
 	if issue.Parent != nil {
 		reqBody.Fields.Parent = &parentRef{Key: issue.Parent.Key}
 	}
+	reqBody.Fields.CustomFields = issue.CustomFields
 
 	req, err := s.client.NewJSONRequest(ctx, http.MethodPost, "/rest/api/3/issue", reqBody)
 	if err != nil {
@@ -221,6 +222,7 @@ func (s *IssueService) Update(ctx context.Context, key string, update jira4claud
 			reqBody.Fields.Parent = &parentField{Key: update.Parent}
 		}
 	}
+	reqBody.Fields.CustomFields = update.CustomFields
 
 	req, err := s.client.NewJSONRequest(ctx, http.MethodPut, issuePath(key), reqBody)
 	if err != nil {
