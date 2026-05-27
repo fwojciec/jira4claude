@@ -14,6 +14,7 @@ type IssueCmd struct {
 	Ready         IssueReadyCmd         `cmd:"" help:"List issues ready to work on"`
 	Create        IssueCreateCmd        `cmd:"" help:"Create an issue"`
 	Update        IssueUpdateCmd        `cmd:"" help:"Update an issue"`
+	Fields        IssueFieldsCmd        `cmd:"" help:"List settable fields for create or edit"`
 	Transitions   IssueTransitionsCmd   `cmd:"" help:"List available transitions"`
 	Transition    IssueTransitionCmd    `cmd:"" help:"Transition an issue"`
 	Assign        IssueAssignCmd        `cmd:"" help:"Assign an issue"`
@@ -125,6 +126,7 @@ type IssueCreateCmd struct {
 	Labels      []string `help:"Issue labels" short:"l"`
 	Parent      string   `help:"Parent issue key (creates a Subtask)" short:"P"`
 	Assignee    string   `help:"Assignee: 'me', email, or account ID" short:"A"`
+	FieldJSON   []string `name:"field-json" help:"Set field by ID, value is JSON (repeatable). Example: customfield_10801='{\"value\":\"High\"}'"`
 }
 
 // Run executes the create command.
@@ -154,14 +156,20 @@ func (c *IssueCreateCmd) Run(ctx *IssueContext) error {
 		parent = &jira4claude.LinkedIssue{Key: c.Parent}
 	}
 
+	customFields, err := ParseFieldJSON(c.FieldJSON)
+	if err != nil {
+		return err
+	}
+
 	issue := &jira4claude.Issue{
-		Project:     project,
-		Type:        issueType,
-		Summary:     c.Summary,
-		Description: description,
-		Priority:    c.Priority,
-		Labels:      c.Labels,
-		Parent:      parent,
+		Project:      project,
+		Type:         issueType,
+		Summary:      c.Summary,
+		Description:  description,
+		Priority:     c.Priority,
+		Labels:       c.Labels,
+		Parent:       parent,
+		CustomFields: customFields,
 	}
 
 	created, err := ctx.Service.Create(context.Background(), issue)
@@ -195,6 +203,7 @@ type IssueUpdateCmd struct {
 	ClearLabels bool     `help:"Clear all labels" name:"clear-labels"`
 	Parent      *string  `help:"Parent issue key" short:"P" xor:"parent"`
 	ClearParent bool     `help:"Remove from parent" name:"clear-parent" xor:"parent"`
+	FieldJSON   []string `name:"field-json" help:"Set field by ID, value is JSON (repeatable). Example: customfield_10801='{\"value\":\"High\"}'"`
 }
 
 // Run executes the update command.
@@ -218,11 +227,17 @@ func (c *IssueUpdateCmd) Run(ctx *IssueContext) error {
 		description = &adfDoc
 	}
 
+	customFields, err := ParseFieldJSON(c.FieldJSON)
+	if err != nil {
+		return err
+	}
+
 	update := jira4claude.IssueUpdate{
-		Summary:     c.Summary,
-		Description: description,
-		Priority:    c.Priority,
-		Assignee:    c.Assignee,
+		Summary:      c.Summary,
+		Description:  description,
+		Priority:     c.Priority,
+		Assignee:     c.Assignee,
+		CustomFields: customFields,
 	}
 
 	if len(c.Labels) > 0 {
@@ -245,6 +260,77 @@ func (c *IssueUpdateCmd) Run(ctx *IssueContext) error {
 	}
 
 	ctx.Printer.Success("Updated:", updated.Key)
+	return nil
+}
+
+// IssueFieldsCmd lists fields settable on create or edit for an issue type or
+// specific issue.
+//
+// Modes are mutually exclusive:
+//   - --key=KEY → edit discovery via GetEditFields.
+//   - --project / --type (or defaults) → create discovery via GetCreateFields.
+//
+// The Kong xor pairings reject --key with either --project or --type, while
+// permitting --project + --type together. Type carries no Kong-level default
+// (Kong v1.13.0 treats defaulted flags as user-set for xor purposes, which
+// would force every bare --key invocation into a conflict). The "Task"
+// fallback is applied in Run() when Type is empty.
+type IssueFieldsCmd struct {
+	Project string `help:"Project key (for create-field discovery)" short:"p" xor:"mode-project"`
+	Type    string `help:"Issue type (for create-field discovery; defaults to Task)" short:"t" xor:"mode-type"`
+	Key     string `help:"Issue key (for edit-field discovery)" short:"k" xor:"mode-project,mode-type"`
+	All     bool   `help:"Include all fields (default: required + custom only)"`
+}
+
+// Run executes the fields command.
+func (c *IssueFieldsCmd) Run(ctx *IssueContext) error {
+	var fields []*jira4claude.IssueField
+	var source string
+
+	if c.Key != "" {
+		var err error
+		fields, err = ctx.Service.GetEditFields(context.Background(), c.Key)
+		if err != nil {
+			return err
+		}
+		source = c.Key + " (edit)"
+	} else {
+		project := c.Project
+		if project == "" {
+			project = ctx.Config.Project
+		}
+		if project == "" {
+			return &jira4claude.Error{
+				Code:    jira4claude.EValidation,
+				Message: "project required (--project or config)",
+			}
+		}
+		issueType := c.Type
+		if issueType == "" {
+			issueType = "Task"
+		}
+		var err error
+		fields, err = ctx.Service.GetCreateFields(context.Background(), project, issueType)
+		if err != nil {
+			return err
+		}
+		source = project + " / " + issueType
+	}
+
+	filtered := fields
+	if !c.All {
+		filtered = make([]*jira4claude.IssueField, 0, len(fields))
+		for _, f := range fields {
+			if f.Required || strings.HasPrefix(f.ID, "customfield_") {
+				filtered = append(filtered, f)
+			}
+		}
+	}
+
+	ctx.Printer.Fields(jira4claude.IssueFieldsView{
+		Source: source,
+		Fields: filtered,
+	})
 	return nil
 }
 
