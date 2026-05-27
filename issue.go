@@ -176,4 +176,13 @@ type IssueService interface {
 	// Unlink removes a link between two issues.
 	// It finds and removes any link connecting the two issues.
 	Unlink(ctx context.Context, key1, key2 string) error
+
+	// GetCreateFields returns the fields settable on issue create for the given
+	// project and issue type. Backed by Jira's createmeta endpoint.
+	GetCreateFields(ctx context.Context, projectKey, issueType string) ([]*IssueField, error)
+
+	// GetEditFields returns the fields editable on the specified issue. Backed
+	// by Jira's editmeta endpoint. Reflects current workflow + screen + permissions
+	// for this specific issue, so results may differ from GetCreateFields.
+	GetEditFields(ctx context.Context, key string) ([]*IssueField, error)
 }
