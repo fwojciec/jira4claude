@@ -113,6 +113,13 @@ type IssueListItem struct {
 	Summary  string `json:"summary"`
 }
 
+// IssueFieldsView is a display-ready representation of issue field metadata.
+// Source describes the context (e.g., "INT / Bug" for create-mode, "INT-1118 (edit)" for edit-mode).
+type IssueFieldsView struct {
+	Source string        `json:"source"`
+	Fields []*IssueField `json:"fields"`
+}
+
 // ToIssueListItems converts domain issues to list items.
 // No ADF conversion is performed — this is a direct field copy.
 func ToIssueListItems(issues []*Issue) []IssueListItem {
