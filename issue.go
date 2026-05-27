@@ -2,6 +2,7 @@ package jira4claude
 
 import (
 	"context"
+	"encoding/json"
 	"time"
 )
 
@@ -108,6 +109,27 @@ type IssueUpdate struct {
 	Assignee    *string
 	Labels      *[]string
 	Parent      *string // nil = no change, "" = clear parent, "KEY" = set parent
+}
+
+// IssueField describes a single settable field as reported by Jira's
+// createmeta or editmeta endpoint. The same struct serves both modes;
+// callers distinguish create vs. edit via the service method used.
+type IssueField struct {
+	ID            string              `json:"id"`
+	Name          string              `json:"name"`
+	Required      bool                `json:"required"`
+	SchemaType    string              `json:"schemaType"`
+	SchemaItems   string              `json:"schemaItems,omitempty"`
+	SchemaCustom  string              `json:"schemaCustom,omitempty"`
+	AllowedValues []FieldAllowedValue `json:"allowedValues,omitempty"`
+	Example       json.RawMessage     `json:"example,omitempty"`
+}
+
+// FieldAllowedValue is a single permissible value for an IssueField.
+// ID is empty when Jira returns a primitive-string allowed value.
+type FieldAllowedValue struct {
+	ID    string `json:"id,omitempty"`
+	Value string `json:"value"`
 }
 
 // IssueService defines operations for managing Jira issues.
