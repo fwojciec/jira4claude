@@ -454,7 +454,9 @@ func (c *IssueDeleteCmd) Run(ctx *IssueContext) error {
 	if err := ctx.Service.Delete(context.Background(), c.Key); err != nil {
 		return err
 	}
-	ctx.Printer.Success("Deleted", c.Key)
+	// Key goes in the message rather than as a variadic key arg, so printers
+	// don't render a /browse/<key> URL for an issue that no longer exists.
+	ctx.Printer.Success("Deleted " + c.Key)
 	return nil
 }
 

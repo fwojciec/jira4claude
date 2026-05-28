@@ -921,7 +921,11 @@ func TestIssueDeleteCmd(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, "TEST-1", capturedKey)
 		require.Len(t, printer.SuccessCalls, 1)
-		assert.Contains(t, printer.SuccessCalls[0].Keys, "TEST-1")
+		// Key goes in the message, not as a variadic key arg, because the
+		// markdown/JSON printers turn variadic keys into /browse/<key> URLs
+		// — which would 404 for an issue we just deleted.
+		assert.Contains(t, printer.SuccessCalls[0].Msg, "TEST-1")
+		assert.Empty(t, printer.SuccessCalls[0].Keys)
 	})
 
 	t.Run("returns service error", func(t *testing.T) {
