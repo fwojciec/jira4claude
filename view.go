@@ -2,6 +2,7 @@ package jira4claude
 
 import (
 	"encoding/json"
+	"strings"
 	"time"
 )
 
@@ -22,6 +23,10 @@ type IssueView struct {
 	Created       string             `json:"created"`
 	Updated       string             `json:"updated"`
 	URL           string             `json:"url,omitempty"`
+
+	// CustomFields are read-only custom fields keyed by field ID, passed
+	// through from the issue as-is (no ADF conversion).
+	CustomFields map[string]CustomFieldValue `json:"customFields,omitempty"`
 }
 
 // MarshalJSON ensures RelatedIssues is always an array, never null.
@@ -100,6 +105,7 @@ func ToIssueView(issue *Issue, conv Converter, warn func(string), serverURL stri
 		Created:       issue.Created.Format(time.RFC3339),
 		Updated:       issue.Updated.Format(time.RFC3339),
 		URL:           url,
+		CustomFields:  issue.ReadCustomFields,
 	}
 }
 
@@ -115,9 +121,58 @@ type IssueListItem struct {
 
 // IssueFieldsView is a display-ready representation of issue field metadata.
 // Source describes the context (e.g., "INT / Bug" for create-mode, "INT-1118 (edit)" for edit-mode).
+// Scope records which selection produced Fields, and Omitted is the number of
+// settable fields not shown under that selection (so an agent knows there is
+// more behind --all / --filter).
 type IssueFieldsView struct {
-	Source string        `json:"source"`
-	Fields []*IssueField `json:"fields"`
+	Source  string        `json:"source"`
+	Scope   string        `json:"scope"`
+	Omitted int           `json:"omitted"`
+	Fields  []*IssueField `json:"fields"`
+}
+
+// Field selection scopes reported by SelectIssueFields and surfaced in
+// IssueFieldsView.Scope.
+const (
+	FieldScopeDefault  = "default"  // required + custom fields
+	FieldScopeAll      = "all"      // every settable field
+	FieldScopeFiltered = "filtered" // substring match across all fields
+)
+
+// SelectIssueFields chooses which settable fields to display and reports the
+// scope plus the count of fields omitted by that selection.
+//
+//   - When filter is non-empty, it matches (case-insensitively) the field name
+//     or ID across ALL fields, ignoring all; scope is "filtered". This lets a
+//     caller look up exactly the field a create error named.
+//   - Otherwise when all is true, every field is returned; scope is "all".
+//   - Otherwise required and custom (customfield_*) fields are returned; scope
+//     is "default".
+//
+// Input order is preserved; callers rely on fields already being sorted.
+func SelectIssueFields(fields []*IssueField, filter string, all bool) (selected []*IssueField, scope string, omitted int) {
+	switch {
+	case filter != "":
+		needle := strings.ToLower(filter)
+		for _, f := range fields {
+			if strings.Contains(strings.ToLower(f.Name), needle) ||
+				strings.Contains(strings.ToLower(f.ID), needle) {
+				selected = append(selected, f)
+			}
+		}
+		scope = FieldScopeFiltered
+	case all:
+		selected = fields
+		scope = FieldScopeAll
+	default:
+		for _, f := range fields {
+			if f.Required || strings.HasPrefix(f.ID, "customfield_") {
+				selected = append(selected, f)
+			}
+		}
+		scope = FieldScopeDefault
+	}
+	return selected, scope, len(fields) - len(selected)
 }
 
 // ToIssueListItems converts domain issues to list items.

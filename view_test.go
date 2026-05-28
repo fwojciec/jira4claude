@@ -1,12 +1,14 @@
 package jira4claude_test
 
 import (
+	"encoding/json"
 	"testing"
 	"time"
 
 	"github.com/fwojciec/jira4claude"
 	"github.com/fwojciec/jira4claude/mock"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestToIssueView(t *testing.T) {
@@ -338,6 +340,114 @@ func TestToIssueView(t *testing.T) {
 		view := jira4claude.ToIssueView(issue, conv, func(w string) {}, "")
 
 		assert.Empty(t, view.RelatedIssues)
+	})
+}
+
+func TestToIssueView_CustomFields(t *testing.T) {
+	t.Parallel()
+
+	newConv := func() *mock.Converter {
+		return &mock.Converter{
+			ToMarkdownFn: func(adf *jira4claude.ADFNode) (string, []string) {
+				return "", nil
+			},
+		}
+	}
+
+	t.Run("passes ReadCustomFields through to CustomFields", func(t *testing.T) {
+		t.Parallel()
+
+		customFields := map[string]jira4claude.CustomFieldValue{
+			"customfield_10801": {Name: "Story Points", Value: json.RawMessage(`5`)},
+			"customfield_10900": {Name: "Sprint", Value: json.RawMessage(`"Sprint 1"`)},
+		}
+
+		issue := &jira4claude.Issue{
+			Key:              "TEST-1",
+			Summary:          "Test issue",
+			Status:           "To Do",
+			Type:             "Task",
+			ReadCustomFields: customFields,
+			Created:          time.Date(2024, 1, 1, 12, 0, 0, 0, time.UTC),
+			Updated:          time.Date(2024, 1, 2, 12, 0, 0, 0, time.UTC),
+		}
+
+		view := jira4claude.ToIssueView(issue, newConv(), func(w string) {}, "")
+
+		assert.Equal(t, customFields, view.CustomFields)
+	})
+
+	t.Run("marshals custom fields keyed by id with name and value", func(t *testing.T) {
+		t.Parallel()
+
+		issue := &jira4claude.Issue{
+			Key:     "TEST-1",
+			Summary: "Test issue",
+			Status:  "To Do",
+			Type:    "Task",
+			ReadCustomFields: map[string]jira4claude.CustomFieldValue{
+				"customfield_10801": {Name: "Story Points", Value: json.RawMessage(`5`)},
+			},
+			Created: time.Date(2024, 1, 1, 12, 0, 0, 0, time.UTC),
+			Updated: time.Date(2024, 1, 2, 12, 0, 0, 0, time.UTC),
+		}
+
+		view := jira4claude.ToIssueView(issue, newConv(), func(w string) {}, "")
+
+		data, err := json.Marshal(view)
+		require.NoError(t, err)
+
+		var got struct {
+			CustomFields json.RawMessage `json:"customFields"`
+		}
+		require.NoError(t, json.Unmarshal(data, &got))
+
+		assert.JSONEq(t,
+			`{"customfield_10801":{"name":"Story Points","value":5}}`,
+			string(got.CustomFields),
+		)
+	})
+
+	t.Run("omits customFields key when ReadCustomFields is nil", func(t *testing.T) {
+		t.Parallel()
+
+		issue := &jira4claude.Issue{
+			Key:              "TEST-1",
+			Summary:          "Test issue",
+			Status:           "To Do",
+			Type:             "Task",
+			ReadCustomFields: nil,
+			Created:          time.Date(2024, 1, 1, 12, 0, 0, 0, time.UTC),
+			Updated:          time.Date(2024, 1, 2, 12, 0, 0, 0, time.UTC),
+		}
+
+		view := jira4claude.ToIssueView(issue, newConv(), func(w string) {}, "")
+
+		data, err := json.Marshal(view)
+		require.NoError(t, err)
+
+		assert.NotContains(t, string(data), "customFields")
+	})
+
+	t.Run("omits customFields key when ReadCustomFields is empty", func(t *testing.T) {
+		t.Parallel()
+
+		issue := &jira4claude.Issue{
+			Key:              "TEST-1",
+			Summary:          "Test issue",
+			Status:           "To Do",
+			Type:             "Task",
+			ReadCustomFields: map[string]jira4claude.CustomFieldValue{},
+			Created:          time.Date(2024, 1, 1, 12, 0, 0, 0, time.UTC),
+			Updated:          time.Date(2024, 1, 2, 12, 0, 0, 0, time.UTC),
+		}
+
+		view := jira4claude.ToIssueView(issue, newConv(), func(w string) {}, "")
+
+		data, err := json.Marshal(view)
+		require.NoError(t, err)
+
+		assert.NotContains(t, string(data), "customFields")
 	})
 }
 
@@ -805,5 +915,73 @@ func TestToRelatedIssuesView(t *testing.T) {
 		assert.Equal(t, "TEST-BLOCKED", related[2].Key)
 		assert.Equal(t, "is blocked by", related[3].Relationship)
 		assert.Equal(t, "TEST-BLOCKER", related[3].Key)
+	})
+}
+
+func TestSelectIssueFields(t *testing.T) {
+	t.Parallel()
+
+	fields := func() []*jira4claude.IssueField {
+		return []*jira4claude.IssueField{
+			{ID: "summary", Name: "Summary", Required: true},
+			{ID: "description", Name: "Description", Required: false},
+			{ID: "customfield_10010", Name: "Story Points", Required: false},
+			{ID: "customfield_10801", Name: "Urgency", Required: true},
+			{ID: "priority", Name: "Priority", Required: false},
+		}
+	}
+
+	idsOf := func(fs []*jira4claude.IssueField) []string {
+		ids := make([]string, len(fs))
+		for i, f := range fs {
+			ids[i] = f.ID
+		}
+		return ids
+	}
+
+	t.Run("default keeps required and custom fields", func(t *testing.T) {
+		t.Parallel()
+		selected, scope, omitted := jira4claude.SelectIssueFields(fields(), "", false)
+		assert.ElementsMatch(t, []string{"summary", "customfield_10010", "customfield_10801"}, idsOf(selected))
+		assert.Equal(t, jira4claude.FieldScopeDefault, scope)
+		assert.Equal(t, 2, omitted) // description, priority
+	})
+
+	t.Run("all keeps every field with zero omitted", func(t *testing.T) {
+		t.Parallel()
+		selected, scope, omitted := jira4claude.SelectIssueFields(fields(), "", true)
+		assert.Len(t, selected, 5)
+		assert.Equal(t, jira4claude.FieldScopeAll, scope)
+		assert.Equal(t, 0, omitted)
+	})
+
+	t.Run("filter matches name or id across all fields, case-insensitive", func(t *testing.T) {
+		t.Parallel()
+		// "prio" matches the optional builtin "priority" that default mode would drop.
+		selected, scope, omitted := jira4claude.SelectIssueFields(fields(), "PRIO", false)
+		assert.Equal(t, []string{"priority"}, idsOf(selected))
+		assert.Equal(t, jira4claude.FieldScopeFiltered, scope)
+		assert.Equal(t, 4, omitted)
+	})
+
+	t.Run("filter overrides all", func(t *testing.T) {
+		t.Parallel()
+		selected, scope, _ := jira4claude.SelectIssueFields(fields(), "customfield_10801", true)
+		assert.Equal(t, []string{"customfield_10801"}, idsOf(selected))
+		assert.Equal(t, jira4claude.FieldScopeFiltered, scope)
+	})
+
+	t.Run("filter matches against field id substring", func(t *testing.T) {
+		t.Parallel()
+		selected, _, _ := jira4claude.SelectIssueFields(fields(), "10010", false)
+		assert.Equal(t, []string{"customfield_10010"}, idsOf(selected))
+	})
+
+	t.Run("filter with no matches returns empty filtered scope", func(t *testing.T) {
+		t.Parallel()
+		selected, scope, omitted := jira4claude.SelectIssueFields(fields(), "nonesuch", false)
+		assert.Empty(t, selected)
+		assert.Equal(t, jira4claude.FieldScopeFiltered, scope)
+		assert.Equal(t, 5, omitted)
 	})
 }

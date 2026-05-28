@@ -276,6 +276,7 @@ type IssueFieldsCmd struct {
 	Type    string `help:"Issue type (for create-field discovery; defaults to Task)" short:"t" xor:"mode-type"`
 	Key     string `help:"Issue key (for edit-field discovery)" short:"k" xor:"mode-project,mode-type"`
 	All     bool   `help:"Include all fields (default: required + custom only)"`
+	Filter  string `help:"Show only fields whose name or ID contains this substring (case-insensitive, searches all fields)" short:"f"`
 }
 
 // Run executes the fields command.
@@ -313,19 +314,13 @@ func (c *IssueFieldsCmd) Run(ctx *IssueContext) error {
 		source = project + " / " + issueType
 	}
 
-	filtered := fields
-	if !c.All {
-		filtered = make([]*jira4claude.IssueField, 0, len(fields))
-		for _, f := range fields {
-			if f.Required || strings.HasPrefix(f.ID, "customfield_") {
-				filtered = append(filtered, f)
-			}
-		}
-	}
+	selected, scope, omitted := jira4claude.SelectIssueFields(fields, c.Filter, c.All)
 
 	ctx.Printer.Fields(jira4claude.IssueFieldsView{
-		Source: source,
-		Fields: filtered,
+		Source:  source,
+		Scope:   scope,
+		Omitted: omitted,
+		Fields:  selected,
 	})
 	return nil
 }

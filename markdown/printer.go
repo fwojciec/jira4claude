@@ -1,6 +1,8 @@
 package markdown
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
 	"io"
 	"slices"
@@ -69,6 +71,9 @@ func (p *Printer) Issue(view jira4claude.IssueView) {
 		fmt.Fprintf(p.out, "\n%s\n", view.Description)
 	}
 
+	// Custom Fields section
+	p.renderCustomFields(view.CustomFields)
+
 	// Related Issues section (unified), excluding parent (already shown in metadata)
 	nonParentRelated := make([]jira4claude.RelatedIssueView, 0, len(view.RelatedIssues))
 	for _, rel := range view.RelatedIssues {
@@ -93,6 +98,44 @@ func (p *Printer) Issue(view jira4claude.IssueView) {
 	if view.URL != "" {
 		fmt.Fprintf(p.out, "\n[View in Jira](%s)\n", view.URL)
 	}
+}
+
+// renderCustomFields prints a "## Custom Fields" section listing each populated
+// custom field as "**Name:** value". The field ID is used as a label fallback
+// when the display name is empty. Values are the raw API JSON, compacted to a
+// single line. Fields are sorted by label for deterministic output.
+func (p *Printer) renderCustomFields(fields map[string]jira4claude.CustomFieldValue) {
+	if len(fields) == 0 {
+		return
+	}
+
+	type row struct{ label, value string }
+	rows := make([]row, 0, len(fields))
+	for id, cf := range fields {
+		label := cf.Name
+		if label == "" {
+			label = id
+		}
+		rows = append(rows, row{label: label, value: compactJSON(cf.Value)})
+	}
+	slices.SortFunc(rows, func(a, b row) int {
+		return strings.Compare(a.label, b.label)
+	})
+
+	fmt.Fprint(p.out, "\n## Custom Fields\n\n")
+	for _, r := range rows {
+		fmt.Fprintf(p.out, "- **%s:** %s\n", r.label, r.value)
+	}
+}
+
+// compactJSON renders raw JSON on a single line. If the value is not valid JSON
+// (unexpected from the API), the raw bytes are returned unchanged.
+func compactJSON(raw json.RawMessage) string {
+	var buf bytes.Buffer
+	if err := json.Compact(&buf, raw); err != nil {
+		return string(raw)
+	}
+	return buf.String()
 }
 
 // Issues prints multiple issues as a markdown list.
@@ -137,26 +180,44 @@ const (
 // Fields prints settable issue fields grouped by REQUIRED and CUSTOM (optional).
 func (p *Printer) Fields(view jira4claude.IssueFieldsView) {
 	if len(view.Fields) == 0 {
-		fmt.Fprintf(p.out, "[info] No fields for %s\n", view.Source)
+		if view.Scope == jira4claude.FieldScopeFiltered {
+			fmt.Fprintf(p.out, "[info] No fields match the filter for %s\n", view.Source)
+		} else {
+			fmt.Fprintf(p.out, "[info] No fields for %s\n", view.Source)
+		}
 		return
 	}
 
-	// Partition into required and optional-custom buckets.
+	fmt.Fprintf(p.out, "Fields for %s:\n", view.Source)
+
+	// Filtered results span all field kinds (required, custom, optional
+	// builtins), so a flat list is clearer than the required/custom buckets —
+	// and avoids dropping optional builtins the buckets would discard.
+	if view.Scope == jira4claude.FieldScopeFiltered {
+		fmt.Fprint(p.out, "\nMATCHES\n")
+		for _, f := range view.Fields {
+			p.renderFieldLine(f)
+		}
+		return
+	}
+
+	// Partition into required, optional-custom, and optional-builtin buckets.
 	required := make([]*jira4claude.IssueField, 0, len(view.Fields))
 	optionalCustom := make([]*jira4claude.IssueField, 0, len(view.Fields))
+	optionalOther := make([]*jira4claude.IssueField, 0, len(view.Fields))
 	for _, f := range view.Fields {
 		switch {
 		case f.Required:
 			required = append(required, f)
 		case strings.HasPrefix(f.ID, "customfield_"):
 			optionalCustom = append(optionalCustom, f)
+		default:
+			optionalOther = append(optionalOther, f)
 		}
 	}
 
 	// Within REQUIRED: customfields first, then builtins (stable order).
 	sortRequiredFields(required)
-
-	fmt.Fprintf(p.out, "Fields for %s:\n", view.Source)
 
 	if len(required) > 0 {
 		fmt.Fprint(p.out, "\nREQUIRED\n")
@@ -170,6 +231,20 @@ func (p *Printer) Fields(view jira4claude.IssueFieldsView) {
 		for _, f := range optionalCustom {
 			p.renderFieldLine(f)
 		}
+	}
+
+	// Optional builtins are only surfaced under --all (scope "all"); the
+	// default selection deliberately hides them, and the command never passes
+	// them in that case.
+	if view.Scope == jira4claude.FieldScopeAll && len(optionalOther) > 0 {
+		fmt.Fprint(p.out, "\nOPTIONAL\n")
+		for _, f := range optionalOther {
+			p.renderFieldLine(f)
+		}
+	}
+
+	if view.Omitted > 0 {
+		fmt.Fprintf(p.out, "\n[info] %d more field(s) hidden — use --all to show all, or --filter to find one.\n", view.Omitted)
 	}
 }
 

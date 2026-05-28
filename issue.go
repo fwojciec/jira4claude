@@ -80,7 +80,20 @@ type Issue struct {
 	Subtasks     []*LinkedIssue // Subtasks or epic children; nil if none
 	Created      time.Time
 	Updated      time.Time
-	CustomFields map[string]json.RawMessage // write-only on Create; populated from --field-json. Get/List leave empty (read-side exposure is a separate future feature).
+	CustomFields map[string]json.RawMessage // write-only on Create/Update; populated from --field-json.
+
+	// ReadCustomFields is read-only: populated by Get (via expand=names) with
+	// the issue's populated custom fields, keyed by field ID. List leaves it
+	// empty (its field whitelist excludes custom fields).
+	ReadCustomFields map[string]CustomFieldValue
+}
+
+// CustomFieldValue is a read-side custom field: its display name plus the raw
+// API value. Keyed by field ID in Issue.ReadCustomFields. The raw Value is the
+// value as returned by Jira, suitable for round-tripping back to --field-json.
+type CustomFieldValue struct {
+	Name  string          `json:"name"`
+	Value json.RawMessage `json:"value"`
 }
 
 // IssueFilter specifies criteria for listing issues.

@@ -1,6 +1,7 @@
 package http
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -86,7 +87,7 @@ func (s *IssueService) Create(ctx context.Context, issue *jira4claude.Issue) (*j
 
 // Get retrieves an issue by its key.
 func (s *IssueService) Get(ctx context.Context, key string) (*jira4claude.Issue, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, issuePath(key), nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, issuePath(key)+"?expand=names", nil)
 	if err != nil {
 		return nil, &jira4claude.Error{
 			Code:    jira4claude.EInternal,
@@ -503,6 +504,37 @@ func parseIssueResponse(body []byte) (*jira4claude.Issue, error) {
 	issue.Links = mapIssueLinks(resp.Fields.IssueLinks)
 	issue.Subtasks = mapSubtasks(resp.Fields.Subtasks)
 	issue.Comments = mapComments(resp.Fields.Comment)
+
+	// Populate read-only custom fields when the response carries a names map
+	// (Get requests expand=names). List responses have neither names nor
+	// customfield_ entries, so this leaves ReadCustomFields nil.
+	var raw struct {
+		Names  map[string]string          `json:"names"`
+		Fields map[string]json.RawMessage `json:"fields"`
+	}
+	if err := json.Unmarshal(body, &raw); err != nil {
+		return nil, &jira4claude.Error{
+			Code:    jira4claude.EInternal,
+			Message: "failed to parse response",
+			Inner:   err,
+		}
+	}
+
+	for id, value := range raw.Fields {
+		if !strings.HasPrefix(id, "customfield_") {
+			continue
+		}
+		if bytes.Equal(bytes.TrimSpace(value), []byte("null")) {
+			continue
+		}
+		if issue.ReadCustomFields == nil {
+			issue.ReadCustomFields = make(map[string]jira4claude.CustomFieldValue)
+		}
+		issue.ReadCustomFields[id] = jira4claude.CustomFieldValue{
+			Name:  raw.Names[id],
+			Value: value,
+		}
+	}
 
 	return issue, nil
 }
