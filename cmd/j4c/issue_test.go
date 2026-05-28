@@ -901,9 +901,11 @@ func TestIssueDeleteCmd(t *testing.T) {
 		t.Parallel()
 
 		var capturedKey string
+		var capturedDeleteSubtasks bool
 		svc := &mock.IssueService{
-			DeleteFn: func(ctx context.Context, key string) error {
+			DeleteFn: func(ctx context.Context, key string, deleteSubtasks bool) error {
 				capturedKey = key
+				capturedDeleteSubtasks = deleteSubtasks
 				return nil
 			},
 		}
@@ -920,6 +922,7 @@ func TestIssueDeleteCmd(t *testing.T) {
 
 		require.NoError(t, err)
 		assert.Equal(t, "TEST-1", capturedKey)
+		assert.False(t, capturedDeleteSubtasks)
 		require.Len(t, printer.SuccessCalls, 1)
 		// Key goes in the message, not as a variadic key arg, because the
 		// markdown/JSON printers turn variadic keys into /browse/<key> URLs
@@ -928,11 +931,36 @@ func TestIssueDeleteCmd(t *testing.T) {
 		assert.Empty(t, printer.SuccessCalls[0].Keys)
 	})
 
+	t.Run("forwards --delete-subtasks=true to service", func(t *testing.T) {
+		t.Parallel()
+
+		var capturedDeleteSubtasks bool
+		svc := &mock.IssueService{
+			DeleteFn: func(ctx context.Context, key string, deleteSubtasks bool) error {
+				capturedDeleteSubtasks = deleteSubtasks
+				return nil
+			},
+		}
+
+		printer := &mock.Printer{}
+		ctx := &main.IssueContext{
+			Service:   svc,
+			Printer:   printer,
+			Converter: mockConverter(),
+			Config:    &jira4claude.Config{Project: "TEST", Server: "https://test.atlassian.net"},
+		}
+		cmd := main.IssueDeleteCmd{Key: "EPIC-1", DeleteSubtasks: true}
+		err := cmd.Run(ctx)
+
+		require.NoError(t, err)
+		assert.True(t, capturedDeleteSubtasks)
+	})
+
 	t.Run("returns service error", func(t *testing.T) {
 		t.Parallel()
 
 		svc := &mock.IssueService{
-			DeleteFn: func(ctx context.Context, key string) error {
+			DeleteFn: func(ctx context.Context, key string, deleteSubtasks bool) error {
 				return errors.New("not found")
 			},
 		}

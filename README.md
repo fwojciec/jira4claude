@@ -155,6 +155,7 @@ j4c issue ready                            # Issues with no blockers
 j4c issue create --summary="Title"         # Create issue
 j4c issue update PROJ-123 --priority=High  # Update issue
 j4c issue delete PROJ-123                  # Delete issue
+j4c issue delete PROJ-123 --delete-subtasks # Delete issue and its sub-tasks
 j4c issue transitions PROJ-123             # List available transitions
 j4c issue transition PROJ-123 --status="Done"
 j4c issue assign PROJ-123 --account-id=... # Assign issue

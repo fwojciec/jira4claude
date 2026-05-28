@@ -446,12 +446,13 @@ func (c *IssueCommentCmd) Run(ctx *IssueContext) error {
 
 // IssueDeleteCmd deletes an issue.
 type IssueDeleteCmd struct {
-	Key string `arg:"" help:"Issue key (e.g., PROJ-123)"`
+	Key            string `arg:"" help:"Issue key (e.g., PROJ-123)"`
+	DeleteSubtasks bool   `name:"delete-subtasks" help:"Also delete sub-tasks (required by Jira when the issue has any)"`
 }
 
 // Run executes the delete command.
 func (c *IssueDeleteCmd) Run(ctx *IssueContext) error {
-	if err := ctx.Service.Delete(context.Background(), c.Key); err != nil {
+	if err := ctx.Service.Delete(context.Background(), c.Key, c.DeleteSubtasks); err != nil {
 		return err
 	}
 	// Key goes in the message rather than as a variadic key arg, so printers

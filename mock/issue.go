@@ -33,7 +33,7 @@ type IssueService struct {
 	GetFn             func(ctx context.Context, key string) (*jira4claude.Issue, error)
 	ListFn            func(ctx context.Context, filter jira4claude.IssueFilter) ([]*jira4claude.Issue, error)
 	UpdateFn          func(ctx context.Context, key string, update jira4claude.IssueUpdate) (*jira4claude.Issue, error)
-	DeleteFn          func(ctx context.Context, key string) error
+	DeleteFn          func(ctx context.Context, key string, deleteSubtasks bool) error
 	AddCommentFn      func(ctx context.Context, key string, body *jira4claude.ADFNode) (*jira4claude.Comment, error)
 	DeleteCommentFn   func(ctx context.Context, key, commentID string) error
 	TransitionsFn     func(ctx context.Context, key string) ([]*jira4claude.Transition, error)
@@ -61,8 +61,8 @@ func (s *IssueService) Update(ctx context.Context, key string, update jira4claud
 	return s.UpdateFn(ctx, key, update)
 }
 
-func (s *IssueService) Delete(ctx context.Context, key string) error {
-	return s.DeleteFn(ctx, key)
+func (s *IssueService) Delete(ctx context.Context, key string, deleteSubtasks bool) error {
+	return s.DeleteFn(ctx, key, deleteSubtasks)
 }
 
 func (s *IssueService) AddComment(ctx context.Context, key string, body *jira4claude.ADFNode) (*jira4claude.Comment, error) {

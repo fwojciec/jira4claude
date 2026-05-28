@@ -239,8 +239,14 @@ func (s *IssueService) Update(ctx context.Context, key string, update jira4claud
 }
 
 // Delete deletes an issue by its key.
-func (s *IssueService) Delete(ctx context.Context, key string) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, issuePath(key), nil)
+func (s *IssueService) Delete(ctx context.Context, key string, deleteSubtasks bool) error {
+	path := issuePath(key)
+	if deleteSubtasks {
+		q := url.Values{}
+		q.Set("deleteSubtasks", "true")
+		path += "?" + q.Encode()
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, path, nil)
 	if err != nil {
 		return &jira4claude.Error{
 			Code:    jira4claude.EInternal,

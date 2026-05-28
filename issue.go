@@ -150,7 +150,9 @@ type IssueService interface {
 	Update(ctx context.Context, key string, update IssueUpdate) (*Issue, error)
 
 	// Delete deletes an issue by its key.
-	Delete(ctx context.Context, key string) error
+	// When deleteSubtasks is true, sub-tasks of the issue are also deleted;
+	// otherwise Jira refuses to delete an issue that has sub-tasks.
+	Delete(ctx context.Context, key string, deleteSubtasks bool) error
 
 	// AddComment adds a comment to an issue.
 	// The body is an ADF document; conversion from markdown happens at CLI boundary.
