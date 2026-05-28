@@ -253,7 +253,7 @@ func TestIssueCreateCmd(t *testing.T) {
 		assert.Empty(t, capturedIssue.Description)
 	})
 
-	t.Run("sets type to Sub-task when parent is specified", func(t *testing.T) {
+	t.Run("passes Sub-task type through when parent is specified", func(t *testing.T) {
 		t.Parallel()
 
 		var capturedIssue *jira4claude.Issue
@@ -272,6 +272,7 @@ func TestIssueCreateCmd(t *testing.T) {
 			Config:    &jira4claude.Config{Project: "TEST", Server: "https://test.atlassian.net"},
 		}
 		cmd := main.IssueCreateCmd{
+			Type:    "Sub-task",
 			Summary: "Subtask issue",
 			Parent:  "TEST-1",
 		}
@@ -283,6 +284,40 @@ func TestIssueCreateCmd(t *testing.T) {
 		assert.Equal(t, "Sub-task", capturedIssue.Type)
 		require.NotNil(t, capturedIssue.Parent)
 		assert.Equal(t, "TEST-1", capturedIssue.Parent.Key)
+	})
+
+	t.Run("preserves Task type when parent is specified (no coercion)", func(t *testing.T) {
+		// Tasks (and Stories) can have an Epic parent in team-managed projects.
+		// The CLI must not coerce non-empty --type to Sub-task.
+		t.Parallel()
+
+		var capturedIssue *jira4claude.Issue
+		svc := &mock.IssueService{
+			CreateFn: func(ctx context.Context, issue *jira4claude.Issue) (*jira4claude.Issue, error) {
+				capturedIssue = issue
+				return &jira4claude.Issue{Key: "TEST-3"}, nil
+			},
+		}
+
+		printer := &mock.Printer{}
+		ctx := &main.IssueContext{
+			Service:   svc,
+			Printer:   printer,
+			Converter: mockConverter(),
+			Config:    &jira4claude.Config{Project: "TEST", Server: "https://test.atlassian.net"},
+		}
+		cmd := main.IssueCreateCmd{
+			Type:    "Task",
+			Summary: "Task under epic",
+			Parent:  "EPIC-1",
+		}
+		err := cmd.Run(ctx)
+
+		require.NoError(t, err)
+		require.NotNil(t, capturedIssue)
+		assert.Equal(t, "Task", capturedIssue.Type)
+		require.NotNil(t, capturedIssue.Parent)
+		assert.Equal(t, "EPIC-1", capturedIssue.Parent.Key)
 	})
 
 	t.Run("assignee me creates issue then self-assigns", func(t *testing.T) {
@@ -854,6 +889,95 @@ func TestIssueCommentCmd(t *testing.T) {
 		require.NoError(t, err)
 		// Plain text is valid GFM and should be converted to ADF
 		assert.Equal(t, "doc", capturedBody.Type)
+	})
+}
+
+// IssueDeleteCmd tests
+
+func TestIssueDeleteCmd(t *testing.T) {
+	t.Parallel()
+
+	t.Run("calls Delete with key and prints success", func(t *testing.T) {
+		t.Parallel()
+
+		var capturedKey string
+		var capturedDeleteSubtasks bool
+		svc := &mock.IssueService{
+			DeleteFn: func(ctx context.Context, key string, deleteSubtasks bool) error {
+				capturedKey = key
+				capturedDeleteSubtasks = deleteSubtasks
+				return nil
+			},
+		}
+
+		printer := &mock.Printer{}
+		ctx := &main.IssueContext{
+			Service:   svc,
+			Printer:   printer,
+			Converter: mockConverter(),
+			Config:    &jira4claude.Config{Project: "TEST", Server: "https://test.atlassian.net"},
+		}
+		cmd := main.IssueDeleteCmd{Key: "TEST-1"}
+		err := cmd.Run(ctx)
+
+		require.NoError(t, err)
+		assert.Equal(t, "TEST-1", capturedKey)
+		assert.False(t, capturedDeleteSubtasks)
+		require.Len(t, printer.SuccessCalls, 1)
+		// Key goes in the message, not as a variadic key arg, because the
+		// markdown/JSON printers turn variadic keys into /browse/<key> URLs
+		// — which would 404 for an issue we just deleted.
+		assert.Contains(t, printer.SuccessCalls[0].Msg, "TEST-1")
+		assert.Empty(t, printer.SuccessCalls[0].Keys)
+	})
+
+	t.Run("forwards --delete-subtasks=true to service", func(t *testing.T) {
+		t.Parallel()
+
+		var capturedDeleteSubtasks bool
+		svc := &mock.IssueService{
+			DeleteFn: func(ctx context.Context, key string, deleteSubtasks bool) error {
+				capturedDeleteSubtasks = deleteSubtasks
+				return nil
+			},
+		}
+
+		printer := &mock.Printer{}
+		ctx := &main.IssueContext{
+			Service:   svc,
+			Printer:   printer,
+			Converter: mockConverter(),
+			Config:    &jira4claude.Config{Project: "TEST", Server: "https://test.atlassian.net"},
+		}
+		cmd := main.IssueDeleteCmd{Key: "EPIC-1", DeleteSubtasks: true}
+		err := cmd.Run(ctx)
+
+		require.NoError(t, err)
+		assert.True(t, capturedDeleteSubtasks)
+	})
+
+	t.Run("returns service error", func(t *testing.T) {
+		t.Parallel()
+
+		svc := &mock.IssueService{
+			DeleteFn: func(ctx context.Context, key string, deleteSubtasks bool) error {
+				return errors.New("not found")
+			},
+		}
+
+		printer := &mock.Printer{}
+		ctx := &main.IssueContext{
+			Service:   svc,
+			Printer:   printer,
+			Converter: mockConverter(),
+			Config:    &jira4claude.Config{Project: "TEST", Server: "https://test.atlassian.net"},
+		}
+		cmd := main.IssueDeleteCmd{Key: "TEST-99"}
+		err := cmd.Run(ctx)
+
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "not found")
+		assert.Empty(t, printer.SuccessCalls)
 	})
 }
 

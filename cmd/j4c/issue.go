@@ -14,6 +14,7 @@ type IssueCmd struct {
 	Ready         IssueReadyCmd         `cmd:"" help:"List issues ready to work on"`
 	Create        IssueCreateCmd        `cmd:"" help:"Create an issue"`
 	Update        IssueUpdateCmd        `cmd:"" help:"Update an issue"`
+	Delete        IssueDeleteCmd        `cmd:"" help:"Delete an issue"`
 	Fields        IssueFieldsCmd        `cmd:"" help:"List settable fields for create or edit"`
 	Transitions   IssueTransitionsCmd   `cmd:"" help:"List available transitions"`
 	Transition    IssueTransitionCmd    `cmd:"" help:"Transition an issue"`
@@ -124,7 +125,7 @@ type IssueCreateCmd struct {
 	Description string   `help:"Issue description" short:"d"`
 	Priority    string   `help:"Issue priority"`
 	Labels      []string `help:"Issue labels" short:"l"`
-	Parent      string   `help:"Parent issue key (creates a Subtask)" short:"P"`
+	Parent      string   `help:"Parent issue key (pass --type=Sub-task explicitly for classic-project sub-tasks)" short:"P"`
 	Assignee    string   `help:"Assignee: 'me', email, or account ID" short:"A"`
 	FieldJSON   []string `name:"field-json" help:"Set field by ID, value is JSON (repeatable). Example: customfield_10801='{\"value\":\"High\"}'"`
 }
@@ -134,11 +135,6 @@ func (c *IssueCreateCmd) Run(ctx *IssueContext) error {
 	project := c.Project
 	if project == "" {
 		project = ctx.Config.Project
-	}
-
-	issueType := c.Type
-	if c.Parent != "" {
-		issueType = "Sub-task"
 	}
 
 	// Convert description to ADF (plain text is valid GFM)
@@ -163,7 +159,7 @@ func (c *IssueCreateCmd) Run(ctx *IssueContext) error {
 
 	issue := &jira4claude.Issue{
 		Project:      project,
-		Type:         issueType,
+		Type:         c.Type,
 		Summary:      c.Summary,
 		Description:  description,
 		Priority:     c.Priority,
@@ -445,6 +441,23 @@ func (c *IssueCommentCmd) Run(ctx *IssueContext) error {
 	}
 
 	ctx.Printer.Success("Added comment "+comment.ID+" to", c.Key)
+	return nil
+}
+
+// IssueDeleteCmd deletes an issue.
+type IssueDeleteCmd struct {
+	Key            string `arg:"" help:"Issue key (e.g., PROJ-123)"`
+	DeleteSubtasks bool   `name:"delete-subtasks" help:"Also delete sub-tasks (required by Jira when the issue has any)"`
+}
+
+// Run executes the delete command.
+func (c *IssueDeleteCmd) Run(ctx *IssueContext) error {
+	if err := ctx.Service.Delete(context.Background(), c.Key, c.DeleteSubtasks); err != nil {
+		return err
+	}
+	// Key goes in the message rather than as a variadic key arg, so printers
+	// don't render a /browse/<key> URL for an issue that no longer exists.
+	ctx.Printer.Success("Deleted " + c.Key)
 	return nil
 }
 

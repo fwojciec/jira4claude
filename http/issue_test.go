@@ -1657,7 +1657,7 @@ func TestIssueService_Delete(t *testing.T) {
 		client := newTestClient(t, server.URL, "user@example.com", "api-token")
 		svc := jirahttp.NewIssueService(client)
 
-		err := svc.Delete(context.Background(), "TEST-1")
+		err := svc.Delete(context.Background(), "TEST-1", false)
 
 		require.NoError(t, err)
 		assert.True(t, deleteCalled)
@@ -1675,10 +1675,56 @@ func TestIssueService_Delete(t *testing.T) {
 		client := newTestClient(t, server.URL, "user@example.com", "api-token")
 		svc := jirahttp.NewIssueService(client)
 
-		err := svc.Delete(context.Background(), "NOTFOUND-1")
+		err := svc.Delete(context.Background(), "NOTFOUND-1", false)
 
 		require.Error(t, err)
 		assert.Equal(t, jira4claude.ENotFound, jira4claude.ErrorCode(err))
+	})
+
+	t.Run("appends deleteSubtasks=true query param when requested", func(t *testing.T) {
+		t.Parallel()
+
+		var capturedQuery string
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Method == http.MethodDelete && r.URL.Path == "/rest/api/3/issue/TEST-1" {
+				capturedQuery = r.URL.RawQuery
+				w.WriteHeader(http.StatusNoContent)
+				return
+			}
+			w.WriteHeader(http.StatusNotFound)
+		}))
+		defer server.Close()
+
+		client := newTestClient(t, server.URL, "user@example.com", "api-token")
+		svc := jirahttp.NewIssueService(client)
+
+		err := svc.Delete(context.Background(), "TEST-1", true)
+
+		require.NoError(t, err)
+		assert.Equal(t, "deleteSubtasks=true", capturedQuery)
+	})
+
+	t.Run("omits deleteSubtasks query param when false", func(t *testing.T) {
+		t.Parallel()
+
+		var capturedQuery string
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Method == http.MethodDelete && r.URL.Path == "/rest/api/3/issue/TEST-1" {
+				capturedQuery = r.URL.RawQuery
+				w.WriteHeader(http.StatusNoContent)
+				return
+			}
+			w.WriteHeader(http.StatusNotFound)
+		}))
+		defer server.Close()
+
+		client := newTestClient(t, server.URL, "user@example.com", "api-token")
+		svc := jirahttp.NewIssueService(client)
+
+		err := svc.Delete(context.Background(), "TEST-1", false)
+
+		require.NoError(t, err)
+		assert.Empty(t, capturedQuery)
 	})
 }
 
