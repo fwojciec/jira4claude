@@ -606,44 +606,64 @@ func TestPrinter_Warning_MultipleWarnings(t *testing.T) {
 	assert.Contains(t, errOutput, "second warning")
 }
 
+// decodeFieldsArray decodes the {source, scope, omitted, fields} wrapper
+// emitted by Printer.Fields and returns the fields array for inspection.
+func decodeFieldsArray(t *testing.T, b []byte) []map[string]any {
+	t.Helper()
+	var wrapper struct {
+		Fields []map[string]any `json:"fields"`
+	}
+	require.NoError(t, json.Unmarshal(b, &wrapper))
+	return wrapper.Fields
+}
+
 func TestPrinter_Fields(t *testing.T) {
 	t.Parallel()
 
-	t.Run("output is a JSON array, not a wrapper object", func(t *testing.T) {
+	t.Run("output is a wrapper object with scope, omitted, and fields", func(t *testing.T) {
 		t.Parallel()
 		var out bytes.Buffer
 		p := jsonpkg.NewPrinter(&out)
 
 		view := jira4claude.IssueFieldsView{
-			Source: "INT / Bug",
+			Source:  "INT / Bug",
+			Scope:   jira4claude.FieldScopeDefault,
+			Omitted: 14,
 			Fields: []*jira4claude.IssueField{
 				{ID: "summary", Name: "Summary", Required: true, SchemaType: "string"},
 			},
 		}
 		p.Fields(view)
 
-		var result []map[string]any
+		var result struct {
+			Source  string           `json:"source"`
+			Scope   string           `json:"scope"`
+			Omitted int              `json:"omitted"`
+			Fields  []map[string]any `json:"fields"`
+		}
 		err := json.Unmarshal(out.Bytes(), &result)
-		require.NoError(t, err, "output should decode as a JSON array")
-		require.Len(t, result, 1)
-		assert.Equal(t, "summary", result[0]["id"])
+		require.NoError(t, err, "output should decode as a JSON object")
+		assert.Equal(t, "INT / Bug", result.Source)
+		assert.Equal(t, "default", result.Scope)
+		assert.Equal(t, 14, result.Omitted)
+
+		require.Len(t, result.Fields, 1)
+		assert.Equal(t, "summary", result.Fields[0]["id"])
 	})
 
-	t.Run("Source label is not emitted in JSON", func(t *testing.T) {
+	t.Run("empty fields emit [] not null", func(t *testing.T) {
 		t.Parallel()
 		var out bytes.Buffer
 		p := jsonpkg.NewPrinter(&out)
 
-		view := jira4claude.IssueFieldsView{
-			Source: "INT / Bug",
-			Fields: []*jira4claude.IssueField{
-				{ID: "summary", Name: "Summary", Required: true, SchemaType: "string"},
-			},
-		}
-		p.Fields(view)
+		p.Fields(jira4claude.IssueFieldsView{Source: "INT / Bug", Scope: jira4claude.FieldScopeFiltered})
 
-		assert.NotContains(t, out.String(), "INT / Bug")
-		assert.NotContains(t, out.String(), "source")
+		var result map[string]any
+		err := json.Unmarshal(out.Bytes(), &result)
+		require.NoError(t, err)
+		fields, ok := result["fields"].([]any)
+		require.True(t, ok, "fields should be an array, not null")
+		assert.Empty(t, fields)
 	})
 
 	t.Run("emits lowercase JSON keys for required base fields", func(t *testing.T) {
@@ -659,9 +679,7 @@ func TestPrinter_Fields(t *testing.T) {
 		}
 		p.Fields(view)
 
-		var result []map[string]any
-		err := json.Unmarshal(out.Bytes(), &result)
-		require.NoError(t, err)
+		result := decodeFieldsArray(t, out.Bytes())
 		require.Len(t, result, 1)
 		assert.Equal(t, "customfield_10801", result[0]["id"])
 		assert.Equal(t, "Urgency / Risk", result[0]["name"])
@@ -682,9 +700,7 @@ func TestPrinter_Fields(t *testing.T) {
 		}
 		p.Fields(view)
 
-		var result []map[string]any
-		err := json.Unmarshal(out.Bytes(), &result)
-		require.NoError(t, err)
+		result := decodeFieldsArray(t, out.Bytes())
 		require.Len(t, result, 1)
 		_, hasAllowed := result[0]["allowedValues"]
 		_, hasExample := result[0]["example"]
@@ -715,9 +731,7 @@ func TestPrinter_Fields(t *testing.T) {
 		}
 		p.Fields(view)
 
-		var result []map[string]any
-		err = json.Unmarshal(out.Bytes(), &result)
-		require.NoError(t, err)
+		result := decodeFieldsArray(t, out.Bytes())
 		require.Len(t, result, 1)
 		ex, ok := result[0]["example"].(map[string]any)
 		require.True(t, ok, "example should decode as a JSON object, not a string")
@@ -743,9 +757,7 @@ func TestPrinter_Fields(t *testing.T) {
 		}
 		p.Fields(view)
 
-		var result []map[string]any
-		err := json.Unmarshal(out.Bytes(), &result)
-		require.NoError(t, err)
+		result := decodeFieldsArray(t, out.Bytes())
 		require.Len(t, result, 1)
 		allowed, ok := result[0]["allowedValues"].([]any)
 		require.True(t, ok)
@@ -781,9 +793,7 @@ func TestPrinter_Fields(t *testing.T) {
 		}
 		p.Fields(view)
 
-		var result []map[string]any
-		err := json.Unmarshal(out.Bytes(), &result)
-		require.NoError(t, err)
+		result := decodeFieldsArray(t, out.Bytes())
 		require.Len(t, result, 1)
 
 		// schemaItems should be present since SchemaType == "array"
@@ -808,6 +818,7 @@ func TestPrinter_Fields(t *testing.T) {
 
 		// Byte-assert on the raw output: json.Unmarshal can't distinguish null
 		// from [] here (both decode to a nil slice), so we pin the shape directly.
-		assert.Equal(t, "[]\n", out.String())
+		assert.Contains(t, out.String(), `"fields": []`)
+		assert.NotContains(t, out.String(), `"fields": null`)
 	})
 }

@@ -150,6 +150,44 @@ single-lined.
 
 **Gate:** `make validate` (build + lint + tests) before PR.
 
+## Addendum — `issue fields` slimming (folded in from sister project mcp-jira)
+
+The mcp-jira sister project slimmed its `get_create_fields` tool (stripping
+`self` URLs, required-only default, a `filter` param, a `{scope, hiddenCount,
+fields}` envelope). Comparing to j4c's `issue fields`:
+
+- **Bloat (`self` URLs):** j4c never had it — `parseAllowedValues`
+  (`http/field.go`) only ever extracts `{id, value}`, so the dominant bloat
+  source can't enter the pipeline. Nothing to port.
+- **Required-only default:** j4c already defaults to required + custom (better
+  for agents — custom fields are the interesting ones).
+
+Two genuine gaps were worth folding in:
+
+1. **`--filter` (`-f`)** on `issue fields` — case-insensitive substring over
+   field name and ID, across **all** fields regardless of required/custom. Lets
+   an agent look up exactly the field a create error named. Scope = "filtered".
+
+2. **Hidden-count signal** — `IssueFieldsView` gains `Scope` and `Omitted`, and
+   the JSON output is wrapped from a bare array into
+   `{source, scope, omitted, fields}` (a **breaking** change to that command's
+   JSON, approved). Agents now know how many fields are hidden behind `--all` /
+   `--filter`.
+
+Selection logic moved into a pure domain function `SelectIssueFields(fields,
+filter, all) -> (selected, scope, omitted)` (`view.go`), so the printers stop
+re-filtering. Consequently:
+
+- **JSON printer** encodes the whole `IssueFieldsView` object (fields still `[]`
+  not `null` when empty).
+- **Markdown printer** renders what it is given instead of re-dropping: a flat
+  `MATCHES` list for filtered scope, an `OPTIONAL` section for optional builtins
+  under `--all` (previously dropped — a latent bug), and a hidden-count footer
+  when `Omitted > 0`.
+
+Cascading-select children remain flattened (j4c's pre-existing behavior); not
+worth the complexity unless a real project needs them. YAGNI.
+
 ## Execution plan (subagents)
 
 1. **Foundation** (main session): add `CustomFieldValue` type and the two

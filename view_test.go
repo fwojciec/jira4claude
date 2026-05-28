@@ -917,3 +917,71 @@ func TestToRelatedIssuesView(t *testing.T) {
 		assert.Equal(t, "TEST-BLOCKER", related[3].Key)
 	})
 }
+
+func TestSelectIssueFields(t *testing.T) {
+	t.Parallel()
+
+	fields := func() []*jira4claude.IssueField {
+		return []*jira4claude.IssueField{
+			{ID: "summary", Name: "Summary", Required: true},
+			{ID: "description", Name: "Description", Required: false},
+			{ID: "customfield_10010", Name: "Story Points", Required: false},
+			{ID: "customfield_10801", Name: "Urgency", Required: true},
+			{ID: "priority", Name: "Priority", Required: false},
+		}
+	}
+
+	idsOf := func(fs []*jira4claude.IssueField) []string {
+		ids := make([]string, len(fs))
+		for i, f := range fs {
+			ids[i] = f.ID
+		}
+		return ids
+	}
+
+	t.Run("default keeps required and custom fields", func(t *testing.T) {
+		t.Parallel()
+		selected, scope, omitted := jira4claude.SelectIssueFields(fields(), "", false)
+		assert.ElementsMatch(t, []string{"summary", "customfield_10010", "customfield_10801"}, idsOf(selected))
+		assert.Equal(t, jira4claude.FieldScopeDefault, scope)
+		assert.Equal(t, 2, omitted) // description, priority
+	})
+
+	t.Run("all keeps every field with zero omitted", func(t *testing.T) {
+		t.Parallel()
+		selected, scope, omitted := jira4claude.SelectIssueFields(fields(), "", true)
+		assert.Len(t, selected, 5)
+		assert.Equal(t, jira4claude.FieldScopeAll, scope)
+		assert.Equal(t, 0, omitted)
+	})
+
+	t.Run("filter matches name or id across all fields, case-insensitive", func(t *testing.T) {
+		t.Parallel()
+		// "prio" matches the optional builtin "priority" that default mode would drop.
+		selected, scope, omitted := jira4claude.SelectIssueFields(fields(), "PRIO", false)
+		assert.Equal(t, []string{"priority"}, idsOf(selected))
+		assert.Equal(t, jira4claude.FieldScopeFiltered, scope)
+		assert.Equal(t, 4, omitted)
+	})
+
+	t.Run("filter overrides all", func(t *testing.T) {
+		t.Parallel()
+		selected, scope, _ := jira4claude.SelectIssueFields(fields(), "customfield_10801", true)
+		assert.Equal(t, []string{"customfield_10801"}, idsOf(selected))
+		assert.Equal(t, jira4claude.FieldScopeFiltered, scope)
+	})
+
+	t.Run("filter matches against field id substring", func(t *testing.T) {
+		t.Parallel()
+		selected, _, _ := jira4claude.SelectIssueFields(fields(), "10010", false)
+		assert.Equal(t, []string{"customfield_10010"}, idsOf(selected))
+	})
+
+	t.Run("filter with no matches returns empty filtered scope", func(t *testing.T) {
+		t.Parallel()
+		selected, scope, omitted := jira4claude.SelectIssueFields(fields(), "nonesuch", false)
+		assert.Empty(t, selected)
+		assert.Equal(t, jira4claude.FieldScopeFiltered, scope)
+		assert.Equal(t, 5, omitted)
+	})
+}

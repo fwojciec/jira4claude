@@ -2266,6 +2266,70 @@ func TestIssueFieldsCmd(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, printer.FieldsCalls, 1)
 		assert.Len(t, printer.FieldsCalls[0].Fields, 4)
+		assert.Equal(t, jira4claude.FieldScopeAll, printer.FieldsCalls[0].Scope)
+		assert.Equal(t, 0, printer.FieldsCalls[0].Omitted)
+	})
+
+	t.Run("default scope reports scope and omitted count", func(t *testing.T) {
+		t.Parallel()
+
+		svc := &mock.IssueService{
+			GetCreateFieldsFn: func(ctx context.Context, projectKey, issueType string) ([]*jira4claude.IssueField, error) {
+				return []*jira4claude.IssueField{
+					{ID: "summary", Required: true},
+					{ID: "description", Required: false},
+					{ID: "customfield_10010", Required: false},
+					{ID: "priority", Required: false},
+				}, nil
+			},
+		}
+
+		printer := &mock.Printer{}
+		ctx := &main.IssueContext{
+			Service:   svc,
+			Printer:   printer,
+			Converter: mockConverter(),
+			Config:    &jira4claude.Config{Project: "PROJ"},
+		}
+		cmd := main.IssueFieldsCmd{Project: "PROJ", Type: "Task"}
+		err := cmd.Run(ctx)
+
+		require.NoError(t, err)
+		require.Len(t, printer.FieldsCalls, 1)
+		assert.Equal(t, jira4claude.FieldScopeDefault, printer.FieldsCalls[0].Scope)
+		assert.Equal(t, 2, printer.FieldsCalls[0].Omitted) // description, priority
+	})
+
+	t.Run("--filter selects matching fields across all fields", func(t *testing.T) {
+		t.Parallel()
+
+		svc := &mock.IssueService{
+			GetCreateFieldsFn: func(ctx context.Context, projectKey, issueType string) ([]*jira4claude.IssueField, error) {
+				return []*jira4claude.IssueField{
+					{ID: "summary", Name: "Summary", Required: true},
+					{ID: "description", Name: "Description", Required: false},
+					{ID: "customfield_10010", Name: "Story Points", Required: false},
+					{ID: "priority", Name: "Priority", Required: false},
+				}, nil
+			},
+		}
+
+		printer := &mock.Printer{}
+		ctx := &main.IssueContext{
+			Service:   svc,
+			Printer:   printer,
+			Converter: mockConverter(),
+			Config:    &jira4claude.Config{Project: "PROJ"},
+		}
+		// "prio" matches the optional builtin "priority" that default mode hides.
+		cmd := main.IssueFieldsCmd{Project: "PROJ", Type: "Task", Filter: "prio"}
+		err := cmd.Run(ctx)
+
+		require.NoError(t, err)
+		require.Len(t, printer.FieldsCalls, 1)
+		require.Len(t, printer.FieldsCalls[0].Fields, 1)
+		assert.Equal(t, "priority", printer.FieldsCalls[0].Fields[0].ID)
+		assert.Equal(t, jira4claude.FieldScopeFiltered, printer.FieldsCalls[0].Scope)
 	})
 
 	t.Run("type falls back to Task when --type not given (Run applies the default)", func(t *testing.T) {

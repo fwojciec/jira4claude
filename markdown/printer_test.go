@@ -832,4 +832,97 @@ func TestPrinter_Fields(t *testing.T) {
 		p.Fields(view)
 		assert.Contains(t, out.String(), "unknown")
 	})
+
+	t.Run("filtered scope renders a flat MATCHES list without dropping optional builtins", func(t *testing.T) {
+		t.Parallel()
+		var out bytes.Buffer
+		p := markdown.NewPrinter(&out)
+
+		view := jira4claude.IssueFieldsView{
+			Source: "INT / Bug",
+			Scope:  jira4claude.FieldScopeFiltered,
+			Fields: []*jira4claude.IssueField{
+				// An optional builtin that default mode would drop must still render.
+				{ID: "priority", Name: "Priority", Required: false, SchemaType: "priority"},
+			},
+		}
+
+		p.Fields(view)
+		result := out.String()
+
+		assert.Contains(t, result, "MATCHES")
+		assert.Contains(t, result, "priority")
+		assert.NotContains(t, result, "REQUIRED")
+		assert.NotContains(t, result, "CUSTOM (optional)")
+	})
+
+	t.Run("filtered scope with no matches reports a filter-specific message", func(t *testing.T) {
+		t.Parallel()
+		var out bytes.Buffer
+		p := markdown.NewPrinter(&out)
+
+		p.Fields(jira4claude.IssueFieldsView{Source: "INT / Bug", Scope: jira4claude.FieldScopeFiltered})
+
+		assert.Contains(t, out.String(), "No fields match the filter for INT / Bug")
+	})
+
+	t.Run("all scope renders optional builtins in an OPTIONAL section", func(t *testing.T) {
+		t.Parallel()
+		var out bytes.Buffer
+		p := markdown.NewPrinter(&out)
+
+		view := jira4claude.IssueFieldsView{
+			Source: "INT / Bug",
+			Scope:  jira4claude.FieldScopeAll,
+			Fields: []*jira4claude.IssueField{
+				{ID: "summary", Name: "Summary", Required: true, SchemaType: "string"},
+				{ID: "customfield_10010", Name: "Story Points", Required: false, SchemaType: "number"},
+				{ID: "description", Name: "Description", Required: false, SchemaType: "string"},
+			},
+		}
+
+		p.Fields(view)
+		result := out.String()
+
+		assert.Contains(t, result, "REQUIRED")
+		assert.Contains(t, result, "CUSTOM (optional)")
+		assert.Contains(t, result, "OPTIONAL")
+		assert.Contains(t, result, "description")
+	})
+
+	t.Run("default scope prints a hidden-count footer when fields are omitted", func(t *testing.T) {
+		t.Parallel()
+		var out bytes.Buffer
+		p := markdown.NewPrinter(&out)
+
+		view := jira4claude.IssueFieldsView{
+			Source:  "INT / Bug",
+			Scope:   jira4claude.FieldScopeDefault,
+			Omitted: 14,
+			Fields: []*jira4claude.IssueField{
+				{ID: "summary", Name: "Summary", Required: true, SchemaType: "string"},
+			},
+		}
+
+		p.Fields(view)
+		assert.Contains(t, out.String(), "14 more")
+	})
+
+	t.Run("no footer when nothing is omitted", func(t *testing.T) {
+		t.Parallel()
+		var out bytes.Buffer
+		p := markdown.NewPrinter(&out)
+
+		view := jira4claude.IssueFieldsView{
+			Source:  "INT / Bug",
+			Scope:   jira4claude.FieldScopeAll,
+			Omitted: 0,
+			Fields: []*jira4claude.IssueField{
+				{ID: "summary", Name: "Summary", Required: true, SchemaType: "string"},
+			},
+		}
+
+		p.Fields(view)
+		assert.NotContains(t, out.String(), "more field")
+	})
 }

@@ -180,26 +180,44 @@ const (
 // Fields prints settable issue fields grouped by REQUIRED and CUSTOM (optional).
 func (p *Printer) Fields(view jira4claude.IssueFieldsView) {
 	if len(view.Fields) == 0 {
-		fmt.Fprintf(p.out, "[info] No fields for %s\n", view.Source)
+		if view.Scope == jira4claude.FieldScopeFiltered {
+			fmt.Fprintf(p.out, "[info] No fields match the filter for %s\n", view.Source)
+		} else {
+			fmt.Fprintf(p.out, "[info] No fields for %s\n", view.Source)
+		}
 		return
 	}
 
-	// Partition into required and optional-custom buckets.
+	fmt.Fprintf(p.out, "Fields for %s:\n", view.Source)
+
+	// Filtered results span all field kinds (required, custom, optional
+	// builtins), so a flat list is clearer than the required/custom buckets —
+	// and avoids dropping optional builtins the buckets would discard.
+	if view.Scope == jira4claude.FieldScopeFiltered {
+		fmt.Fprint(p.out, "\nMATCHES\n")
+		for _, f := range view.Fields {
+			p.renderFieldLine(f)
+		}
+		return
+	}
+
+	// Partition into required, optional-custom, and optional-builtin buckets.
 	required := make([]*jira4claude.IssueField, 0, len(view.Fields))
 	optionalCustom := make([]*jira4claude.IssueField, 0, len(view.Fields))
+	optionalOther := make([]*jira4claude.IssueField, 0, len(view.Fields))
 	for _, f := range view.Fields {
 		switch {
 		case f.Required:
 			required = append(required, f)
 		case strings.HasPrefix(f.ID, "customfield_"):
 			optionalCustom = append(optionalCustom, f)
+		default:
+			optionalOther = append(optionalOther, f)
 		}
 	}
 
 	// Within REQUIRED: customfields first, then builtins (stable order).
 	sortRequiredFields(required)
-
-	fmt.Fprintf(p.out, "Fields for %s:\n", view.Source)
 
 	if len(required) > 0 {
 		fmt.Fprint(p.out, "\nREQUIRED\n")
@@ -213,6 +231,20 @@ func (p *Printer) Fields(view jira4claude.IssueFieldsView) {
 		for _, f := range optionalCustom {
 			p.renderFieldLine(f)
 		}
+	}
+
+	// Optional builtins are only surfaced under --all (scope "all"); the
+	// default selection deliberately hides them, and the command never passes
+	// them in that case.
+	if view.Scope == jira4claude.FieldScopeAll && len(optionalOther) > 0 {
+		fmt.Fprint(p.out, "\nOPTIONAL\n")
+		for _, f := range optionalOther {
+			p.renderFieldLine(f)
+		}
+	}
+
+	if view.Omitted > 0 {
+		fmt.Fprintf(p.out, "\n[info] %d more field(s) hidden — use --all to show all, or --filter to find one.\n", view.Omitted)
 	}
 }
 
