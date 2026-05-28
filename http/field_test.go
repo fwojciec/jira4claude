@@ -282,7 +282,8 @@ func TestIssueService_GetCreateFields(t *testing.T) {
 			"f_missing": {"name":"Missing","required":false,"schema":{"type":"option"}},
 			"f_null": {"name":"Null","required":false,"schema":{"type":"option"},"allowedValues":null},
 			"f_cascading": {"name":"Cascading","required":false,"schema":{"type":"option"},"allowedValues":[{"id":"1","value":"Parent","children":[{"id":"2","value":"Child"}]}]},
-			"f_null_element": {"name":"NullElement","required":false,"schema":{"type":"option"},"allowedValues":[null,{"id":"7","value":"Real"}]}
+			"f_null_element": {"name":"NullElement","required":false,"schema":{"type":"option"},"allowedValues":[null,{"id":"7","value":"Real"}]},
+			"f_empty_object": {"name":"EmptyObject","required":false,"schema":{"type":"option"},"allowedValues":[{},{"id":"99"},{"id":"100","value":"Real"}]}
 		}`)
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusOK)
@@ -330,6 +331,65 @@ func TestIssueService_GetCreateFields(t *testing.T) {
 			[]jira4claude.FieldAllowedValue{{ID: "7", Value: "Real"}},
 			findField(t, fields, "f_null_element").AllowedValues,
 		)
+
+		// Object entries with neither .value nor .name are skipped (regardless
+		// of whether they carry an id). They would otherwise leak {"value":""}
+		// into JSON/markdown and break example generation for option fields.
+		assert.Equal(t,
+			[]jira4claude.FieldAllowedValue{{ID: "100", Value: "Real"}},
+			findField(t, fields, "f_empty_object").AllowedValues,
+		)
+	})
+
+	t.Run("output order is deterministic across runs", func(t *testing.T) {
+		t.Parallel()
+
+		// Same payload exercised twice. Go map iteration is randomized, so
+		// without an explicit sort the slices would drift across runs.
+		body := createMetaFixture(`{
+			"summary": {"name":"Summary","required":true,"schema":{"type":"string"}},
+			"customfield_10010": {"name":"Story Points","required":false,"schema":{"type":"number"}},
+			"customfield_10801": {"name":"Urgency","required":true,"schema":{"type":"option"}},
+			"customfield_10002": {"name":"Epic Link","required":false,"schema":{"type":"string"}},
+			"priority": {"name":"Priority","required":true,"schema":{"type":"priority"}},
+			"labels": {"name":"Labels","required":false,"schema":{"type":"array","items":"string"}}
+		}`)
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(body))
+		}))
+		defer server.Close()
+
+		client := newTestClient(t, server.URL, "user", "pass")
+		svc := jirahttp.NewIssueService(client)
+
+		first, err := svc.GetCreateFields(context.Background(), "INT", "Task")
+		require.NoError(t, err)
+
+		// Expected order: required customfields (asc id) -> required builtins
+		// (asc id) -> optional customfields (asc id) -> optional builtins (asc id).
+		want := []string{
+			"customfield_10801", // required custom
+			"priority",          // required builtin
+			"summary",           // required builtin
+			"customfield_10002", // optional custom
+			"customfield_10010", // optional custom
+			"labels",            // optional builtin
+		}
+		got := make([]string, len(first))
+		for i, f := range first {
+			got[i] = f.ID
+		}
+		require.Equal(t, want, got, "field order must be deterministic at the source")
+
+		// A second call with the same payload must produce the same order.
+		second, err := svc.GetCreateFields(context.Background(), "INT", "Task")
+		require.NoError(t, err)
+		gotSecond := make([]string, len(second))
+		for i, f := range second {
+			gotSecond[i] = f.ID
+		}
+		assert.Equal(t, got, gotSecond, "order must not drift between runs")
 	})
 
 	t.Run("option example uses first allowed value", func(t *testing.T) {
