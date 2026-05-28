@@ -700,18 +700,11 @@ func TestPrinter_Fields(t *testing.T) {
 		assert.Contains(t, result, `"back\\slash"`)
 		assert.Contains(t, result, `"line1\nline2"`)
 
-		// The whole allowed-values line must stay on one line — no literal
-		// newline inside a value should break the row apart.
-		lines := strings.Split(result, "\n")
-		var allowedLine string
-		for _, ln := range lines {
-			if strings.Contains(ln, "allowed:") {
-				allowedLine = ln
-				break
-			}
-		}
-		require.NotEmpty(t, allowedLine, "expected an `allowed:` line in the output")
-		assert.NotContains(t, allowedLine, "line1\nline2", "newline inside value must not break the line")
+		// The literal two-line sequence must not appear anywhere in the output:
+		// the only newlines should be structural (between rows), never inside
+		// an allowed value.
+		assert.NotContains(t, result, "line1\nline2",
+			"unescaped newline must not appear in rendered output")
 	})
 
 	t.Run("allowed values truncate past five entries", func(t *testing.T) {
