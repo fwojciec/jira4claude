@@ -1,12 +1,14 @@
 package jira4claude_test
 
 import (
+	"encoding/json"
 	"testing"
 	"time"
 
 	"github.com/fwojciec/jira4claude"
 	"github.com/fwojciec/jira4claude/mock"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestToIssueView(t *testing.T) {
@@ -338,6 +340,114 @@ func TestToIssueView(t *testing.T) {
 		view := jira4claude.ToIssueView(issue, conv, func(w string) {}, "")
 
 		assert.Empty(t, view.RelatedIssues)
+	})
+}
+
+func TestToIssueView_CustomFields(t *testing.T) {
+	t.Parallel()
+
+	newConv := func() *mock.Converter {
+		return &mock.Converter{
+			ToMarkdownFn: func(adf *jira4claude.ADFNode) (string, []string) {
+				return "", nil
+			},
+		}
+	}
+
+	t.Run("passes ReadCustomFields through to CustomFields", func(t *testing.T) {
+		t.Parallel()
+
+		customFields := map[string]jira4claude.CustomFieldValue{
+			"customfield_10801": {Name: "Story Points", Value: json.RawMessage(`5`)},
+			"customfield_10900": {Name: "Sprint", Value: json.RawMessage(`"Sprint 1"`)},
+		}
+
+		issue := &jira4claude.Issue{
+			Key:              "TEST-1",
+			Summary:          "Test issue",
+			Status:           "To Do",
+			Type:             "Task",
+			ReadCustomFields: customFields,
+			Created:          time.Date(2024, 1, 1, 12, 0, 0, 0, time.UTC),
+			Updated:          time.Date(2024, 1, 2, 12, 0, 0, 0, time.UTC),
+		}
+
+		view := jira4claude.ToIssueView(issue, newConv(), func(w string) {}, "")
+
+		assert.Equal(t, customFields, view.CustomFields)
+	})
+
+	t.Run("marshals custom fields keyed by id with name and value", func(t *testing.T) {
+		t.Parallel()
+
+		issue := &jira4claude.Issue{
+			Key:     "TEST-1",
+			Summary: "Test issue",
+			Status:  "To Do",
+			Type:    "Task",
+			ReadCustomFields: map[string]jira4claude.CustomFieldValue{
+				"customfield_10801": {Name: "Story Points", Value: json.RawMessage(`5`)},
+			},
+			Created: time.Date(2024, 1, 1, 12, 0, 0, 0, time.UTC),
+			Updated: time.Date(2024, 1, 2, 12, 0, 0, 0, time.UTC),
+		}
+
+		view := jira4claude.ToIssueView(issue, newConv(), func(w string) {}, "")
+
+		data, err := json.Marshal(view)
+		require.NoError(t, err)
+
+		var got struct {
+			CustomFields json.RawMessage `json:"customFields"`
+		}
+		require.NoError(t, json.Unmarshal(data, &got))
+
+		assert.JSONEq(t,
+			`{"customfield_10801":{"name":"Story Points","value":5}}`,
+			string(got.CustomFields),
+		)
+	})
+
+	t.Run("omits customFields key when ReadCustomFields is nil", func(t *testing.T) {
+		t.Parallel()
+
+		issue := &jira4claude.Issue{
+			Key:              "TEST-1",
+			Summary:          "Test issue",
+			Status:           "To Do",
+			Type:             "Task",
+			ReadCustomFields: nil,
+			Created:          time.Date(2024, 1, 1, 12, 0, 0, 0, time.UTC),
+			Updated:          time.Date(2024, 1, 2, 12, 0, 0, 0, time.UTC),
+		}
+
+		view := jira4claude.ToIssueView(issue, newConv(), func(w string) {}, "")
+
+		data, err := json.Marshal(view)
+		require.NoError(t, err)
+
+		assert.NotContains(t, string(data), "customFields")
+	})
+
+	t.Run("omits customFields key when ReadCustomFields is empty", func(t *testing.T) {
+		t.Parallel()
+
+		issue := &jira4claude.Issue{
+			Key:              "TEST-1",
+			Summary:          "Test issue",
+			Status:           "To Do",
+			Type:             "Task",
+			ReadCustomFields: map[string]jira4claude.CustomFieldValue{},
+			Created:          time.Date(2024, 1, 1, 12, 0, 0, 0, time.UTC),
+			Updated:          time.Date(2024, 1, 2, 12, 0, 0, 0, time.UTC),
+		}
+
+		view := jira4claude.ToIssueView(issue, newConv(), func(w string) {}, "")
+
+		data, err := json.Marshal(view)
+		require.NoError(t, err)
+
+		assert.NotContains(t, string(data), "customFields")
 	})
 }
 

@@ -757,6 +757,250 @@ func TestIssueService_Get(t *testing.T) {
 
 }
 
+func TestIssueService_GetCustomFields(t *testing.T) {
+	t.Parallel()
+
+	t.Run("populates ReadCustomFields and requests expand=names", func(t *testing.T) {
+		t.Parallel()
+
+		var receivedExpand string
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Method != http.MethodGet || r.URL.Path != "/rest/api/3/issue/TEST-1" {
+				w.WriteHeader(http.StatusNotFound)
+				return
+			}
+			receivedExpand = r.URL.Query().Get("expand")
+
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{
+				"key": "TEST-1",
+				"names": {
+					"customfield_10801": "Story Points",
+					"customfield_10010": "Severity",
+					"customfield_10020": "Sprints",
+					"customfield_10030": "Approver"
+				},
+				"fields": {
+					"project": {"key": "TEST"},
+					"summary": "Test issue",
+					"status": {"name": "To Do"},
+					"issuetype": {"name": "Task"},
+					"customfield_10801": 5,
+					"customfield_10010": {"value": "High"},
+					"customfield_10020": ["one", "two"],
+					"customfield_10030": {"accountId": "abc", "displayName": "Approver Person"}
+				}
+			}`))
+		}))
+		defer server.Close()
+
+		client := newTestClient(t, server.URL, "user@example.com", "api-token")
+		svc := jirahttp.NewIssueService(client)
+
+		issue, err := svc.Get(context.Background(), "TEST-1")
+
+		require.NoError(t, err)
+
+		// Request carried expand=names.
+		assert.Contains(t, receivedExpand, "names")
+
+		// All four custom fields captured.
+		require.Len(t, issue.ReadCustomFields, 4)
+
+		cf := issue.ReadCustomFields["customfield_10801"]
+		assert.Equal(t, "Story Points", cf.Name)
+		assert.JSONEq(t, `5`, string(cf.Value))
+
+		cf = issue.ReadCustomFields["customfield_10010"]
+		assert.Equal(t, "Severity", cf.Name)
+		assert.JSONEq(t, `{"value": "High"}`, string(cf.Value))
+
+		cf = issue.ReadCustomFields["customfield_10020"]
+		assert.Equal(t, "Sprints", cf.Name)
+		assert.JSONEq(t, `["one", "two"]`, string(cf.Value))
+
+		cf = issue.ReadCustomFields["customfield_10030"]
+		assert.Equal(t, "Approver", cf.Name)
+		assert.JSONEq(t, `{"accountId": "abc", "displayName": "Approver Person"}`, string(cf.Value))
+	})
+
+	t.Run("excludes custom fields with null value", func(t *testing.T) {
+		t.Parallel()
+
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{
+				"key": "TEST-1",
+				"names": {
+					"customfield_10801": "Story Points",
+					"customfield_10010": "Severity"
+				},
+				"fields": {
+					"project": {"key": "TEST"},
+					"summary": "Test issue",
+					"status": {"name": "To Do"},
+					"issuetype": {"name": "Task"},
+					"customfield_10801": 5,
+					"customfield_10010": null
+				}
+			}`))
+		}))
+		defer server.Close()
+
+		client := newTestClient(t, server.URL, "user@example.com", "api-token")
+		svc := jirahttp.NewIssueService(client)
+
+		issue, err := svc.Get(context.Background(), "TEST-1")
+
+		require.NoError(t, err)
+		require.Len(t, issue.ReadCustomFields, 1)
+		_, hasNull := issue.ReadCustomFields["customfield_10010"]
+		assert.False(t, hasNull, "null-valued custom field must be excluded")
+		assert.Equal(t, "Story Points", issue.ReadCustomFields["customfield_10801"].Name)
+	})
+
+	t.Run("does not capture system fields", func(t *testing.T) {
+		t.Parallel()
+
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{
+				"key": "TEST-1",
+				"names": {
+					"summary": "Summary",
+					"status": "Status",
+					"customfield_10801": "Story Points"
+				},
+				"fields": {
+					"project": {"key": "TEST"},
+					"summary": "Test issue",
+					"status": {"name": "To Do"},
+					"issuetype": {"name": "Task"},
+					"priority": {"name": "Medium"},
+					"customfield_10801": 5
+				}
+			}`))
+		}))
+		defer server.Close()
+
+		client := newTestClient(t, server.URL, "user@example.com", "api-token")
+		svc := jirahttp.NewIssueService(client)
+
+		issue, err := svc.Get(context.Background(), "TEST-1")
+
+		require.NoError(t, err)
+		require.Len(t, issue.ReadCustomFields, 1)
+		_, hasSummary := issue.ReadCustomFields["summary"]
+		assert.False(t, hasSummary)
+		_, hasStatus := issue.ReadCustomFields["status"]
+		assert.False(t, hasStatus)
+		assert.Contains(t, issue.ReadCustomFields, "customfield_10801")
+	})
+
+	t.Run("empty when no custom fields and no names map", func(t *testing.T) {
+		t.Parallel()
+
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{
+				"key": "TEST-1",
+				"fields": {
+					"project": {"key": "TEST"},
+					"summary": "Test issue",
+					"status": {"name": "To Do"},
+					"issuetype": {"name": "Task"}
+				}
+			}`))
+		}))
+		defer server.Close()
+
+		client := newTestClient(t, server.URL, "user@example.com", "api-token")
+		svc := jirahttp.NewIssueService(client)
+
+		issue, err := svc.Get(context.Background(), "TEST-1")
+
+		require.NoError(t, err)
+		assert.Empty(t, issue.ReadCustomFields)
+	})
+
+	t.Run("custom field absent from names gets empty Name", func(t *testing.T) {
+		t.Parallel()
+
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{
+				"key": "TEST-1",
+				"names": {},
+				"fields": {
+					"project": {"key": "TEST"},
+					"summary": "Test issue",
+					"status": {"name": "To Do"},
+					"issuetype": {"name": "Task"},
+					"customfield_10801": 5
+				}
+			}`))
+		}))
+		defer server.Close()
+
+		client := newTestClient(t, server.URL, "user@example.com", "api-token")
+		svc := jirahttp.NewIssueService(client)
+
+		issue, err := svc.Get(context.Background(), "TEST-1")
+
+		require.NoError(t, err)
+		require.Len(t, issue.ReadCustomFields, 1)
+		cf := issue.ReadCustomFields["customfield_10801"]
+		assert.Empty(t, cf.Name)
+		assert.JSONEq(t, `5`, string(cf.Value))
+	})
+
+	t.Run("list does not populate ReadCustomFields", func(t *testing.T) {
+		t.Parallel()
+
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Method != http.MethodGet || r.URL.Path != "/rest/api/3/search/jql" {
+				w.WriteHeader(http.StatusNotFound)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{
+				"issues": [
+					{
+						"key": "TEST-1",
+						"fields": {
+							"project": {"key": "TEST"},
+							"summary": "First issue",
+							"status": {"name": "To Do"},
+							"issuetype": {"name": "Task"}
+						}
+					},
+					{
+						"key": "TEST-2",
+						"fields": {
+							"project": {"key": "TEST"},
+							"summary": "Second issue",
+							"status": {"name": "In Progress"},
+							"issuetype": {"name": "Bug"}
+						}
+					}
+				]
+			}`))
+		}))
+		defer server.Close()
+
+		client := newTestClient(t, server.URL, "user@example.com", "api-token")
+		svc := jirahttp.NewIssueService(client)
+
+		issues, err := svc.List(context.Background(), jira4claude.IssueFilter{Project: "TEST"})
+
+		require.NoError(t, err)
+		require.Len(t, issues, 2)
+		for _, iss := range issues {
+			assert.Empty(t, iss.ReadCustomFields)
+		}
+	})
+}
+
 func TestIssueService_List(t *testing.T) {
 	t.Parallel()
 

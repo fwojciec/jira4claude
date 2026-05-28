@@ -22,6 +22,10 @@ type IssueView struct {
 	Created       string             `json:"created"`
 	Updated       string             `json:"updated"`
 	URL           string             `json:"url,omitempty"`
+
+	// CustomFields are read-only custom fields keyed by field ID, passed
+	// through from the issue as-is (no ADF conversion).
+	CustomFields map[string]CustomFieldValue `json:"customFields,omitempty"`
 }
 
 // MarshalJSON ensures RelatedIssues is always an array, never null.
@@ -100,6 +104,7 @@ func ToIssueView(issue *Issue, conv Converter, warn func(string), serverURL stri
 		Created:       issue.Created.Format(time.RFC3339),
 		Updated:       issue.Updated.Format(time.RFC3339),
 		URL:           url,
+		CustomFields:  issue.ReadCustomFields,
 	}
 }
 

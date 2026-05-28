@@ -103,6 +103,26 @@ conversion, no warnings. Rendered output:
 }
 ```
 
+### 3b. Markdown printer (`markdown/printer.go`)
+
+Markdown is the **default** output mode (`--json` is opt-in), so the markdown
+`Issue` printer — which renders fields explicitly rather than marshaling the
+struct — also needs to surface custom fields, or the feature is invisible by
+default. Add a `## Custom Fields` section after the description:
+
+```markdown
+## Custom Fields
+
+- **Priority Tier:** {"value":"High"}
+- **Story Points:** 5
+```
+
+Each row is `**<name or id>:** <compacted raw JSON>`. The field ID is the label
+fallback when the display name is empty. Rows are sorted by label for
+deterministic output. Empty/nil map → section omitted. Consistent with the
+JSON mode's "no prettifying" stance: values are the raw API JSON, just
+single-lined.
+
 ### Edge cases
 
 - **Empty** → `omitempty` drops the key; output identical to today.
