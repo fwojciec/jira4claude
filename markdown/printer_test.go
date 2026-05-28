@@ -672,6 +672,48 @@ func TestPrinter_Fields(t *testing.T) {
 		assert.Contains(t, result, `allowed: "High", "Medium", "Low"`)
 	})
 
+	t.Run("allowed values with quotes, backslashes, or newlines are escaped", func(t *testing.T) {
+		t.Parallel()
+		var out bytes.Buffer
+		p := markdown.NewPrinter(&out)
+
+		view := jira4claude.IssueFieldsView{
+			Source: "INT / Bug",
+			Fields: []*jira4claude.IssueField{
+				{
+					ID: "customfield_10801", Name: "Tricky", Required: true, SchemaType: "option",
+					AllowedValues: []jira4claude.FieldAllowedValue{
+						{Value: `has "quote"`},
+						{Value: `back\slash`},
+						{Value: "line1\nline2"},
+					},
+				},
+			},
+		}
+
+		p.Fields(view)
+		result := out.String()
+
+		// Each value renders as a single Go-quoted token: embedded quotes,
+		// backslashes, and newlines must be escaped, not literal.
+		assert.Contains(t, result, `"has \"quote\""`)
+		assert.Contains(t, result, `"back\\slash"`)
+		assert.Contains(t, result, `"line1\nline2"`)
+
+		// The whole allowed-values line must stay on one line — no literal
+		// newline inside a value should break the row apart.
+		lines := strings.Split(result, "\n")
+		var allowedLine string
+		for _, ln := range lines {
+			if strings.Contains(ln, "allowed:") {
+				allowedLine = ln
+				break
+			}
+		}
+		require.NotEmpty(t, allowedLine, "expected an `allowed:` line in the output")
+		assert.NotContains(t, allowedLine, "line1\nline2", "newline inside value must not break the line")
+	})
+
 	t.Run("allowed values truncate past five entries", func(t *testing.T) {
 		t.Parallel()
 		var out bytes.Buffer

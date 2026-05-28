@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/fwojciec/jira4claude"
@@ -220,7 +221,9 @@ func schemaTypeString(f *jira4claude.IssueField) string {
 }
 
 // formatAllowedValues renders allowed values as comma-separated quoted
-// strings, truncating with `, …` past fieldsMaxAllowed.
+// strings, truncating with `, …` past fieldsMaxAllowed. Values are quoted
+// with strconv.Quote so that embedded quotes, backslashes, and control
+// characters are escaped instead of breaking the output line.
 func formatAllowedValues(values []jira4claude.FieldAllowedValue) string {
 	limit := len(values)
 	truncated := false
@@ -230,7 +233,7 @@ func formatAllowedValues(values []jira4claude.FieldAllowedValue) string {
 	}
 	parts := make([]string, 0, limit)
 	for i := 0; i < limit; i++ {
-		parts = append(parts, "\""+values[i].Value+"\"")
+		parts = append(parts, strconv.Quote(values[i].Value))
 	}
 	out := strings.Join(parts, ", ")
 	if truncated {

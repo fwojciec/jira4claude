@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"sort"
 	"strings"
 
 	"github.com/fwojciec/jira4claude"
@@ -129,7 +130,10 @@ func (s *IssueService) GetEditFields(ctx context.Context, key string) ([]*jira4c
 
 // parseFieldsMap is the shared inner parser. It takes a map keyed by field id
 // (canonical id source — the entry body does not reliably carry it) and
-// produces a []*IssueField.
+// produces a []*IssueField in a deterministic order: required fields first,
+// customfield_ prefix before builtins within each required-ness bucket, then
+// by ID ascending. Map iteration order in Go is randomized, so without an
+// explicit sort the same Jira response would shuffle across runs.
 func parseFieldsMap(raw map[string]json.RawMessage) ([]*jira4claude.IssueField, error) {
 	if len(raw) == 0 {
 		return []*jira4claude.IssueField{}, nil
@@ -159,6 +163,19 @@ func parseFieldsMap(raw map[string]json.RawMessage) ([]*jira4claude.IssueField, 
 
 		result = append(result, field)
 	}
+
+	sort.Slice(result, func(i, j int) bool {
+		a, b := result[i], result[j]
+		if a.Required != b.Required {
+			return a.Required
+		}
+		aCustom := strings.HasPrefix(a.ID, "customfield_")
+		bCustom := strings.HasPrefix(b.ID, "customfield_")
+		if aCustom != bCustom {
+			return aCustom
+		}
+		return a.ID < b.ID
+	})
 
 	return result, nil
 }
@@ -203,6 +220,13 @@ func parseAllowedValues(raws []json.RawMessage) []jira4claude.FieldAllowedValue 
 		display := obj.Value
 		if display == "" {
 			display = obj.Name
+		}
+		// Skip entries whose display value would be empty: an object with
+		// neither .value nor .name has no useful representation downstream,
+		// and emitting {"value":""} would leak into JSON output and produce
+		// an empty option example.
+		if display == "" {
+			continue
 		}
 		out = append(out, jira4claude.FieldAllowedValue{ID: obj.ID, Value: display})
 	}
