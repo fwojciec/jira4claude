@@ -2464,6 +2464,68 @@ func TestIssueFieldsCmd(t *testing.T) {
 	})
 }
 
+// --field-json Kong parsing tests: the flag is repeatable, and each
+// occurrence is one opaque key=<json> pair. Commas inside a JSON value
+// (common in Jira option labels) must NOT split the value into multiple
+// slice elements.
+
+func TestFieldJSON_KongCommaSplitting(t *testing.T) {
+	t.Parallel()
+
+	// A select-option label that legitimately contains commas.
+	const jsonValue = `{"value":"2 - Medium (e.g., some risk, but not currently a deal breaker)"}`
+
+	t.Run("create preserves commas inside a single --field-json value", func(t *testing.T) {
+		t.Parallel()
+
+		var cli main.CLI
+		parser, err := kong.New(&cli)
+		require.NoError(t, err)
+
+		_, err = parser.Parse([]string{
+			"issue", "create", "--summary=test",
+			"--field-json", `customfield_10801=` + jsonValue,
+		})
+		require.NoError(t, err)
+		require.Len(t, cli.Issue.Create.FieldJSON, 1)
+		assert.Equal(t, `customfield_10801=`+jsonValue, cli.Issue.Create.FieldJSON[0])
+	})
+
+	t.Run("update preserves commas inside a single --field-json value", func(t *testing.T) {
+		t.Parallel()
+
+		var cli main.CLI
+		parser, err := kong.New(&cli)
+		require.NoError(t, err)
+
+		_, err = parser.Parse([]string{
+			"issue", "update", "PROJ-1",
+			"--field-json", `customfield_10801=` + jsonValue,
+		})
+		require.NoError(t, err)
+		require.Len(t, cli.Issue.Update.FieldJSON, 1)
+		assert.Equal(t, `customfield_10801=`+jsonValue, cli.Issue.Update.FieldJSON[0])
+	})
+
+	t.Run("repeating --field-json still yields one element per occurrence", func(t *testing.T) {
+		t.Parallel()
+
+		var cli main.CLI
+		parser, err := kong.New(&cli)
+		require.NoError(t, err)
+
+		_, err = parser.Parse([]string{
+			"issue", "create", "--summary=test",
+			"--field-json", `customfield_10801=` + jsonValue,
+			"--field-json", `customfield_10838=[{"value":"a"},{"value":"b"}]`,
+		})
+		require.NoError(t, err)
+		require.Len(t, cli.Issue.Create.FieldJSON, 2)
+		assert.Equal(t, `customfield_10801=`+jsonValue, cli.Issue.Create.FieldJSON[0])
+		assert.Equal(t, `customfield_10838=[{"value":"a"},{"value":"b"}]`, cli.Issue.Create.FieldJSON[1])
+	})
+}
+
 // IssueFieldsCmd Kong xor parsing tests
 
 func TestIssueFieldsCmd_KongXor(t *testing.T) {
