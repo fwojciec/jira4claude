@@ -127,7 +127,7 @@ type IssueCreateCmd struct {
 	Labels      []string `help:"Issue labels" short:"l"`
 	Parent      string   `help:"Parent issue key (pass --type=Sub-task explicitly for classic-project sub-tasks)" short:"P"`
 	Assignee    string   `help:"Assignee: 'me', email, or account ID" short:"A"`
-	FieldJSON   []string `name:"field-json" help:"Set field by ID, value is JSON (repeatable). Example: customfield_10801='{\"value\":\"High\"}'"`
+	FieldJSON   []string `name:"field-json" sep:"none" help:"Set field by ID, value is JSON (repeatable). Example: customfield_10801='{\"value\":\"High\"}'"`
 }
 
 // Run executes the create command.
@@ -199,7 +199,7 @@ type IssueUpdateCmd struct {
 	ClearLabels bool     `help:"Clear all labels" name:"clear-labels"`
 	Parent      *string  `help:"Parent issue key" short:"P" xor:"parent"`
 	ClearParent bool     `help:"Remove from parent" name:"clear-parent" xor:"parent"`
-	FieldJSON   []string `name:"field-json" help:"Set field by ID, value is JSON (repeatable). Example: customfield_10801='{\"value\":\"High\"}'"`
+	FieldJSON   []string `name:"field-json" sep:"none" help:"Set field by ID, value is JSON (repeatable). Example: customfield_10801='{\"value\":\"High\"}'"`
 }
 
 // Run executes the update command.
