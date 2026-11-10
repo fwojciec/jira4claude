@@ -1,5 +1,12 @@
 # jira4claude - Design Document
 
+> **Historical.** This is the original design, written before the first
+> release. Its output formats, printer interface and error handling are no
+> longer accurate. The current behaviour is described in the
+> [README](../README.md); the changes since are designed in
+> [the scripted-use alignment plan](plans/2026-11-09-scripted-use-alignment-design.md)
+> and listed in the [changelog](../CHANGELOG.md).
+
 ## Problem Statement
 
 The official jira-cli hangs in non-interactive contexts (like Claude Code) because it prompts for optional fields. The `--no-input` flag works but must be remembered for every command. A PR (#905) exists to add config support, but it's been pending for months.

@@ -13,7 +13,7 @@ import (
 
 // AttachmentCmd groups attachment subcommands.
 type AttachmentCmd struct {
-	List     AttachmentListCmd     `cmd:"" help:"List the attachments of an issue"`
+	List     AttachmentListCmd     `cmd:"" help:"List the attachments of an issue: one tab-separated line each (ID, bytes, MIME type, filename)"`
 	Download AttachmentDownloadCmd `cmd:"" help:"Save attachments of an issue into a directory; prints one saved path per line"`
 	Upload   AttachmentUploadCmd   `cmd:"" help:"Attach local files to an issue, one request per file; prints one line per new attachment (ID, bytes, MIME type, filename) when the run ends. If a run is interrupted, attachment list KEY shows what was attached"`
 	Delete   AttachmentDeleteCmd   `cmd:"" help:"Delete an attachment permanently, with no confirmation; prints the deleted attachment (ID, bytes, MIME type, filename). A delete Jira answers not found after the attachment was read counts as done: it was already gone"`

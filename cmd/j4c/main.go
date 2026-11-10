@@ -27,13 +27,13 @@ var (
 // CLI defines the command structure for j4c.
 type CLI struct {
 	Config  string           `help:"Path to config file" type:"path"`
-	JSON    bool             `help:"Output in JSON format" short:"j"`
+	JSON    bool             `help:"Print data as JSON on stdout; errors and warnings become one JSON object per line on stderr" short:"j"`
 	Version kong.VersionFlag `help:"Show version information"`
 
 	Issue      IssueCmd      `cmd:"" help:"Issue operations"`
 	Link       LinkCmd       `cmd:"" help:"Link operations"`
 	Attachment AttachmentCmd `cmd:"" help:"Attachment operations"`
-	Init       InitCmd       `cmd:"" help:"Initialize config file"`
+	Init       InitCmd       `cmd:"" help:"Write .jira4claude.yaml (server and default project) in the current directory and add it to .gitignore"`
 }
 
 // IssueContext provides dependencies for issue commands.
@@ -186,6 +186,16 @@ func runAttachment(ctx *kong.Context, printer jira4claude.Printer, cfg *jira4cla
 	return 0
 }
 
+// description is the top-level help text: what the tool is, and the rules a
+// script relies on. The README's Scripting section has the details.
+const description = "A minimal Jira CLI for AI agents. It never prompts.\n\n" +
+	"stdout carries only data. Errors, warnings and notices go to stderr; with --json, " +
+	"each is one JSON object per line, with a \"level\" key. " +
+	"Exit codes: 0 success, 1 validation or usage error (including a refused write), 2 authentication, " +
+	"3 permission, 4 not found, 5 conflict (--if-updated), 6 rate limit, 7 internal. " +
+	"A write that would lose content is refused unless --force.\n\n" +
+	"Scripting guide: https://github.com/fwojciec/jira4claude#scripting"
+
 // kongExit carries an exit code out of kong's Exit hook.
 type kongExit struct {
 	code int
@@ -203,7 +213,7 @@ type kongExit struct {
 func parse(cli *CLI, args []string, stdout, stderr io.Writer, versionText string) (ctx *kong.Context, code int, exited bool) {
 	parser, err := kong.New(cli,
 		kong.Name("j4c"),
-		kong.Description("A minimal Jira CLI for AI agents"),
+		kong.Description(description),
 		kong.Vars{"version": versionText},
 		kong.Writers(stdout, stderr),
 		kong.Exit(func(code int) { panic(kongExit{code: code}) }),

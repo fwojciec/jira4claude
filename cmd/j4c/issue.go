@@ -13,14 +13,14 @@ import (
 // IssueCmd groups issue subcommands.
 type IssueCmd struct {
 	View          IssueViewCmd          `cmd:"" help:"View one or more issues, whole or by field"`
-	List          IssueListCmd          `cmd:"" help:"List issues"`
-	Ready         IssueReadyCmd         `cmd:"" help:"List issues ready to work on"`
+	List          IssueListCmd          `cmd:"" help:"List issues: one tab-separated line each (key, status, type, priority, assignee, summary)"`
+	Ready         IssueReadyCmd         `cmd:"" help:"List issues ready to work on (not Done or Won't Do, not blocked by an issue that is not Done), as issue list prints them"`
 	Create        IssueCreateCmd        `cmd:"" help:"Create an issue"`
-	Update        IssueUpdateCmd        `cmd:"" help:"Update an issue"`
+	Update        IssueUpdateCmd        `cmd:"" help:"Update an issue; prints each field written with its old and new value"`
 	Delete        IssueDeleteCmd        `cmd:"" help:"Delete an issue"`
 	Fields        IssueFieldsCmd        `cmd:"" help:"List settable fields for create or edit"`
-	Transitions   IssueTransitionsCmd   `cmd:"" help:"List available transitions"`
-	Transition    IssueTransitionCmd    `cmd:"" help:"Transition an issue"`
+	Transitions   IssueTransitionsCmd   `cmd:"" help:"List available transitions: one tab-separated line each (ID, name, target status)"`
+	Transition    IssueTransitionCmd    `cmd:"" help:"Move an issue to another status; prints KEY: FROM → TO"`
 	Assign        IssueAssignCmd        `cmd:"" help:"Assign an issue"`
 	Comment       IssueCommentCmd       `cmd:"" help:"Add a comment to an issue"`
 	DeleteComment IssueDeleteCommentCmd `cmd:"delete-comment" help:"Delete a comment from an issue"`
@@ -214,7 +214,7 @@ type IssueCreateCmd struct {
 	Project     string `help:"Project key" short:"p"`
 	Type        string `help:"Issue type (default Task)" short:"t"`
 	Summary     string `help:"Issue summary" short:"s" required:""`
-	Description string `help:"Issue description" short:"d" xor:"description"`
+	Description string `help:"Issue description (Markdown)" placeholder:"TEXT" short:"d" xor:"description"`
 	// DescriptionFile is a pointer so that an empty path is an error, not
 	// the flag's absence.
 	DescriptionFile *string  `name:"description-file" placeholder:"PATH" help:"Read the description from this file, or from standard input for -: UTF-8, at most 1 MiB; a leading byte order mark and one trailing newline are removed, so the output of issue view KEY --field description can be passed back as it is" xor:"description"`
@@ -222,7 +222,7 @@ type IssueCreateCmd struct {
 	Labels          []string `help:"Issue labels" short:"l"`
 	Parent          string   `help:"Parent issue key (pass --type=Sub-task explicitly for classic-project sub-tasks)" short:"P"`
 	Assignee        string   `help:"Assignee: 'me', email, or account ID" short:"A"`
-	FieldJSON       []string `name:"field-json" sep:"none" help:"Set field by ID, value is JSON (repeatable). Example: customfield_10801='{\"value\":\"High\"}'"`
+	FieldJSON       []string `name:"field-json" sep:"none" placeholder:"ID=JSON" help:"Set field by ID, value is JSON (repeatable). Example: customfield_10801='{\"value\":\"High\"}'. Refused for the description, and for a field a typed flag given here also sets (e.g. priority with --priority)"`
 	Force           bool     `help:"Write even if Markdown conversion drops content (e.g. images); dropped content is reported as a warning"`
 	DryRun          bool     `name:"dry-run" help:"Create nothing: print the description as Jira would hold it (as issue view would print it), with the same warnings and refusals as a real run; the assignee is still looked up"`
 }
@@ -373,9 +373,9 @@ func rejectsAssigneeField(err error) bool {
 type IssueUpdateCmd struct {
 	Key                   string   `arg:"" help:"Issue key"`
 	Summary               *string  `help:"New summary" short:"s"`
-	Description           *string  `help:"Replace the description. Edit the Markdown issue view prints: each {{...}} token in it stands for an existing image, mention or other node that Markdown cannot carry, and is put back unchanged; leaving a token out is refused unless --force" short:"d" xor:"description"`
-	DescriptionFile       *string  `name:"description-file" placeholder:"PATH" help:"Read the new description (as --description) from this file, or from standard input for -: UTF-8, at most 1 MiB; a leading byte order mark and one trailing newline are removed, so the output of issue view KEY --field description can be passed back as it is. The guarded edit: issue view KEY --field description > d.md, edit d.md, then --description-file d.md --if-updated TIME" xor:"description"`
-	AppendDescription     *string  `help:"Add text after the current description; the existing content is kept as it is, never converted" xor:"description"`
+	Description           *string  `placeholder:"TEXT" help:"Replace the description. Edit the Markdown issue view prints: each {{...}} token in it stands for an existing image, mention or other node that Markdown cannot carry, and is put back unchanged; leaving a token out is refused unless --force" short:"d" xor:"description"`
+	DescriptionFile       *string  `name:"description-file" placeholder:"PATH" help:"Read the new description (as --description) from this file, or from standard input for -: UTF-8, at most 1 MiB; a leading byte order mark and one trailing newline are removed, so the output of issue view KEY --field description can be passed back as it is. The guarded edit: TIME=$(issue view KEY --field updated), then issue view KEY --field description > d.md, edit d.md, then --description-file d.md --if-updated $TIME; reading TIME first catches a change made while you edit" xor:"description"`
+	AppendDescription     *string  `placeholder:"TEXT" help:"Add text after the current description; the existing content is kept as it is, never converted" xor:"description"`
 	AppendDescriptionFile *string  `name:"append-description-file" placeholder:"PATH" help:"Read the text to append (as --append-description) from this file, or from standard input for -: UTF-8, at most 1 MiB; a leading byte order mark and one trailing newline are removed, so the output of a command can be passed back as it is" xor:"description"`
 	ClearDescription      bool     `help:"Remove the description; refused unless --force when it holds images, mentions or other nodes Markdown cannot carry" xor:"description"`
 	Priority              *string  `help:"New priority"`
@@ -384,8 +384,8 @@ type IssueUpdateCmd struct {
 	ClearLabels           bool     `help:"Clear all labels" name:"clear-labels"`
 	Parent                *string  `help:"Parent issue key" short:"P" xor:"parent"`
 	ClearParent           bool     `help:"Remove from parent" name:"clear-parent" xor:"parent"`
-	FieldJSON             []string `name:"field-json" sep:"none" help:"Set field by ID, value is JSON (repeatable). Example: customfield_10801='{\"value\":\"High\"}'"`
-	IfUpdated             *string  `name:"if-updated" help:"Write only if the issue was last updated at this time, as issue view --json prints it in 'updated' (compared to the millisecond); otherwise exit 5 and write nothing. The check is made just before the write, so a change landing in between is not caught"`
+	FieldJSON             []string `name:"field-json" sep:"none" placeholder:"ID=JSON" help:"Set field by ID, value is JSON (repeatable). Example: customfield_10801='{\"value\":\"High\"}'. Refused for the description, and for a field a typed flag given here also sets (e.g. priority with --priority)"`
+	IfUpdated             *string  `name:"if-updated" placeholder:"TIME" help:"Write only if the issue was last updated at this time, as issue view KEY --field updated prints it (compared to the millisecond); otherwise exit 5 and write nothing. The check is made just before the write, so a change landing in between is not caught"`
 	Force                 bool     `help:"Write even if content would be lost: new Markdown that does not convert (e.g. images), existing nodes whose tokens were left out, or a cleared description that holds them; what is lost is reported as a warning"`
 	DryRun                bool     `name:"dry-run" help:"Write nothing: print the changes and the whole description as Jira would hold it (as issue view would print it after the write; its tokens are numbered for that description, so edit your input, not this output). The issue is still read and --if-updated checked; warnings and refusals are those of a real run"`
 }
@@ -746,7 +746,7 @@ func (c *IssueAssignCmd) Run(ctx *IssueContext) error {
 // IssueCommentCmd adds a comment.
 type IssueCommentCmd struct {
 	Key      string  `arg:"" help:"Issue key"`
-	Body     string  `help:"Comment body" short:"b" required:"" xor:"body"`
+	Body     string  `help:"Comment body (Markdown)" placeholder:"TEXT" short:"b" required:"" xor:"body"`
 	BodyFile *string `name:"body-file" placeholder:"PATH" help:"Read the comment body from this file, or from standard input for -: UTF-8, at most 1 MiB; a leading byte order mark and one trailing newline are removed, so the output of a command can be passed back as it is" required:"" xor:"body"`
 	Force    bool    `help:"Write even if Markdown conversion drops content (e.g. images); dropped content is reported as a warning"`
 	DryRun   bool    `name:"dry-run" help:"Add nothing: print the body as Jira would hold it (as issue view would print it), with the same warnings and refusals as a real run; the issue is not read"`
