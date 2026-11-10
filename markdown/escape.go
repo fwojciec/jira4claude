@@ -205,8 +205,7 @@ type textContext struct {
 	encodeFirst, encodeLast bool
 	// breakAutolinks: where Linkify would start an autolink, write its first
 	// character as a numeric character reference, so the span stays plain
-	// text. Used where a span would run on into a character reference or a
-	// delimiter written after it (see inline_marks.go).
+	// text. Set for all text that is not a link (see inline_marks.go).
 	breakAutolinks bool
 	// linkAfter: a link or inline card may be written right after the text
 	// in brackets, so a "!" that ends it would make the link an image.
