@@ -108,8 +108,8 @@ type Converter interface {
 	//
 	// Protected nodes, whose content or behaviour plain text would lose
 	// (media, mediaSingle, mediaGroup, mediaInline, mention, status, date,
-	// and node types the converter does not know), are written as tokens
-	// numbered in document order, such as {{mention:2 Jane Doe}}. The label
+	// placeholder, and node types the converter does not know), are written
+	// as tokens numbered in document order, such as {{mention:2 Jane Doe}}. The label
 	// after the number is for the reader only. Emoji and inline cards are
 	// written as their text and as links; reading reports nothing about
 	// them.
@@ -130,17 +130,30 @@ type Converter interface {
 	// as text. Existing is set on the issues whose node of original the
 	// result does not hold (a missing token, a misplaced block token), which
 	// the write would remove; a token that is only left as text (unknown
-	// number, wrong kind, used twice) removes nothing.
+	// number, wrong kind, used twice) removes nothing. A node whose token is
+	// missing is not reported when the result holds it anyway, given back
+	// with a part of original the edit left unchanged.
 	//
-	// Content of original that ToMarkdown reports as dropped has no token, so
-	// no edit keeps it: each is reported again as ConversionDropped with
-	// Existing set.
+	// Content of original that Markdown cannot carry is restored where the
+	// edit left it alone: each part of edited that equals the unchanged read
+	// of original, written back, is replaced by the part of original it was
+	// read from, so an unchanged rewrite gives original back. A changed node
+	// that matches a node of original (same type, same place among the
+	// siblings of that type, as many of them on each side, under matched
+	// parents) keeps the original's attributes and block marks where the
+	// edit left them as they read, and always its localId. An inline card
+	// whose link comes back in a form only that card can take is restored.
 	//
-	// Emoji and inline cards of original that the result holds as text and
-	// plain links are reported as ConversionDegraded with Existing set, one
-	// issue per node type with the count. An inline card whose link comes
-	// back in a form only that card can take is restored instead. A nil
-	// edited (a clear) reports neither.
+	// What the result still changes is reported with Existing set, one issue
+	// per node or mark type with the count: emoji turned into text, inline
+	// cards into plain links, decision lists, layouts, nested expands and
+	// block task items flattened, marks and attribute values Markdown cannot
+	// show, localIds not kept, and containers whose shape the read changes
+	// as ConversionDegraded; inline comment (annotation) marks as
+	// ConversionDropped. What the read itself reports about the parts not
+	// given back whole is reported again: dropped content as
+	// ConversionDropped, a change of form as ConversionDegraded. A nil edited
+	// (a clear) reports none of these but the dropped content.
 	//
 	// edited is not modified. A nil document counts as an empty one. Always
 	// returns a non-nil *ADFNode.

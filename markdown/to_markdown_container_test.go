@@ -511,3 +511,20 @@ func TestToADF_CodeBlockBlankOnlyLineInListItem(t *testing.T) {
 		})
 	}
 }
+
+// A GFM table has as many columns as its header row and leaves out the cells
+// beyond them, so a row wider than the header (under a header cell spanning
+// two columns, say) widens the header with empty cells (jir-h44x).
+func TestToMarkdown_TableRowWiderThanHeader(t *testing.T) {
+	t.Parallel()
+
+	doc := docOf(rawNode(t, `{"type":"table","content":[`+
+		`{"type":"tableRow","content":[{"type":"tableHeader","attrs":{"colspan":2},"content":[{"type":"paragraph","content":[{"type":"text","text":"H"}]}]}]},`+
+		`{"type":"tableRow","content":[{"type":"tableCell","content":[{"type":"paragraph","content":[{"type":"text","text":"a"}]}]},`+
+		`{"type":"tableCell","content":[{"type":"paragraph","content":[{"type":"text","text":"b"}]}]}]}]}`))
+	md, _ := markdown.New().ToMarkdown(doc)
+	assert.Equal(t, "| H |  |\n| --- | --- |\n| a | b |", md)
+	adf, _ := markdown.New().ToADF(md)
+	require.Len(t, adf.Content, 1)
+	assert.Contains(t, jsonOf(t, adf), `"text":"b"`)
+}

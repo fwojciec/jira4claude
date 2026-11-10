@@ -196,10 +196,14 @@ after:  Now {{status:1 IN PROGRESS}}, due {{date:2 2026-11-20}}. Ping {{mention:
 ```
 
 Writing a description back now warns, as `degraded`, about the emoji it turns
-into text and the smart links it turns into plain links; a smart link that
-comes back unchanged is restored. An emoji with neither a character nor a
-short name, which read as nothing and was lost on a rewrite, is reported as
-`dropped`, so a rewrite of its description is refused unless `--force`.
+into text and the smart links it turns into plain links. Since jir-h44x both
+come back while their paragraph is unchanged, and a smart link in a changed
+paragraph is restored when its link can only be that card (its URL as its
+text, a whole text node with no other mark, identical cards for that URL,
+and as many copies of the link in the new text as in the read). An emoji
+with neither a character nor a short name, which read as nothing and was
+lost on a rewrite, is reported as `dropped` when its paragraph is edited, so
+that write is refused unless `--force`.
 
 Migration: read the description again before editing. Markdown saved from an
 earlier read of a description holding a status or date is refused: it lacks
@@ -207,6 +211,27 @@ their tokens, and its token numbers may name other kinds of node now.
 Keep status and date tokens as you keep mentions; leaving one out is refused
 unless `--force`, and so is `--clear-description` on a description holding
 one.
+
+**Placeholders read as tokens, and a rewrite keeps what it does not edit.**
+A placeholder (a template's hint text) read as nothing and was lost on a
+rewrite; it now reads as a token, `{{placeholder:4 Type something}}`, and
+the token numbers after it shift. A table row with more cells than the
+header row (a header cell spanning columns) lost its extra cells on read;
+the header now gains empty cells. Writing a description back now gives back
+every block you did not change exactly as Jira held it, and a changed block
+keeps the attributes and formatting Markdown cannot show where it matches
+the original block. What still changes is reported, one line per kind with
+a count: `degraded` for a form change (text colour, alignment, a panel's
+colour, a layout flattened, a decision list turned into a bullet list, ids
+not kept), and `dropped` for inline comments in an edited paragraph, whose
+marks would come off the text. So an unchanged rewrite no longer warns about
+emoji or smart links, a rewrite is no longer refused for content with no
+Markdown form in a part it does not change, and an edit can now warn or be
+refused where it changed something silently before.
+
+Migration: keep placeholder tokens as you keep mentions, or pass `--force`
+to remove one. Treat the new warnings as reports of what the edit changes in
+Jira; to keep an inline comment, leave its paragraph unchanged.
 
 ### Added
 
@@ -252,6 +277,18 @@ one.
 - JSON on stdout wrote `&`, `<` and `>` inside strings as `&`, `<`
   and `>`; it now keeps them as they are, as the stderr lines always
   did. A JSON parser reads both forms the same; a `grep` for `<` now matches.
+- Rewriting a description lost, without a word: placeholders; layouts
+  (flattened); decision lists (turned into bullet lists); nested expands;
+  task items holding paragraphs; a panel's custom or tip type, icon and
+  colour; a table's layout, width, numbered column and display mode; cell
+  widths, spans and backgrounds; text colour, highlight and inline comments;
+  alignment, indentation and breakout; link titles; empty paragraphs; a line
+  break at the end of a paragraph or in a heading or cell; control
+  characters; and the ids of task items, tables and other nodes. Each now
+  comes back, or is reported (jir-h44x).
+- A block HTML comment that mentions `<details>`, such as
+  `<!-- <details> -->`, was dropped, so a write refused it; it is text, like
+  every other comment.
 
 ### Known limits
 
@@ -289,7 +326,11 @@ media, mentions and unknown nodes appear as tokens such as
 `{{mention:2 Jane Doe}}` and `{{mediaSingle:1 shot.png}}` instead of
 disappearing. Text is escaped so that it reads back exactly: `&#32;` for an
 edge space, `&#104;ttps://` for a URL that is not a link, `\<`, and a
-backslash at the end of a line for a hard break. `<br>` and HTML comments
+backslash at the end of a line for a hard break. (Not exactly, as built: a
+carriage return or control character, a line break in inline code, and a
+line break at the end of a paragraph or in a heading or table cell have no
+Markdown form and read changed, with a warning; see v0.4.0 for how a rewrite
+keeps them.) `<br>` and HTML comments
 show as text: `<!-- note -->` in Jira's text reads as `\<!-- note -->`, and
 one written in Markdown reaches Jira as that text.
 
@@ -428,3 +469,11 @@ company-managed project.
   character, and a smart link becomes a plain link. v0.4.0 protects statuses
   and dates as tokens, restores a smart link that comes back unchanged, and
   warns about the emoji and smart links a rewrite still changes.
+- Rewriting a description also loses, without a word, placeholders, layouts,
+  decision lists, nested expands, the attributes and marks Markdown cannot
+  show (panel colours and custom types, table layout and cell widths,
+  text colour, inline comments, alignment, link titles, task item ids), empty
+  paragraphs, line breaks at the end of a paragraph and control characters.
+  Rewriting a description that held content with no Markdown form was
+  refused even when that part was not edited. v0.4.0 gives back every block
+  the edit does not change and reports the rest.

@@ -43,10 +43,12 @@ as Markdown; the tool converts them to and from Jira's document format.
   `"attachments": []` for `attachment upload`.
 - **A write that would lose content is refused**, with exit 1 and nothing
   written, unless you pass `--force`. This covers Markdown that has no Jira
-  form (an image), existing images, mentions, statuses and dates left out of
-  an edited description, and existing content the tool cannot show as
-  Markdown. Emoji and smart links that a rewrite turns into text and plain
-  links are reported as warnings.
+  form (an image), existing images, mentions, statuses, dates and
+  placeholders left out of an edited description, and, in a part of the
+  description you edited, inline comments and content the tool cannot show
+  as Markdown. A part you did not edit comes back exactly as Jira held it;
+  what an edit changes in form only (a colour, an emoji turned into text) is
+  reported as a warning. See [Descriptions as Markdown](#descriptions-as-markdown).
 - **Every write to Jira prints what it did**: the key, the action, the fields
   written (with old and new values where the tool knows them; see
   [Other updates](#other-updates)), and the issue's `updated` time after an
@@ -701,8 +703,9 @@ Logs at &#104;ttps://logs.example.test/run/42
 &#32;Indented by one space in Jira.
 ```
 
-**Tokens.** Images and other media, mentions, status lozenges, dates, and
-node types the reader does not know are each written as a token
+**Tokens.** Images and other media, mentions, status lozenges, dates,
+placeholders (a template's grey hint text), and node types the reader does
+not know are each written as a token
 `{{kind:number label}}`, numbered in document order. A block token such as
 `{{mediaSingle:1 shot.png}}` stands on a line of its own; an inline token such
 as `{{mention:2 Jane Doe}}` sits in the text. A status is labelled with its
@@ -736,17 +739,42 @@ Template text: {{mention:1 x}} and {{!mention:1 Jane Doe}}
 Here `{{mention:1 x}}` is text in Jira and `{{!mention:1 Jane Doe}}` is the
 token. Keep the `!`.
 
-**Emoji and smart links.** An emoji reads as its character (or `:shortname:`
-for a custom one) and a smart link (inline card) as a link whose text is its
-URL. They are not tokens. Writing the description back turns each emoji into
-plain text, reported as one `degraded` warning with the count (`2 emoji become
-plain text`). A smart link is restored when its link comes back unchanged, URL
-as its text, and no other link in the description reads the same; any other
-becomes a plain link, also reported as `degraded`.
+**What a rewrite keeps.** Much of what Jira holds has no Markdown form, and
+the reader shows it in the nearest form or not at all: an emoji as its
+character (or `:shortname:`), a smart link (inline card) as a link whose
+text is its URL, a decision list as a bullet list, a layout's columns one
+after another, a nested expand inside the one around it; a panel's colour or
+custom type, a table's layout and column widths, cell backgrounds, text
+colour and highlight, inline comments, alignment, indentation, link titles
+and the ids Jira gives some nodes are not shown. When you write the
+description back, the tool compares your text with the description as it
+was read:
+
+- A block you did not change (a paragraph, a list item, a table cell, a
+  panel, any block and what it holds) comes back exactly as Jira held it.
+  Writing back what you read changes nothing.
+- A block you changed keeps what Markdown cannot show when it matches the
+  original: same kind of block, same place among the blocks of that kind
+  next to it, as many of them as before, inside a container that matches the
+  same way. A value you changed (a heading level, a panel type, a list's
+  first number) is yours; table cell widths and spans are kept only while
+  every row has as many cells as before.
+- A smart link in a changed paragraph is put back when its link can only be
+  that card: the link text is its URL, the link is a whole text node with no
+  other formatting, the cards with that URL are identical, and your text
+  holds that link exactly as many times as the original's read does (adding
+  a copy of the link, or a plain link that reads the same, stops it).
+- What still cannot be kept is reported on the write, one line per kind with
+  a count: `degraded` when the content stays and its form changes (`2 emoji
+  become plain text`, a colour or alignment removed, a layout flattened, a
+  table that gains a header row, ids that are not kept); `dropped` for inline
+  comments, whose marks would come off the text and detach the comments, and
+  for content with no Markdown form at all, so that write is refused unless
+  `--force`.
 
 **Character references.** Text is escaped only where Markdown would otherwise
-change it, so that writing back what you read leaves Jira's text exactly as it
-was. Two forms appear that look unusual:
+change it, so that writing back what you read gives Jira's text back. Two
+forms appear that look unusual:
 
 - `&#32;` is a space (and `&#9;` a tab) at the start or end of a paragraph,
   which Markdown would otherwise drop.
@@ -758,10 +786,20 @@ break inside text, and letter references such as `&#97;` next to emphasis
 markers. Leave them as they are. A hard line break reads as a backslash at the
 end of the line.
 
+A few things in text have no Markdown form: a carriage return or control
+character, a line break inside inline code, and a line break at the end of a
+paragraph or inside a heading or table cell. The read shows them as a line
+feed, a space or nothing, with a warning. They come back as Jira held them
+while their block is unchanged; in a block you edit they are written as
+read, reported as `degraded`.
+
 **Warnings.** Conversion problems are reported on stderr as `dropped` (content
 lost) or `degraded` (content kept in another form, for example a `<details>`
 block inside another, flattened into it). Reading only warns. Writing refuses on `dropped` unless
-`--force`.
+`--force`. The new Markdown's warnings are about your text; the warnings that
+describe the description being written over say what it held, as above. A
+nested expand read back unchanged comes back whole, but your text holds a
+`<details>` inside another, so the write still warns that it was flattened.
 
 ## Refusals
 
@@ -771,7 +809,7 @@ Every refusal writes nothing. Each error message says what to do.
 |---------|------|------------|
 | New Markdown has no Jira form, for example an image: `description would drop unsupported content (Image)` | 1 | Remove it, or pass `--force` to write without it. An image can be attached with `attachment upload`, but not placed in the text. |
 | A token from the current description is missing: `description would lose existing content ({{mention:2 Jane Doe}})` | 1 | Put the token back, unchanged (a block token on its own line). Pass `--force` to delete the node on purpose. |
-| The current description holds content with no Markdown form: `rewriting the description would remove existing content that has no Markdown form` | 1 | Use `--append-description`, which keeps the existing content. `--force` deletes it. |
+| A part of the current description you edited holds content with no Markdown form, or inline comments: `rewriting the description would remove existing content that has no Markdown form (annotation)` | 1 | Leave that part as you read it, or use `--append-description`, which keeps the existing content. `--force` deletes it. |
 | `--clear-description` on a description with tokens (images, mentions, statuses, dates) | 1 | Pass `--force` to clear it anyway. |
 | `--if-updated` does not match: `PROJ-123 was updated at ..., not at ...` | 5 | Read the issue again and redo the edit on the current text. |
 | `--field-json` names a field a typed flag also sets: `--field-json priority and --priority both set priority` | 1 | Give one of them. |

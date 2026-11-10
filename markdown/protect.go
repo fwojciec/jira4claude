@@ -16,7 +16,8 @@ import (
 // Protected nodes (#149) are those whose content or behaviour plain text
 // would lose: media, mediaSingle, mediaGroup, mediaInline, mention, status (a
 // lozenge's colour and style), date (a timestamp, of which the text shows
-// only the day), and any node type the reader does not know. The reader
+// only the day), placeholder (an editor hint with no text of its own), and
+// any node type the reader does not know. The reader
 // writes each as a token, numbered in document order:
 //
 //	{{mediaSingle:1 shot.png}}   a block node, on a line of its own
@@ -24,9 +25,10 @@ import (
 //	{{date:3 2026-11-10}}        a date, labelled with its UTC day
 //
 // Emoji and inline cards are not protected: their content reads as text (the
-// character or :shortName:) and as a link to the card's URL. Reattach
-// reports the write that turns them into text and links, and puts back an
-// inline card whose link can only be that card (see planCards).
+// character or :shortName:) and as a link to the card's URL. Reattach gives
+// them back with the paragraph they are in while it is unchanged (see
+// restore.go), puts back an inline card whose link can only be that card
+// (see planCards), and reports the rest.
 //
 // The word before the colon is the node type and the text after the number
 // is a label; both are for whoever reads the Markdown. Reattach trusts only
