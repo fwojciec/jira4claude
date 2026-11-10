@@ -14,6 +14,14 @@ as Markdown; the tool converts them to and from Jira's document format.
 
 - **It never prompts.** A missing required flag is an error. Deletes do not ask
   for confirmation.
+- **It never waits forever on Jira.** Each request must be answered in full
+  within `--timeout` (default `30s`). An attachment download or upload has
+  no limit on its total time, only on silence: it fails when nothing arrives
+  or is sent for that long, which also bounds the wait for the answer to
+  start. A request that times out is not retried, so a server that stops
+  answering ends the command after about that long, with exit 7. A write
+  that times out may have been applied, and its error says so. `--timeout 0`
+  waits forever.
 - **stdout carries only data.** Errors, warnings and notices such as
   `[info] No issues found` go to stderr. With `--json`, stdout is JSON and each
   stderr line is one JSON object.
@@ -744,7 +752,7 @@ The code column is the `code` of a `--json` error line.
 | 4 | `not_found` | Issue, attachment or other resource not found |
 | 5 | `conflict` | The issue changed since `--if-updated`, Jira answered 409, or two attachments would be saved under one name |
 | 6 | `rate_limit` | Jira's rate limit, still hit after the tool's own retries |
-| 7 | `internal` | Anything else, including network errors and other server errors |
+| 7 | `internal` | Anything else, including network errors, timeouts (`--timeout`) and other server errors |
 
 ## Not verified against a live Jira site
 

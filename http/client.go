@@ -33,6 +33,10 @@ type Client struct {
 	httpClient     *http.Client
 	maxRetries     int
 	retryBaseDelay time.Duration
+	timeout        time.Duration
+	// transfer selects the idle rule of the timeout for this client's
+	// requests (see WithTimeout); it is set by forTransfer, for uploads.
+	transfer bool
 }
 
 // Option configures a Client.
@@ -43,6 +47,7 @@ type clientConfig struct {
 	httpClient     *http.Client
 	maxRetries     int
 	retryBaseDelay time.Duration
+	timeout        time.Duration
 }
 
 // WithNetrcPath sets a custom path to the netrc file.
@@ -72,6 +77,25 @@ func WithMaxRetries(n int) Option {
 func WithRetryBaseDelay(d time.Duration) Option {
 	return func(c *clientConfig) {
 		c.retryBaseDelay = d
+	}
+}
+
+// WithTimeout bounds how long a request waits on the server. Zero, the
+// default, means no bound.
+//
+// An API call (DoRequest) must be answered in full, headers and body, within
+// d of each attempt being sent. An attachment transfer (Stream, and Upload)
+// has no bound on its total duration: it fails only when no byte moves in
+// either direction for d, so d is both the wait for the first byte of the
+// answer and the longest pause allowed in the middle of a transfer.
+//
+// A request that times out is not retried: a server silent for d is not
+// having a transient failure, and four attempts would multiply the wait by
+// four. A write (any method but GET and HEAD) that times out may have been
+// applied, and its error says so.
+func WithTimeout(d time.Duration) Option {
+	return func(c *clientConfig) {
+		c.timeout = d
 	}
 }
 
@@ -145,6 +169,7 @@ func NewClient(baseURL string, opts ...Option) (*Client, error) {
 		httpClient:     cfg.httpClient,
 		maxRetries:     cfg.maxRetries,
 		retryBaseDelay: cfg.retryBaseDelay,
+		timeout:        cfg.timeout,
 	}, nil
 }
 
@@ -235,6 +260,10 @@ func (c *Client) doRequest(req *http.Request, expectedStatus int) ([]byte, int, 
 		}
 
 		body, statusCode, err := c.doRequestOnce(req)
+		var timedOut *attemptTimeout
+		if errors.As(err, &timedOut) {
+			return nil, 0, c.timeoutError(req, timedOut)
+		}
 		if err != nil {
 			connErr := &jira4claude.Error{
 				Code:    jira4claude.EInternal,
@@ -361,19 +390,36 @@ func (c *Client) Stream(ctx context.Context, path string, w io.Writer) (int64, e
 }
 
 // streamAttempt makes one Stream attempt, under the configured client's
-// Timeout when it has one.
+// Timeout when it has one, and under the idle rule of the client's own
+// timeout (see WithTimeout) when that is set: every response and every part
+// of a body that arrives starts the countdown again, so a slow download that
+// keeps moving is never cut. A timed-out attempt is not retried.
 func (c *Client) streamAttempt(ctx context.Context, rt http.RoundTripper, start *url.URL, w io.Writer) (int64, bool, error) {
 	if c.httpClient.Timeout > 0 {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, c.httpClient.Timeout)
 		defer cancel()
 	}
-	return c.streamOnce(ctx, rt, start, w)
+	if c.timeout <= 0 {
+		return c.streamOnce(ctx, rt, start, w, func() {})
+	}
+	parent := ctx
+	ctx, wd := startWatchdog(parent, c.timeout)
+	defer wd.stop()
+	n, retry, err := c.streamOnce(ctx, rt, start, w, wd.kick)
+	if err != nil && parent.Err() == nil && errors.Is(context.Cause(ctx), errStalled) {
+		return n, false, &jira4claude.Error{
+			Code: jira4claude.EInternal,
+			Message: fmt.Sprintf("download timed out: nothing arrived for %s after %d bytes (--timeout sets the limit)",
+				c.timeout, n),
+		}
+	}
+	return n, retry, err
 }
 
 // streamOnce makes one Stream attempt from start. retry reports whether the
 // failure is transient and nothing was written.
-func (c *Client) streamOnce(ctx context.Context, rt http.RoundTripper, start *url.URL, w io.Writer) (n int64, retry bool, err error) {
+func (c *Client) streamOnce(ctx context.Context, rt http.RoundTripper, start *url.URL, w io.Writer, kick func()) (n int64, retry bool, err error) {
 	target := start
 	withAuth := true
 	for hop := 0; ; hop++ {
@@ -398,11 +444,12 @@ func (c *Client) streamOnce(ctx context.Context, rt http.RoundTripper, start *ur
 		if err != nil {
 			return 0, true, hopError(ctx, "request to "+target.Host+" failed", err, redirected)
 		}
+		kick()
 
 		switch {
 		case resp.StatusCode == http.StatusOK:
 			sw := &sinkWriter{w: w}
-			n, err := io.Copy(sw, resp.Body)
+			n, err := io.Copy(sw, &progressReader{rc: resp.Body, kick: kick})
 			resp.Body.Close()
 			if sw.err != nil {
 				return n, false, &jira4claude.Error{Code: jira4claude.EInternal, Message: "failed to write the download", Inner: sw.err}
@@ -590,20 +637,145 @@ func rewindBody(req *http.Request) error {
 	return nil
 }
 
-// doRequestOnce executes a single HTTP request attempt.
+// doRequestOnce executes a single HTTP request attempt, under the client's
+// timeout when it has one (see WithTimeout). A timed-out attempt returns an
+// *attemptTimeout.
 func (c *Client) doRequestOnce(req *http.Request) ([]byte, int, error) {
+	if c.timeout <= 0 {
+		return c.exchange(req, func() {})
+	}
+	var ctx context.Context
+	var stop func()
+	kick := func() {}
+	if c.transfer {
+		var wd *watchdog
+		ctx, wd = startWatchdog(req.Context(), c.timeout)
+		stop, kick = wd.stop, wd.kick
+	} else {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeoutCause(req.Context(), c.timeout, errDeadline)
+		stop = cancel
+	}
+	defer stop()
+
+	attempt := req.WithContext(ctx)
+	if c.transfer && req.Body != nil && req.Body != http.NoBody {
+		attempt.Body = &progressReader{rc: req.Body, kick: kick}
+	}
+	body, status, err := c.exchange(attempt, kick)
+	if err != nil && req.Context().Err() == nil {
+		if cause := context.Cause(ctx); errors.Is(cause, errDeadline) || errors.Is(cause, errStalled) {
+			return nil, 0, &attemptTimeout{stalled: errors.Is(cause, errStalled)}
+		}
+	}
+	return body, status, err
+}
+
+// exchange sends req and reads the whole response body, calling kick when
+// the response arrives and for each part of its body.
+func (c *Client) exchange(req *http.Request, kick func()) ([]byte, int, error) {
 	resp, err := c.Do(req)
 	if err != nil {
 		return nil, 0, err
 	}
 	defer resp.Body.Close()
+	kick()
 
-	body, err := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(&progressReader{rc: resp.Body, kick: kick})
 	if err != nil {
 		return nil, 0, err
 	}
 
 	return body, resp.StatusCode, nil
+}
+
+// Causes of a timed-out attempt's cancellation.
+var (
+	errDeadline = errors.New("no complete answer within the timeout")
+	errStalled  = errors.New("no progress within the timeout")
+)
+
+// attemptTimeout is the error of an attempt cut by the client's timeout.
+type attemptTimeout struct {
+	// stalled is true for the idle rule of a transfer, false for the
+	// deadline of an API call.
+	stalled bool
+}
+
+func (e *attemptTimeout) Error() string {
+	if e.stalled {
+		return errStalled.Error()
+	}
+	return errDeadline.Error()
+}
+
+// timeoutError is the error of a request whose attempt timed out. Its code
+// is EInternal, the code of network failures, which a timeout is one of. A
+// write may have reached the server before the answer stopped coming, so
+// its error says the request may have been applied.
+func (c *Client) timeoutError(req *http.Request, e *attemptTimeout) error {
+	what := fmt.Sprintf("no answer from Jira within %s", c.timeout)
+	if e.stalled {
+		what = fmt.Sprintf("the transfer stalled: nothing moved for %s", c.timeout)
+	}
+	msg := fmt.Sprintf("%s %s timed out (%s; --timeout sets the limit)", req.Method, req.URL.Path, what)
+	if req.Method != http.MethodGet && req.Method != http.MethodHead {
+		msg += "; it was not retried and may have been applied, check before retrying"
+	}
+	return &jira4claude.Error{Code: jira4claude.EInternal, Message: msg}
+}
+
+// watchdog cancels its context when kick has not been called for d: the idle
+// rule of a transfer, which bounds the wait for the first byte and every
+// pause after it, but not the total duration.
+type watchdog struct {
+	d      time.Duration
+	timer  *time.Timer
+	cancel context.CancelCauseFunc
+}
+
+func startWatchdog(parent context.Context, d time.Duration) (context.Context, *watchdog) {
+	ctx, cancel := context.WithCancelCause(parent)
+	w := &watchdog{d: d, cancel: cancel}
+	w.timer = time.AfterFunc(d, func() { cancel(errStalled) })
+	return ctx, w
+}
+
+// kick records progress: the countdown starts again.
+func (w *watchdog) kick() {
+	w.timer.Reset(w.d)
+}
+
+// stop ends the watchdog and releases its context.
+func (w *watchdog) stop() {
+	w.timer.Stop()
+	w.cancel(nil)
+}
+
+// progressReader calls kick for every read that returns bytes.
+type progressReader struct {
+	rc   io.ReadCloser
+	kick func()
+}
+
+func (p *progressReader) Read(b []byte) (int, error) {
+	n, err := p.rc.Read(b)
+	if n > 0 {
+		p.kick()
+	}
+	return n, err
+}
+
+func (p *progressReader) Close() error {
+	return p.rc.Close()
+}
+
+// forTransfer returns a copy of c whose requests follow the transfer rule of
+// the timeout (see WithTimeout), for an upload.
+func (c *Client) forTransfer() *Client {
+	cp := *c
+	cp.transfer = true
+	return &cp
 }
 
 // isRetryableStatus returns true if the status code indicates a transient error

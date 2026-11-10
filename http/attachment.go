@@ -207,7 +207,7 @@ func (s *AttachmentService) Upload(ctx context.Context, key string, file jira4cl
 	req.Header.Set("Content-Type", contentType)
 	req.Header.Set("X-Atlassian-Token", "no-check")
 
-	respBody, status, err := s.client.withoutRedirects().doRequest(req, http.StatusOK)
+	respBody, status, err := s.client.withoutRedirects().forTransfer().doRequest(req, http.StatusOK)
 	switch {
 	case status == http.StatusRequestEntityTooLarge:
 		return nil, tooLargeError(file, respBody)

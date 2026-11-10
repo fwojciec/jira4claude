@@ -45,6 +45,10 @@ type stubJira struct {
 	// fail with 503, as a read back after an applied write may.
 	failReadAfterWrite bool
 
+	// mediaStall, when set, makes the media host stall mid-body (see
+	// stallMedia).
+	mediaStall chan struct{}
+
 	mu            sync.Mutex
 	requests      []stubRequest
 	mediaRequests []stubRequest
@@ -136,6 +140,31 @@ func newStubJira(t *testing.T) *stubJira {
 	return s
 }
 
+// startHanging makes every later Jira request wait without an answer. It
+// must be called once, before the requests: the channel it makes is closed
+// by a cleanup registered after the server's own, so it runs first and
+// lets Close return.
+func (s *stubJira) startHanging(t *testing.T) {
+	t.Helper()
+	hang := make(chan struct{})
+	s.mu.Lock()
+	s.hang = hang
+	s.mu.Unlock()
+	t.Cleanup(func() { close(hang) })
+}
+
+// stallMedia makes the media host send the first half of each file, flush
+// it, and then wait without sending the rest, until the client goes away
+// or the test ends (the cleanup ordering is that of startHanging).
+func (s *stubJira) stallMedia(t *testing.T) {
+	t.Helper()
+	stall := make(chan struct{})
+	s.mu.Lock()
+	s.mediaStall = stall
+	s.mu.Unlock()
+	t.Cleanup(func() { close(stall) })
+}
+
 func (s *stubJira) addIssue(issue *stubIssue) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -194,12 +223,23 @@ func (s *stubJira) serveMedia(w http.ResponseWriter, r *http.Request) {
 	s.mediaRequests = append(s.mediaRequests, req)
 	id := strings.TrimPrefix(r.URL.Path, "/blob/")
 	a := s.attachments[id]
+	stall := s.mediaStall
 	s.mu.Unlock()
 	if a == nil || r.URL.Query().Get("sig") != "signed-"+id {
 		http.Error(w, "no such blob", http.StatusNotFound)
 		return
 	}
 	w.Header().Set("Content-Type", a.MimeType)
+	if stall != nil {
+		w.Header().Set("Content-Length", strconv.Itoa(len(a.Content)))
+		_, _ = w.Write(a.Content[:len(a.Content)/2])
+		w.(http.Flusher).Flush()
+		select {
+		case <-stall:
+		case <-r.Context().Done():
+		}
+		return
+	}
 	_, _ = w.Write(a.Content)
 }
 

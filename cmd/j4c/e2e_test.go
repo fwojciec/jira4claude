@@ -597,6 +597,44 @@ func TestE2E(t *testing.T) {
 		assert.Equal(t, []string{"10000"}, e.stub.issue("PROJ-1").Attachments)
 	})
 
+	t.Run("--timeout ends a command against a server that never answers", func(t *testing.T) {
+		t.Parallel()
+		e := newE2EEnv(t, bin)
+		e.stub.startHanging(t)
+
+		start := time.Now()
+		r := e.run("--timeout", "300ms", "issue", "view", "PROJ-1", "--field", "summary")
+		assert.Less(t, time.Since(start), 10*time.Second)
+		assert.Equal(t, e2eRun{
+			stderr: "[error] GET /rest/api/3/issue/PROJ-1 timed out (no answer from Jira within 300ms; --timeout sets the limit)\n",
+			code:   7,
+		}, r)
+		assert.Len(t, e.stub.Requests(), 1, "not retried")
+
+		r = e.run("--timeout", "300ms", "issue", "comment", "PROJ-1", "--body", "Deployed.")
+		assert.Equal(t, 7, r.code)
+		assert.Empty(t, r.stdout)
+		assert.Contains(t, r.stderr, "may have been applied")
+	})
+
+	t.Run("a download that stalls leaves no partial file", func(t *testing.T) {
+		t.Parallel()
+		e := newE2EEnv(t, bin)
+		e.stub.stallMedia(t)
+		dir := filepath.Join(e.work, "files")
+		require.NoError(t, os.Mkdir(dir, 0o700))
+
+		r := e.run("--timeout", "300ms", "attachment", "download", "PROJ-1", "--id", "10001", "--dir", "files")
+		assert.Equal(t, e2eRun{
+			stderr: `[error] attachment 10001 ("debug log.txt"): download timed out: nothing arrived for 300ms after 7 bytes (--timeout sets the limit)` + "\n",
+			code:   7,
+		}, r)
+		entries, err := os.ReadDir(dir)
+		require.NoError(t, err)
+		assert.Empty(t, entries, "no partial or temporary file is left")
+		assert.Len(t, e.stub.MediaRequests(), 1, "not retried")
+	})
+
 	t.Run("a --json error is one line on stderr and stdout is empty", func(t *testing.T) {
 		t.Parallel()
 		e := newE2EEnv(t, bin)

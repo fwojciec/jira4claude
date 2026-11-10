@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/alecthomas/kong"
 	"github.com/fwojciec/jira4claude"
@@ -29,11 +30,20 @@ type CLI struct {
 	Config  string           `help:"Path to config file" type:"path"`
 	JSON    bool             `help:"Print data as JSON on stdout; errors and warnings become one JSON object per line on stderr" short:"j"`
 	Version kong.VersionFlag `help:"Show version information"`
+	Timeout time.Duration    `help:"How long to wait on Jira, e.g. 30s or 2m; 0 waits forever. An API call must be answered in full within it, and a request that times out is not retried; an attachment download or upload has no cap on its total time, only on any silence: it fails when nothing arrives or is sent for this long. A timeout exits 7, and a timed-out write says it may have been applied" default:"30s" placeholder:"DURATION"`
 
 	Issue      IssueCmd      `cmd:"" help:"Issue operations"`
 	Link       LinkCmd       `cmd:"" help:"Link operations"`
 	Attachment AttachmentCmd `cmd:"" help:"Attachment operations"`
 	Init       InitCmd       `cmd:"" help:"Write .jira4claude.yaml (server and default project) in the current directory and add it to .gitignore"`
+}
+
+// Validate refuses a negative --timeout.
+func (c *CLI) Validate() error {
+	if c.Timeout < 0 {
+		return &jira4claude.Error{Code: jira4claude.EValidation, Message: "--timeout cannot be negative; use 0 for no timeout"}
+	}
+	return nil
 }
 
 // IssueContext provides dependencies for issue commands.
@@ -141,6 +151,7 @@ func Run(args []string, stdin io.Reader, stdout, stderr io.Writer, deps Deps) in
 		printer.Error(err)
 		return jira4claude.ExitCode(err)
 	}
+	cfg.Timeout = cli.Timeout
 
 	if strings.HasPrefix(ctx.Command(), "attachment ") {
 		return runAttachment(ctx, printer, cfg, deps)
@@ -192,7 +203,7 @@ const description = "A minimal Jira CLI for AI agents. It never prompts.\n\n" +
 	"stdout carries only data. Errors, warnings and notices go to stderr; with --json, " +
 	"each is one JSON object per line, with a \"level\" key. " +
 	"Exit codes: 0 success, 1 validation or usage error (including a refused write), 2 authentication, " +
-	"3 permission, 4 not found, 5 conflict (--if-updated), 6 rate limit, 7 internal. " +
+	"3 permission, 4 not found, 5 conflict (--if-updated), 6 rate limit, 7 internal (including network errors and timeouts; see --timeout). " +
 	"A write that would lose content is refused unless --force.\n\n" +
 	"Scripting guide: https://github.com/fwojciec/jira4claude#scripting"
 
@@ -285,7 +296,7 @@ func requestsJSON(args []string) bool {
 
 // newHTTPServices builds the Jira services backed by the HTTP client.
 func newHTTPServices(cfg *jira4claude.Config) (jira4claude.IssueService, jira4claude.UserService, error) {
-	client, err := http.NewClient(cfg.Server)
+	client, err := http.NewClient(cfg.Server, http.WithTimeout(cfg.Timeout))
 	if err != nil {
 		return nil, nil, err
 	}
@@ -295,7 +306,7 @@ func newHTTPServices(cfg *jira4claude.Config) (jira4claude.IssueService, jira4cl
 // newHTTPAttachmentService builds the attachment service backed by the HTTP
 // client.
 func newHTTPAttachmentService(cfg *jira4claude.Config) (jira4claude.AttachmentService, error) {
-	client, err := http.NewClient(cfg.Server)
+	client, err := http.NewClient(cfg.Server, http.WithTimeout(cfg.Timeout))
 	if err != nil {
 		return nil, err
 	}
