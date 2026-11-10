@@ -94,6 +94,13 @@ var propertySeeds = []string{
 	"> ![img](x.png)",
 	"- item\n\n  ```\n  code\n  ```",
 	"- item\n  - nested",
+	// #158 adjacent lists and empty list items
+	"+ a\n* b",
+	"- a\n  - b\n  + c",
+	"- [ ] a\n  - [ ] b\n  + [ ] c",
+	"+ [X] a\n* b",
+	"* 0)\n  0",
+	"+ * *",
 	// #147 comment shapes
 	"a  \nb",
 	"**a.**a",
@@ -248,7 +255,6 @@ func TestPropertyKnownFailures(t *testing.T) {
 
 	const (
 		// Known before #147 (comments on #147).
-		gapListsMerge      = "adjacent lists that render with the same marker merge into one list on read (#147 comments, #157); also at top level, and a bulletList after a taskList becomes task items (read)"
 		gapAdjacentMarks   = "adjacent text nodes with different marks and no space between them read back with misplaced delimiters (#147 comments) (read)"
 		gapHrefEscaping    = "link hrefs are not escaped on read (#147 comments) (read)"
 		gapTableAfterBreak = "a table delimiter row after a hard break is not escaped on read (#147 comments) (read)"
@@ -259,7 +265,6 @@ func TestPropertyKnownFailures(t *testing.T) {
 		gapEmptyHref       = "[text]() is written as a link mark with an empty href, which the reader drops (write)"
 		gapUnlinkedURL     = "URL text the writer did not linkify (after an unmatched [) is linkified on rewrite, because the reader's \\[ escape re-enables linkify (read)"
 		gapDuplicateMarks  = "nested emphasis of the same kind gives a text node duplicate marks ([em, em]) (write)"
-		gapEmptyItem       = "an empty list item is read as a bare marker, so it ends its parent item or forms a thematic break (read)"
 		gapCarriageReturn  = "a lone carriage return is not normalised on write and is parsed inconsistently (write)"
 		gapBackslashEntity = "a literal backslash before the reader's &#32; trailing-space entity escapes the entity (read)"
 		gapMarkOrder       = "mark order follows Markdown nesting, so the same marks come back in a different order; no content is lost (write: no canonical mark order)"
@@ -273,10 +278,6 @@ func TestPropertyKnownFailures(t *testing.T) {
 		gap   string
 		input string
 	}{
-		{"two top-level bullet lists", gapListsMerge, "+ a\n* b"},
-		{"two bullet lists in a list item", gapListsMerge, "- a\n  - b\n  + c"},
-		{"two nested task lists after a task item", gapListsMerge, "- [ ] a\n  - [ ] b\n  + [ ] c"},
-		{"bullet list after a task list", gapListsMerge, "+ [X] a\n* b"},
 		{"strong ending in punctuation, then a letter", gapAdjacentMarks, "**a.**&#97;"},
 		{"href with a space", gapHrefEscaping, "[a](<b c>)"},
 		{"href with a parenthesis", gapHrefEscaping, "[0](( )"},
@@ -287,8 +288,6 @@ func TestPropertyKnownFailures(t *testing.T) {
 		{"URL after an unmatched bracket", gapUnlinkedURL, "[ http://x.com"},
 		{"em inside em", gapDuplicateMarks, "*_a_*"},
 		{"strong inside strong", gapDuplicateMarks, "**__a__**"},
-		{"empty nested item before parent content", gapEmptyItem, "* 0)\n  0"},
-		{"three nested empty items", gapEmptyItem, "+ * *"},
 		{"carriage returns", gapCarriageReturn, "\r#\r0"},
 		{"backslash then trailing space", gapBackslashEntity, "<A>\n\\ "},
 		{"strong around em", gapMarkOrder, "**_0_**"},

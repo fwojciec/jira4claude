@@ -3,6 +3,7 @@ package markdown
 import (
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -23,9 +24,10 @@ func toMarkdown(adfDoc *jira4claude.ADFNode) (string, []jira4claude.ConversionIs
 	}
 
 	skipped := newSkippedCollector()
+	blocks := siblingBlocks{skipped: skipped}
 	var parts []string
-	for _, node := range adfDoc.Content {
-		part := adfNodeToGFM(&node, skipped)
+	for i := range adfDoc.Content {
+		part := blocks.render(&adfDoc.Content[i])
 		if part != "" {
 			parts = append(parts, part)
 		}
@@ -207,22 +209,112 @@ func codeSpan(text string) string {
 	return delim + text + delim
 }
 
+// Markdown merges adjacent lists that use the same marker into one list, but
+// starts a new list when the bullet character or the ordered delimiter
+// changes. Sibling lists are separate ADF nodes, so each list takes the first
+// of these markers that the list emitted right before it does not use:
+// bulletList, taskList and decisionList all render as bullets and form one
+// family; orderedList forms the other. A list with no list neighbour takes
+// the first marker, so adjacent lists alternate between the first two.
+const (
+	bulletMarkers     = "-*+"
+	orderedDelimiters = ".)"
+)
+
+// pickMarker returns the first marker in candidates that is not in avoid.
+func pickMarker(candidates string, avoid ...string) string {
+	for _, c := range candidates {
+		if marker := string(c); !slices.Contains(avoid, marker) {
+			return marker
+		}
+	}
+	return candidates[:1]
+}
+
+// siblingBlocks renders a container's child blocks one at a time, choosing
+// list markers so that no list uses the marker of the list emitted right
+// before it, which would merge the two on read. Blocks that render empty do
+// not separate their neighbours, so they leave the choice unchanged.
+type siblingBlocks struct {
+	skipped *skippedCollector
+	// prev is the marker of the last emitted block when it is a list, else "".
+	prev string
+	// avoid is a marker the first emitted block must not use when it is a
+	// list: the parent item's marker, when the list goes on the parent's
+	// marker line ("- - -" would be a thematic break).
+	avoid string
+}
+
+// render returns the Markdown of node, or "" when it renders empty.
+func (s *siblingBlocks) render(node *jira4claude.ADFNode) string {
+	var part, marker string
+	switch node.Type {
+	case "bulletList":
+		marker = pickMarker(bulletMarkers, s.prev, s.avoid)
+		part = adfBulletListMarkerToGFM(node, s.skipped, marker)
+	case "taskList":
+		marker = pickMarker(bulletMarkers, s.prev, s.avoid)
+		part = adfTaskListMarkerToGFM(node, s.skipped, marker)
+	case "decisionList":
+		marker = pickMarker(bulletMarkers, s.prev, s.avoid)
+		part = adfDecisionListMarkerToGFM(node, s.skipped, marker)
+	case "orderedList":
+		marker = pickMarker(orderedDelimiters, s.prev)
+		part = adfOrderedListMarkerToGFM(node, s.skipped, marker)
+	default:
+		part = adfNodeToGFM(node, s.skipped)
+	}
+	s.emitted(part, marker)
+	return part
+}
+
+// emitted records that part was rendered with marker ("" for a block that
+// is not a list).
+func (s *siblingBlocks) emitted(part, marker string) {
+	if part == "" {
+		return
+	}
+	s.prev = marker
+	s.avoid = ""
+}
+
 // adfBulletListToGFM converts an ADF bulletList to markdown.
 func adfBulletListToGFM(node *jira4claude.ADFNode, skipped *skippedCollector) string {
+	return adfBulletListMarkerToGFM(node, skipped, bulletMarkers[:1])
+}
+
+// adfBulletListMarkerToGFM converts an ADF bulletList to markdown, using
+// marker as the bullet character.
+func adfBulletListMarkerToGFM(node *jira4claude.ADFNode, skipped *skippedCollector, marker string) string {
 	items := make([]string, 0, len(node.Content))
 	for i := range node.Content {
 		child := &node.Content[i]
 		if child.Type != "listItem" {
 			continue
 		}
-		items = append(items, "- "+adfListItemToGFM(child, skipped, len("- ")))
+		items = append(items, listItemLine(marker, adfListItemToGFM(child, skipped, marker, len(marker)+1)))
 	}
 
 	return strings.Join(items, "\n")
 }
 
+// listItemLine puts an item's rendered content after its marker. An empty
+// item is the bare marker, with no trailing space.
+func listItemLine(marker, content string) string {
+	if content == "" {
+		return marker
+	}
+	return marker + " " + content
+}
+
 // adfOrderedListToGFM converts an ADF orderedList to markdown.
 func adfOrderedListToGFM(node *jira4claude.ADFNode, skipped *skippedCollector) string {
+	return adfOrderedListMarkerToGFM(node, skipped, orderedDelimiters[:1])
+}
+
+// adfOrderedListMarkerToGFM converts an ADF orderedList to markdown, using
+// delimiter (. or )) after each item number.
+func adfOrderedListMarkerToGFM(node *jira4claude.ADFNode, skipped *skippedCollector, delimiter string) string {
 	startNum := 1
 	if node.Attrs != nil {
 		var attrs map[string]any
@@ -241,12 +333,17 @@ func adfOrderedListToGFM(node *jira4claude.ADFNode, skipped *skippedCollector) s
 			continue
 		}
 		num++
-		marker := strconv.Itoa(num) + ". "
-		items = append(items, marker+adfListItemToGFM(child, skipped, len(marker)))
+		marker := strconv.Itoa(num) + delimiter
+		items = append(items, listItemLine(marker, adfListItemToGFM(child, skipped, marker, len(marker)+1)))
 	}
 
 	return strings.Join(items, "\n")
 }
+
+// emptyLeadDetail explains the degraded issue reported for a list item that
+// opens with an empty paragraph followed by anything but a list.
+const emptyLeadDetail = "an empty paragraph at the start of a list item, before content other than a list, " +
+	"has no Markdown form: it is left out"
 
 // adfListItemToGFM renders the content of a list item that follows a list
 // marker width characters wide. The first block goes on the marker line; any
@@ -255,15 +352,82 @@ func adfOrderedListToGFM(node *jira4claude.ADFNode, skipped *skippedCollector) s
 // item's content, including lines after a line break inside a paragraph,
 // stays inside the item. An item with a single block renders with no blank
 // line.
-func adfListItemToGFM(node *jira4claude.ADFNode, skipped *skippedCollector, width int) string {
-	parts := adfBlocksToGFM(node.Content, skipped)
-	return indentContinuation(strings.Join(parts, "\n\n"), strings.Repeat(" ", width))
+//
+// An item's empty paragraph renders as nothing. An item holding only one
+// reads back from the bare marker, and one whose empty paragraph comes
+// before a list reads back from the list on the marker line; that list takes
+// a marker other than the item's (marker), so "- - -" does not form a
+// thematic break. An empty paragraph before other content has no Markdown
+// form and is reported.
+//
+// A block whose last line is a bare marker (an empty item) is followed by a
+// single line break instead of a blank line: after an empty item, a blank
+// line ends the enclosing item, and the following block would escape it.
+func adfListItemToGFM(node *jira4claude.ADFNode, skipped *skippedCollector, marker string, width int) string {
+	blocks := siblingBlocks{skipped: skipped}
+	if content := node.Content; len(content) > 0 && isEmptyParagraph(content[0]) {
+		blocks.avoid = marker
+		if len(content) > 1 && content[1].Type != "bulletList" && content[1].Type != "orderedList" && skipped != nil {
+			skipped.degrade("listItem", emptyLeadDetail)
+		}
+	}
+	parts := blocks.renderAll(node.Content)
+
+	var text strings.Builder
+	for i, part := range parts {
+		if i > 0 {
+			if endsWithBareMarker(parts[i-1]) {
+				text.WriteString("\n")
+			} else {
+				text.WriteString("\n\n")
+			}
+		}
+		text.WriteString(part)
+	}
+	return indentContinuation(text.String(), strings.Repeat(" ", width))
+}
+
+// endsWithBareMarker reports whether the last line of text holds nothing but
+// list markers, as an empty list item (or a run of items that open with
+// lists, ending in an empty one) renders.
+func endsWithBareMarker(text string) bool {
+	fields := strings.Fields(text[strings.LastIndex(text, "\n")+1:])
+	if len(fields) == 0 {
+		return false
+	}
+	for _, f := range fields {
+		if !isListMarker(f) {
+			return false
+		}
+	}
+	return true
+}
+
+// isListMarker reports whether s is a bullet character or an ordered list
+// number (one to nine digits, as CommonMark allows) followed by its
+// delimiter.
+func isListMarker(s string) bool {
+	if len(s) == 1 && strings.Contains(bulletMarkers, s) {
+		return true
+	}
+	if len(s) < 2 || len(s) > 10 {
+		return false
+	}
+	number, delimiter := s[:len(s)-1], s[len(s)-1:]
+	return strings.Trim(number, "0123456789") == "" && strings.Contains(orderedDelimiters, delimiter)
 }
 
 // adfBlocksToGFM renders a container's children, one string per block,
 // leaving out blocks that render empty. Consecutive inline nodes (which Jira
 // sometimes places directly in a container) render together as one block.
 func adfBlocksToGFM(children []jira4claude.ADFNode, skipped *skippedCollector) []string {
+	blocks := siblingBlocks{skipped: skipped}
+	return blocks.renderAll(children)
+}
+
+// renderAll renders children as adfBlocksToGFM describes, choosing list
+// markers as render does.
+func (s *siblingBlocks) renderAll(children []jira4claude.ADFNode) []string {
 	var parts []string
 	for i := 0; i < len(children); {
 		var part string
@@ -272,9 +436,10 @@ func adfBlocksToGFM(children []jira4claude.ADFNode, skipped *skippedCollector) [
 			for ; i < len(children) && isInlineNode(children[i].Type); i++ {
 				run.Content = append(run.Content, children[i])
 			}
-			part = adfInlineToGFM(&run, skipped)
+			part = adfInlineToGFM(&run, s.skipped)
+			s.emitted(part, "")
 		} else {
-			part = adfNodeToGFM(&children[i], skipped)
+			part = s.render(&children[i])
 			i++
 		}
 		if part != "" {
@@ -368,7 +533,13 @@ func adfPanelToGFM(node *jira4claude.ADFNode, skipped *skippedCollector) string 
 		return header
 	}
 	// Children are separated by a blank quoted line, as in a blockquote.
-	return header + "\n" + quoteLines(strings.Join(parts, "\n\n"))
+	body := quoteLines(strings.Join(parts, "\n\n"))
+	if first, _, _ := strings.Cut(parts[0], "\n"); first == "-" {
+		// A bare "-" (an empty list item) right under the header line would
+		// be a setext underline, turning the header into a heading.
+		return header + "\n>\n" + body
+	}
+	return header + "\n" + body
 }
 
 // adfExpandToGFM converts an ADF expand or nestedExpand to an HTML details block.
@@ -383,9 +554,10 @@ func adfExpandToGFM(node *jira4claude.ADFNode, skipped *skippedCollector) string
 		}
 	}
 
+	blocks := siblingBlocks{skipped: skipped}
 	var parts []string
 	for i := range node.Content {
-		part := adfNodeToGFM(&node.Content[i], skipped)
+		part := blocks.render(&node.Content[i])
 		if part != "" {
 			parts = append(parts, part)
 		}
@@ -485,14 +657,25 @@ func adfTableCellToGFM(node *jira4claude.ADFNode, skipped *skippedCollector) str
 // is rendered indented under the preceding item, so it reads back nested.
 // Continuation lines of an item's text are indented so they stay in the item.
 func adfTaskListToGFM(node *jira4claude.ADFNode, skipped *skippedCollector) string {
+	return adfTaskListMarkerToGFM(node, skipped, bulletMarkers[:1])
+}
+
+// adfTaskListMarkerToGFM converts an ADF taskList as adfTaskListToGFM does,
+// using marker as the bullet character. Task lists nested under the same
+// item are adjacent lists there, so each takes a marker the one before it
+// does not use.
+func adfTaskListMarkerToGFM(node *jira4claude.ADFNode, skipped *skippedCollector, marker string) string {
 	var items []string
+	prevNested := "" // marker of the last list nested under the current item
 	for i := range node.Content {
 		taskItem := &node.Content[i]
 		if taskItem.Type == "taskList" {
-			nested := adfTaskListToGFM(taskItem, skipped)
+			nestedMarker := pickMarker(bulletMarkers, prevNested)
+			nested := adfTaskListMarkerToGFM(taskItem, skipped, nestedMarker)
 			if nested == "" {
 				continue
 			}
+			prevNested = nestedMarker
 			if len(items) == 0 {
 				// Not valid ADF: no item to nest under, so the list is
 				// rendered at its parent's level.
@@ -519,9 +702,11 @@ func adfTaskListToGFM(node *jira4claude.ADFNode, skipped *skippedCollector) stri
 
 		// A taskItem holds inline content (schema-compliant) or, in legacy
 		// ADF from Jira, paragraph-wrapped blocks; both render as list item
-		// content under the "- " marker.
-		text := adfListItemToGFM(taskItem, skipped, len("- "))
-		items = append(items, "- "+checkbox+" "+text)
+		// content under the marker. The checkbox comes first on the marker
+		// line, so no list there can join the marker in a thematic break.
+		text := adfListItemToGFM(taskItem, skipped, "", len(marker)+1)
+		items = append(items, marker+" "+checkbox+" "+text)
+		prevNested = ""
 	}
 
 	return strings.Join(items, "\n")
@@ -530,9 +715,10 @@ func adfTaskListToGFM(node *jira4claude.ADFNode, skipped *skippedCollector) stri
 // adfFlattenToGFM flattens a container node's content sequentially, ignoring
 // the container's own structure (e.g., layoutSection columns become sequential blocks).
 func adfFlattenToGFM(node *jira4claude.ADFNode, skipped *skippedCollector) string {
+	blocks := siblingBlocks{skipped: skipped}
 	var parts []string
 	for i := range node.Content {
-		part := adfNodeToGFM(&node.Content[i], skipped)
+		part := blocks.render(&node.Content[i])
 		if part != "" {
 			parts = append(parts, part)
 		}
@@ -542,15 +728,21 @@ func adfFlattenToGFM(node *jira4claude.ADFNode, skipped *skippedCollector) strin
 
 // adfDecisionListToGFM converts an ADF decisionList to a plain bullet list.
 func adfDecisionListToGFM(node *jira4claude.ADFNode, skipped *skippedCollector) string {
+	return adfDecisionListMarkerToGFM(node, skipped, bulletMarkers[:1])
+}
+
+// adfDecisionListMarkerToGFM converts an ADF decisionList as
+// adfDecisionListToGFM does, using marker as the bullet character.
+func adfDecisionListMarkerToGFM(node *jira4claude.ADFNode, skipped *skippedCollector, marker string) string {
 	var items []string
 	for i := range node.Content {
 		child := &node.Content[i]
 		if child.Type != "decisionItem" {
 			continue
 		}
-		text := adfListItemToGFM(child, skipped, len("- "))
+		text := adfListItemToGFM(child, skipped, marker, len(marker)+1)
 		if text != "" {
-			items = append(items, "- "+text)
+			items = append(items, marker+" "+text)
 		}
 	}
 	return strings.Join(items, "\n")
