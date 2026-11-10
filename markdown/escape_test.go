@@ -1,12 +1,14 @@
 package markdown_test
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 
 	jira4claude "github.com/fwojciec/jira4claude"
 	"github.com/fwojciec/jira4claude/markdown"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // paragraphDoc wraps inline nodes in a single-paragraph ADF document.
@@ -260,6 +262,7 @@ func TestRoundTrip_PlainTextFromJira(t *testing.T) {
 		`C:\~user`,
 		`a \~~b~~ c`,
 		"5~10 and 20~30",
+		"pass <word> as *b* &amp; [x]",
 	}
 
 	type context struct {
@@ -333,6 +336,92 @@ func TestRoundTrip_PlainTextFromJira(t *testing.T) {
 			})
 		}
 	}
+}
+
+func TestRoundTrip_BareURLKeepsWholeAutoLink(t *testing.T) {
+	t.Parallel()
+
+	// A bare URL in plain Jira text gains a link mark on write (Linkify). The
+	// read side must not escape inside it, or the link would stop at the
+	// first backslash. The linked range is the one Linkify gives the
+	// unescaped text, and every character of the text is kept.
+	link := func(url string) jira4claude.ADFNode {
+		attrs, err := json.Marshal(map[string]any{"href": url})
+		require.NoError(t, err)
+		return jira4claude.ADFNode{
+			Type:  "text",
+			Text:  url,
+			Marks: []jira4claude.ADFMark{{Type: "link", Attrs: attrs}},
+		}
+	}
+	plain := func(text string) jira4claude.ADFNode {
+		return jira4claude.ADFNode{Type: "text", Text: text}
+	}
+
+	tests := []struct {
+		name     string
+		text     string
+		expected []jira4claude.ADFNode
+	}{
+		{
+			name:     "brackets in query",
+			text:     "https://example.com/?filter[x]=1",
+			expected: []jira4claude.ADFNode{link("https://example.com/?filter[x]=1")},
+		},
+		{
+			name:     "underscores and double tildes in path",
+			text:     "see https://example.com/a_b_~~c~~/d now",
+			expected: []jira4claude.ADFNode{plain("see "), link("https://example.com/a_b_~~c~~/d"), plain(" now")},
+		},
+		{
+			// Linkify stops at "*", so the link ends there; the rest stays
+			// plain text instead of becoming emphasis.
+			name:     "asterisks in path",
+			text:     "https://example.com/a_b*c*d",
+			expected: []jira4claude.ADFNode{link("https://example.com/a_b"), plain("*c*d")},
+		},
+		{
+			name:     "followed by a full stop",
+			text:     "Read https://example.com/docs_v2.",
+			expected: []jira4claude.ADFNode{plain("Read "), link("https://example.com/docs_v2"), plain(".")},
+		},
+		{
+			name:     "followed by a closing parenthesis",
+			text:     "(see https://example.com/a_b)",
+			expected: []jira4claude.ADFNode{plain("(see "), link("https://example.com/a_b"), plain(")")},
+		},
+		{
+			name:     "in the middle of a sentence",
+			text:     "go to https://example.com/a_b?q=1&r=[2] for *details*",
+			expected: []jira4claude.ADFNode{plain("go to "), link("https://example.com/a_b?q=1&r=[2]"), plain(" for *details*")},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			converter := markdown.New()
+			md, w1 := converter.ToMarkdown(paragraphDoc(plain(tt.text)))
+			assert.Empty(t, w1)
+
+			result, w2 := converter.ToADF(md)
+			assert.Empty(t, w2)
+			requireValidADF(t, result)
+			assert.Equal(t, paragraphDoc(tt.expected...), result, "markdown was %q", md)
+		})
+	}
+}
+
+func TestToADF_DecodesTextAroundLiteralInlineTag(t *testing.T) {
+	t.Parallel()
+
+	converter := markdown.New()
+	result, warnings := converter.ToADF(`pass <word> as 2 \* 3 &amp; \[x\]`)
+
+	assert.Empty(t, warnings)
+	requireValidADF(t, result)
+	assert.Equal(t, paragraphDoc(jira4claude.ADFNode{Type: "text", Text: "pass <word> as 2 * 3 & [x]"}), result)
 }
 
 func TestRoundTrip_HeadingTextFromJira(t *testing.T) {

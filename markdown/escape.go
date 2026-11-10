@@ -8,6 +8,10 @@ import (
 	"unicode/utf8"
 
 	"github.com/fwojciec/jira4claude"
+	"github.com/yuin/goldmark/ast"
+	"github.com/yuin/goldmark/extension"
+	"github.com/yuin/goldmark/parser"
+	"github.com/yuin/goldmark/text"
 	"github.com/yuin/goldmark/util"
 )
 
@@ -44,6 +48,12 @@ import (
 //     closing sequence).
 //
 // Everything else, including "<", is written as is.
+//
+// One exception: a span that goldmark's Linkify would turn into an autolink
+// (a bare "http://", "https://", "ftp://" or "www." URL, or an email
+// address) is written verbatim, because Linkify reads it raw and a backslash
+// would end the link early. The span is measured with Linkify's own parser,
+// so trailing punctuation is included or trimmed exactly as on write.
 
 // decodeText resolves backslash escapes and entity references in Markdown
 // text. A backslash before anything other than ASCII punctuation is kept, and
@@ -138,7 +148,7 @@ func escapeTextNode(node *jira4claude.ADFNode, lineStart bool) string {
 			inLink = true
 		}
 	}
-	return escapeText(node.Text, lineStart, inLink)
+	return escapeText(node.Text, lineStart, inLink, lineStart && len(node.Marks) == 0)
 }
 
 // linkHref returns the href of a link mark, or "" if it has none.
@@ -154,9 +164,10 @@ func linkHref(mark jira4claude.ADFMark) string {
 
 // escapeText escapes plain text held by Jira so that it reads back as the
 // same text. lineStart is true when the text begins a line of Markdown;
-// inLink is true when the text becomes link text. The rule is described at
-// the top of this file.
-func escapeText(s string, lineStart, inLink bool) string {
+// inLink is true when the text becomes link text; bareStart is true when
+// nothing at all precedes the text on its line, not even a mark delimiter.
+// The rule is described at the top of this file.
+func escapeText(s string, lineStart, inLink, bareStart bool) string {
 	var b strings.Builder
 	atLineStart := lineStart
 	for i := 0; i < len(s); {
@@ -166,6 +177,14 @@ func escapeText(s string, lineStart, inLink bool) string {
 			i++
 			atLineStart = true
 			continue
+		}
+		if !inLink && linkifyMayStart(s, i, bareStart) {
+			if n := autolinkLen(s[i:]); n > 0 {
+				b.WriteString(s[i : i+n])
+				i += n
+				atLineStart = false
+				continue
+			}
 		}
 		if atLineStart && c != ' ' && c != '\t' {
 			atLineStart = false
@@ -203,6 +222,45 @@ func escapeText(s string, lineStart, inLink bool) string {
 		i++
 	}
 	return b.String()
+}
+
+// linkifyMayStart reports whether goldmark's Linkify parser is tried at s[i]
+// when the escaped text is parsed: at the head of a line, or after a blank or
+// "(". Its other triggers ("*", "_", "~") may be escaped, so they are left
+// out. At the start of the node only bareStart says whether it is a line head.
+func linkifyMayStart(s string, i int, bareStart bool) bool {
+	if i == 0 {
+		return bareStart
+	}
+	switch s[i-1] {
+	case ' ', '\t', '\n', '(':
+		return true
+	}
+	return false
+}
+
+// autolinkLen returns the length of the autolink that goldmark's Linkify
+// parser reads at the start of s, or 0 if there is none.
+func autolinkLen(s string) int {
+	if nl := strings.IndexByte(s, '\n'); nl >= 0 {
+		s = s[:nl]
+	}
+	word := s
+	if sp := strings.IndexAny(word, " \t"); sp >= 0 {
+		word = word[:sp]
+	}
+	if !strings.HasPrefix(s, "http:") && !strings.HasPrefix(s, "https:") &&
+		!strings.HasPrefix(s, "ftp:") && !strings.HasPrefix(s, "www.") &&
+		!strings.Contains(word, "@") {
+		return 0
+	}
+	source := []byte(s)
+	node := extension.NewLinkifyParser().Parse(ast.NewParagraph(), text.NewReader(source), parser.NewContext())
+	link, ok := node.(*ast.AutoLink)
+	if !ok {
+		return 0
+	}
+	return len(link.Label(source))
 }
 
 // escapeHeadingClose escapes a run of "#" that ends heading text after a
