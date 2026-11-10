@@ -974,6 +974,55 @@ func TestConverter_ToADF(t *testing.T) {
 		assert.Equal(t, expected, result)
 	})
 
+	t.Run("keeps a hard line break directly after an inline element", func(t *testing.T) {
+		t.Parallel()
+
+		strong := []jira4claude.ADFMark{{Type: "strong"}}
+		code := []jira4claude.ADFMark{{Type: "code"}}
+		link := []jira4claude.ADFMark{{Type: "link", Attrs: json.RawMessage(`{"href":"https://example.com"}`)}}
+
+		tests := []struct {
+			name     string
+			markdown string
+			first    jira4claude.ADFNode
+		}{
+			{"spaces after emphasis", "**bold**  \nnext", jira4claude.ADFNode{Type: "text", Text: "bold", Marks: strong}},
+			{"backslash after emphasis", "**bold**\\\nnext", jira4claude.ADFNode{Type: "text", Text: "bold", Marks: strong}},
+			{"spaces after link", "[site](https://example.com)  \nnext", jira4claude.ADFNode{Type: "text", Text: "site", Marks: link}},
+			{"backslash after link", "[site](https://example.com)\\\nnext", jira4claude.ADFNode{Type: "text", Text: "site", Marks: link}},
+			{"spaces after inline code", "`code`  \nnext", jira4claude.ADFNode{Type: "text", Text: "code", Marks: code}},
+			{"backslash after inline code", "`code`\\\nnext", jira4claude.ADFNode{Type: "text", Text: "code", Marks: code}},
+		}
+
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				t.Parallel()
+
+				converter := markdown.New()
+				result, warnings := converter.ToADF(tt.markdown)
+
+				expected := &jira4claude.ADFNode{
+					Type:    "doc",
+					Version: 1,
+					Content: []jira4claude.ADFNode{
+						{
+							Type: "paragraph",
+							Content: []jira4claude.ADFNode{
+								tt.first,
+								{Type: "hardBreak"},
+								{Type: "text", Text: "next"},
+							},
+						},
+					},
+				}
+
+				assert.Empty(t, warnings)
+				requireValidADF(t, result)
+				assert.Equal(t, expected, result)
+			})
+		}
+	})
+
 	t.Run("converts strikethrough to strike mark", func(t *testing.T) {
 		t.Parallel()
 

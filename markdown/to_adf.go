@@ -877,10 +877,13 @@ func convertInlineNode(node ast.Node, source []byte, marks []jira4claude.ADFMark
 		if n.SoftLineBreak() {
 			text += " "
 		}
-		if text == "" {
-			return nil
+		var nodes []jira4claude.ADFNode
+		if text != "" {
+			nodes = append(nodes, textNodeWithMarks(text, marks))
 		}
-		nodes := []jira4claude.ADFNode{textNodeWithMarks(text, marks)}
+		// The break flag can sit on an empty Text node, as when the break
+		// directly follows emphasis, a link or inline code; it must be kept
+		// even though there is no text to emit.
 		if n.HardLineBreak() {
 			nodes = append(nodes, jira4claude.ADFNode{Type: "hardBreak"})
 		}
