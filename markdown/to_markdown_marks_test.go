@@ -170,18 +170,90 @@ func TestToMarkdown_MarkForms(t *testing.T) {
 	}
 }
 
-// TestToMarkdown_MarkNoExactForm covers marked text with no exact Markdown
-// form where it stands: plain text ending in a URL, which Linkify would cut
-// short if its last character were encoded, right before a delimiter run that
-// needs punctuation outside it. The read reports the text as degraded (#159).
-func TestToMarkdown_MarkNoExactForm(t *testing.T) {
+// TestToMarkdown_MarkNextToURL covers URL text (not linked in ADF) right
+// before a character reference or a delimiter run the read writes. Linkify
+// would run the URL on into the reference or the delimiters, taking them as
+// part of the link; instead the URL's first character is a reference, so the
+// URL is not linked and the text reads back exactly (#159).
+//
+// Where no reference or delimiter meets the URL, URL text in marked text is
+// still linked on write, as before (TestRoundTrip_BareURLInMarkedText); the
+// comparison allows that, and nothing else.
+func TestToMarkdown_MarkNextToURL(t *testing.T) {
 	t.Parallel()
 
-	md, issues := markdown.New().ToMarkdown(paragraphDoc(textNode("see https://x.test"), textNode(".a", "strong")))
-	require.Len(t, issues, 1, "markdown was %q", md)
-	assert.Equal(t, jira4claude.ConversionDegraded, issues[0].Kind)
-	assert.Equal(t, "text", issues[0].Node)
-	assert.Contains(t, md, "https://x.test", "the URL is written whole")
+	cases := map[string][]jira4claude.ADFNode{
+		"plain URL before punctuated strong": {textNode("see https://x.test"), textNode(".a", "strong")},
+		"plain URL path before strike":       {textNode("see https://x.test/"), textNode("a", "strike")},
+		"plain URL path before tilde strike": {textNode("see https://x.test/"), textNode("~a", "strike")},
+		"plain www before strike":            {textNode("see www.x.test/"), textNode("a", "strike")},
+		"struck URL then tilde":              {textNode("https://x.test/", "strike"), textNode("~")},
+		"struck URL then letter":             {textNode("a."), textNode("https://x.test/", "strike"), textNode("b")},
+		"struck URL ending in tilde":         {textNode("https://x.test/~", "strike")},
+		"struck tilde then URL":              {textNode("~https://x.test/", "strike")},
+		"email path ending in blank":         {textNode("a@b.co/ ", "strong")},
+		"plain digit before em email":        {textNode("1"), textNode("a@b.co", "em")},
+		"em email after em":                  {textNode("x", "em"), textNode("a@b.co")},
+		"em star then email":                 {textNode("*a@b.co", "em")},
+		"em digit then code email":           {textNode("1", "em"), textNode("a@b.co", "code")},
+		"plain URL then em email":            {textNode("http://y.test1"), textNode("a@b.co", "em")},
+		"plain URL ending the line in a tab": {textNode("a", "em"), textNode(" https://x.test/\t")},
+		"code then plain URL then link":      {textNode("a", "code"), textNode("https://x.test/"), textNode("b", "link", "em")},
+		"em parens then URL":                 {textNode("((https://x.test)", "em")},
+		"plain email after a tab then em":    {textNode("1\t1&*-a@b.co "), textNode("-", "em", "strong", "underline")},
+	}
+	for _, mark := range []string{"strong", "em", "strike"} {
+		cases[mark+" URL ending in blank"] = []jira4claude.ADFNode{textNode("https://x.test/ ", mark)}
+		cases[mark+" URL ending in blank, then text"] = []jira4claude.ADFNode{textNode("https://x.test/ ", mark), textNode("b")}
+		cases[mark+" URL ending in tab"] = []jira4claude.ADFNode{textNode("see https://x.test/\t", mark)}
+		cases[mark+" www ending in blank"] = []jira4claude.ADFNode{textNode("www.x.test/ ", mark)}
+		cases[mark+" blank then URL"] = []jira4claude.ADFNode{textNode("a"), textNode(" https://x.test/", mark), textNode("b")}
+		cases[mark+" punctuated URL then letter"] = []jira4claude.ADFNode{textNode("https://x.test/.", mark), textNode("b")}
+	}
+
+	for name, inline := range cases {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			conv := markdown.New()
+			md, readIssues := conv.ToMarkdown(paragraphDoc(inline...))
+			assert.Empty(t, readIssues, "markdown was %q", md)
+
+			back, writeIssues := conv.ToADF(md)
+			requireValidADF(t, back)
+			assert.Empty(t, writeIssues, "markdown was %q", md)
+			require.Len(t, back.Content, 1, "markdown was %q", md)
+			assert.Equal(t, inline, withoutAutolinks(back.Content[0].Content), "markdown was %q", md)
+		})
+	}
+}
+
+// withoutAutolinks drops link marks whose href is the text they mark (the
+// links Linkify adds on write) and merges the text nodes that then have the
+// same marks.
+func withoutAutolinks(nodes []jira4claude.ADFNode) []jira4claude.ADFNode {
+	var out []jira4claude.ADFNode
+	for _, n := range nodes {
+		var marks []jira4claude.ADFMark
+		for _, m := range n.Marks {
+			var attrs struct {
+				Href string `json:"href"`
+			}
+			_ = json.Unmarshal(m.Attrs, &attrs)
+			if m.Type == "link" && (attrs.Href == n.Text || attrs.Href == "http://"+n.Text) {
+				continue
+			}
+			marks = append(marks, m)
+		}
+		n.Marks = marks
+		if last := len(out) - 1; last >= 0 && n.Type == "text" && out[last].Type == "text" &&
+			mustJSON(out[last].Marks) == mustJSON(marks) {
+			out[last].Text += n.Text
+			continue
+		}
+		out = append(out, n)
+	}
+	return out
 }
 
 // TestToMarkdown_MarkNextToInlineNode covers delimited text next to inline

@@ -179,6 +179,11 @@ type textContext struct {
 	// numeric character reference, because it meets a mark delimiter that
 	// it would stop from opening or closing, or join (see inline_marks.go).
 	encodeFirst, encodeLast bool
+	// breakAutolinks: where Linkify would start an autolink, write its first
+	// character as a numeric character reference, so the span stays plain
+	// text. Used where a span would run on into a character reference or a
+	// delimiter written after it (see inline_marks.go).
+	breakAutolinks bool
 }
 
 // tildeEdge reports whether nodes[k] is a text node whose Markdown starts
@@ -256,6 +261,8 @@ func escapeTextNode(siblings []jira4claude.ADFNode, i int, lineStart bool, edges
 		lineEnd:     !hasRenderedMark(node.Marks) && onlyHardBreaksFrom(siblings, i+1),
 		encodeFirst: edges.first,
 		encodeLast:  edges.last,
+
+		breakAutolinks: edges.breakLinks,
 	})
 }
 
@@ -277,12 +284,25 @@ func escapeText(s string, ctx textContext) string {
 	if ctx.encodeFirst || ctx.encodeLast {
 		return escapeTextEncodingEdges(s, ctx)
 	}
+	if ctx.breakAutolinks {
+		out, _ := escapeTextWith(s, ctx, false)
+		return out
+	}
 	out, keptAutolink := escapeTextWith(s, ctx, true)
-	if keptAutolink && !readsBackAs(out, s) {
+	// A character reference written for a blank can also be taken into an
+	// autolink that ends right before it, so output with one is checked too.
+	if (keptAutolink || strings.Contains(out, "&#")) && !readsBackAs(out, s) {
 		// The verbatim autolink span did not survive in its emitted
 		// surroundings (Linkify ended it elsewhere, or an entity at its edge
 		// was decoded). Plain escaping is always symmetric, so use that.
 		out, _ = escapeTextWith(s, ctx, false)
+		if !readsBackAs(out, s) {
+			// Linkify still reads the span, now running on into a
+			// character reference after it (a trailing blank at the end
+			// of the line), so the span is kept from being linked.
+			ctx.breakAutolinks = true
+			out, _ = escapeTextWith(s, ctx, false)
+		}
 	}
 	return out
 }
@@ -312,7 +332,50 @@ func escapeTextEncodingEdges(s string, ctx textContext) string {
 	if tail != "" {
 		mid.lineEnd, mid.tildeAfter, mid.textAfter = false, false, true
 	}
-	return head + escapeText(s, mid) + tail
+	out := head + escapeText(s, mid)
+	if tail != "" && !mid.breakAutolinks && linkifyCrosses(out+tail, len(out)-1, ctx.linkifyAtStart) {
+		// An autolink reaching the reference would run on into it
+		// ("https://x.test/&#32;" is all one URL to Linkify), or stop at it
+		// with its last character cut off ("https://x.tes&#116;").
+		mid.breakAutolinks = true
+		out = head + escapeText(s, mid)
+	}
+	return out + tail
+}
+
+// linkifyTriggers are the characters after which goldmark's Linkify may be
+// tried, taken generously: a blank, "(", an emphasis or strike delimiter
+// character, or the end of a tag, link or code span.
+const linkifyTriggers = " \t\n(*_~>)]`"
+
+// linkifyCrosses reports whether goldmark's Linkify, run over md, reads an
+// autolink that starts before boundary and ends after it. Linkify is tried
+// at the start of md when atStart is set, and after linkifyTriggers. Erring
+// towards a crossing only breaks an autolink that would not have formed.
+func linkifyCrosses(md string, boundary int, atStart bool) bool {
+	return linkifyCrossesFrom(md, boundary, atStart, nil)
+}
+
+// linkifyCrossesFrom is linkifyCrosses with Linkify tried only where
+// canStart, if not nil, allows.
+func linkifyCrossesFrom(md string, boundary int, atStart bool, canStart func(p int) bool) bool {
+	afterLink := -1 // Linkify is tried again right after an autolink
+	for p := 0; p < boundary; p++ {
+		if p != afterLink && (p == 0 && !atStart || p > 0 && strings.IndexByte(linkifyTriggers, md[p-1]) < 0) {
+			continue
+		}
+		if canStart != nil && !canStart(p) {
+			continue
+		}
+		n := autolinkLen(md[p:])
+		if n > 0 && p+n > boundary {
+			return true
+		}
+		if n > 0 {
+			afterLink = p + n
+		}
+	}
+	return false
 }
 
 // charRef returns the decimal numeric character reference for r.
@@ -396,6 +459,17 @@ func escapeTextWith(s string, ctx textContext, keepAutolinks bool) (string, bool
 			afterEncodedBlank = true
 			continue
 		}
+		// Breaking errs the other way: every character Linkify may start
+		// after counts, escaped or not.
+		if ctx.breakAutolinks && !ctx.inLink && !afterEncodedBlank &&
+			(i == 0 && ctx.linkifyAtStart || i > 0 && strings.IndexByte(linkifyTriggers, s[i-1]) >= 0) &&
+			autolinkLen(s[i:]) > 0 {
+			r, n := utf8.DecodeRuneInString(s[i:])
+			b.WriteString(charRef(r))
+			i += n
+			atLineStart = false
+			continue
+		}
 		if keepAutolinks && !ctx.inLink && !afterEncodedBlank && linkifyMayStart(s, i, ctx.linkifyAtStart) {
 			// A span that reaches the end of the node could run on into
 			// the next node's text, which this check cannot see.
@@ -472,13 +546,15 @@ func mayOpenHTML(s string) bool {
 // when the escaped text is parsed: at the head of a line, right after another
 // inline construct (goldmark restarts its scan there), or after a blank or
 // "(". Its other triggers ("*", "_", "~") may be escaped, so they are left
-// out. At the start of the node, atStart decides.
+// out. A tab is not a trigger: a span kept verbatim after one is not read as
+// a link, and its "*" or "_" can pair with a delimiter after it. At the start
+// of the node, atStart decides.
 func linkifyMayStart(s string, i int, atStart bool) bool {
 	if i == 0 {
 		return atStart
 	}
 	switch s[i-1] {
-	case ' ', '\t', '\n', '(':
+	case ' ', '\n', '(':
 		return true
 	}
 	return false
@@ -487,6 +563,11 @@ func linkifyMayStart(s string, i int, atStart bool) bool {
 // autolinkLen returns the length of the autolink that goldmark's Linkify
 // parser reads at the start of s, or 0 if there is none.
 func autolinkLen(s string) int {
+	if s == "" || strings.IndexByte(" *_~(", s[0]) >= 0 {
+		// Linkify takes a leading trigger character as the character before
+		// the link, so a link read here would start one byte later.
+		return 0
+	}
 	if nl := strings.IndexByte(s, '\n'); nl >= 0 {
 		s = s[:nl]
 	}
@@ -598,7 +679,9 @@ func escapeRun(b *strings.Builder, s string, i int, lineStart bool, ctx textCont
 			after, _ = utf8.DecodeRuneInString(s[j:])
 		}
 		bothSpace := beforeKnown && afterKnown && unicode.IsSpace(before) && unicode.IsSpace(after)
-		bothWord := beforeKnown && afterKnown && isWordRune(before) && isWordRune(after)
+		// Breaking autolinks may turn either neighbour into a character
+		// reference, which is punctuation, so snake_case is not relied on.
+		bothWord := !ctx.breakAutolinks && beforeKnown && afterKnown && isWordRune(before) && isWordRune(after)
 		escape = !bothSpace && (c != '_' || !bothWord)
 	}
 

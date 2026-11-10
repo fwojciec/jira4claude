@@ -147,6 +147,14 @@ var propertySeeds = []string{
 	"~~a~~*~~b~~*",
 	"~~a~~&#126;b",
 	"x**~~a~~**y",
+	"**&#104;ttps://x.test/&#32;**",
+	"*&#119;ww.x.test/&#9;*b",
+	"~~&#104;ttps://x.test/&#126;~~",
+	"~~&#104;ttps://x.test/~~&#126;",
+	"see &#104;ttps://x.tes&#116;**.a**",
+	"see &#104;ttps://x.test/~~a~~",
+	"**https://x.test/.**&#98;",
+	"1\t1&\\*-a@b.co <u>***-***</u>",
 }
 
 // addPropertySeeds adds propertySeeds and the Markdown fixtures in testdata
