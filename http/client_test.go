@@ -719,9 +719,14 @@ func TestClient_DoRequest_Retry(t *testing.T) {
 		t.Parallel()
 
 		attempts := 0
+		served := make(chan struct{}, 1)
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			attempts++
 			w.WriteHeader(http.StatusInternalServerError)
+			select {
+			case served <- struct{}{}:
+			default:
+			}
 		}))
 		defer server.Close()
 
@@ -732,8 +737,10 @@ func TestClient_DoRequest_Retry(t *testing.T) {
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, "/test", nil)
 		require.NoError(t, err)
 
-		// Cancel after a short delay (during backoff)
+		// Cancel during backoff: wait until the first attempt has been served,
+		// so a slow start under load cannot cancel before the request is sent.
 		go func() {
+			<-served
 			time.Sleep(50 * time.Millisecond)
 			cancel()
 		}()
