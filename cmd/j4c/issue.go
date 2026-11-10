@@ -807,7 +807,7 @@ func (c *IssueAssignCmd) Run(ctx *IssueContext) error {
 
 // IssueCommentCmd adds a comment.
 type IssueCommentCmd struct {
-	Key      string  `arg:"" help:"Issue key"`
+	Key string `arg:"" help:"Issue key"`
 	// Body is a pointer, as BodyFile is, so that Validate can tell a missing
 	// body from an empty one, which Run refuses with its own message.
 	Body     *string `help:"Comment body (Markdown). One of --body and --body-file is required" placeholder:"TEXT" short:"b" xor:"body"`
