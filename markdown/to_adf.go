@@ -444,8 +444,16 @@ func isListItemAllowedChild(nodeType string) bool {
 // Other disallowed containers have their children extracted and recursively
 // constrained; an expand's title is kept as a plain paragraph before its body.
 // Each such change keeps the content but not its form, so it is reported as
-// degraded. Disallowed leaf nodes are skipped and reported as dropped.
+// degraded. Only the outermost unwrapped container is reported, so a
+// flattened table gives one issue rather than one per row and cell type.
+// Disallowed leaf nodes are skipped and reported as dropped.
 func constrainChildren(children []jira4claude.ADFNode, container string, allowed func(string) bool, skipped *skippedCollector) []jira4claude.ADFNode {
+	return constrainChildrenAt(children, container, allowed, skipped, true)
+}
+
+// constrainChildrenAt is constrainChildren; reportUnwrap is false inside a
+// container that is already being unwrapped and reported.
+func constrainChildrenAt(children []jira4claude.ADFNode, container string, allowed func(string) bool, skipped *skippedCollector, reportUnwrap bool) []jira4claude.ADFNode {
 	var result []jira4claude.ADFNode
 	for _, child := range children {
 		if allowed(child.Type) {
@@ -470,8 +478,10 @@ func constrainChildren(children []jira4claude.ADFNode, container string, allowed
 					result = append(result, textParagraph(title))
 				}
 			}
-			skipped.degrade(child.Type, detail)
-			result = append(result, constrainChildren(child.Content, container, allowed, skipped)...)
+			if reportUnwrap {
+				skipped.degrade(child.Type, detail)
+			}
+			result = append(result, constrainChildrenAt(child.Content, container, allowed, skipped, false)...)
 			continue
 		}
 		skipped.add(child.Type)
@@ -952,7 +962,9 @@ func convertTaskList(node *ast.List, source []byte, skipped *skippedCollector) j
 		if !ok {
 			continue
 		}
-		items = append(items, convertTaskItem(listItem, source, skipped))
+		item, nested := convertTaskItem(listItem, source, skipped)
+		items = append(items, item)
+		items = append(items, nested...)
 	}
 	attrs, _ := json.Marshal(map[string]any{
 		"localId": generateLocalID(),
@@ -964,8 +976,10 @@ func convertTaskList(node *ast.List, source []byte, skipped *skippedCollector) j
 	}
 }
 
-// convertTaskItem converts a goldmark list item with a TaskCheckBox to an ADF taskItem.
-func convertTaskItem(node *ast.ListItem, source []byte, skipped *skippedCollector) jira4claude.ADFNode {
+// convertTaskItem converts a goldmark list item with a TaskCheckBox to an ADF
+// taskItem. It also returns the task lists nested directly in the item, which
+// ADF places as sibling taskList nodes after the item in the parent taskList.
+func convertTaskItem(node *ast.ListItem, source []byte, skipped *skippedCollector) (jira4claude.ADFNode, []jira4claude.ADFNode) {
 	state := "TODO"
 	// Look for TaskCheckBox in the list item's children
 	for block := node.FirstChild(); block != nil; block = block.NextSibling() {
@@ -985,24 +999,85 @@ func convertTaskItem(node *ast.ListItem, source []byte, skipped *skippedCollecto
 	})
 
 	// Convert content, skipping the TaskCheckBox node itself
-	content := convertTaskItemContent(node, source, skipped)
+	content, nested := convertTaskItemContent(node, source, skipped)
 
 	return jira4claude.ADFNode{
 		Type:    "taskItem",
 		Attrs:   attrs,
 		Content: content,
+	}, nested
+}
+
+// convertTaskItemContent converts the content of a task list item, skipping
+// the checkbox. A taskItem holds inline content only, so:
+//   - the item's first paragraph (the one with the checkbox) is its text, as is;
+//   - a task list nested directly in the item is returned separately, to be
+//     placed after the item as a sibling taskList (the native ADF form);
+//   - any other block goes through taskItemInline, which keeps text-like
+//     blocks after a hard break (reported as degraded) and reports the rest
+//     as dropped.
+func convertTaskItemContent(node *ast.ListItem, source []byte, skipped *skippedCollector) ([]jira4claude.ADFNode, []jira4claude.ADFNode) {
+	var content, nested []jira4claude.ADFNode
+	for block := node.FirstChild(); block != nil; block = block.NextSibling() {
+		if block == node.FirstChild() {
+			switch block.(type) {
+			case *ast.Paragraph, *ast.TextBlock:
+				// convertInlineRun skips the TaskCheckBox node.
+				content = consolidateTextNodes(convertInlineRun(block.FirstChild(), source, nil, skipped))
+				continue
+			}
+		}
+		adfNode, ok := nodeToADF(block, source, skipped)
+		if !ok {
+			continue
+		}
+		if adfNode.Type == "taskList" {
+			nested = append(nested, adfNode)
+			continue
+		}
+		inline := taskItemInline(adfNode, skipped)
+		if len(inline) == 0 {
+			continue
+		}
+		skipped.degrade(adfNode.Type, adfNode.Type+" is not allowed inside taskItem; its text kept in the task item after a line break")
+		content = appendAfterBreak(content, inline)
+	}
+	return content, nested
+}
+
+// taskItemInline flattens a block node into inline content for a taskItem.
+// Paragraphs and headings give their inline content; text containers (lists,
+// list items, blockquotes, panels) give their children's content separated
+// by hard breaks. Any other node (code block, table, rule, a task list below
+// the item's top level, and so on) cannot be kept faithfully and is reported
+// as dropped. Kept nodes are not reported here: the caller reports the
+// outermost block.
+func taskItemInline(node jira4claude.ADFNode, skipped *skippedCollector) []jira4claude.ADFNode {
+	switch node.Type {
+	case "paragraph", "heading":
+		return node.Content
+	case "bulletList", "orderedList", "listItem", "blockquote", "panel":
+		var result []jira4claude.ADFNode
+		for _, child := range node.Content {
+			result = appendAfterBreak(result, taskItemInline(child, skipped))
+		}
+		return result
+	default:
+		skipped.add(node.Type)
+		return nil
 	}
 }
 
-// convertTaskItemContent converts the content of a task list item, skipping the checkbox.
-func convertTaskItemContent(node *ast.ListItem, source []byte, skipped *skippedCollector) []jira4claude.ADFNode {
-	var content []jira4claude.ADFNode
-	for block := node.FirstChild(); block != nil; block = block.NextSibling() {
-		// convertInlineRun skips the TaskCheckBox node.
-		inlineContent := consolidateTextNodes(convertInlineRun(block.FirstChild(), source, nil, skipped))
-		content = append(content, inlineContent...)
+// appendAfterBreak appends inline to content, separated by a hardBreak when
+// both are non-empty.
+func appendAfterBreak(content, inline []jira4claude.ADFNode) []jira4claude.ADFNode {
+	if len(inline) == 0 {
+		return content
 	}
-	return content
+	if len(content) > 0 {
+		content = append(content, jira4claude.ADFNode{Type: "hardBreak"})
+	}
+	return append(content, inline...)
 }
 
 // generateLocalID creates a random UUID-like identifier for ADF nodes that require localId.

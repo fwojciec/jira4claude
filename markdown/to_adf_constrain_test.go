@@ -164,4 +164,45 @@ func TestToADF_ConstrainedChildrenReportDegraded(t *testing.T) {
 		assert.Equal(t, expected, result)
 		assert.Equal(t, []jira4claude.ConversionIssue{unwrappedIssue("blockquote", "listItem")}, issues)
 	})
+
+	t.Run("a table inside a list item is reported once, as the table", func(t *testing.T) {
+		t.Parallel()
+
+		result, issues := markdown.New().ToADF("- item\n\n  | A |\n  | --- |\n  | b |")
+
+		requireValidADF(t, result)
+		expected := doc(listOf([]jira4claude.ADFNode{para("item"), para("A"), para("b")}))
+		assert.Equal(t, expected, result)
+		assert.Equal(t, []jira4claude.ConversionIssue{unwrappedIssue("table", "listItem")}, issues)
+	})
+
+	t.Run("a table inside a blockquote is reported once, as the table", func(t *testing.T) {
+		t.Parallel()
+
+		result, issues := markdown.New().ToADF("> | A |\n> | --- |\n> | b |")
+
+		requireValidADF(t, result)
+		expected := doc(jira4claude.ADFNode{
+			Type:    "blockquote",
+			Content: []jira4claude.ADFNode{para("A"), para("b")},
+		})
+		assert.Equal(t, expected, result)
+		assert.Equal(t, []jira4claude.ConversionIssue{unwrappedIssue("table", "blockquote")}, issues)
+	})
+
+	t.Run("a heading inside an unwrapped container is still reported", func(t *testing.T) {
+		t.Parallel()
+
+		input := "- <details><summary>Title</summary>\n\n  ## Heading\n\n  </details>"
+
+		result, issues := markdown.New().ToADF(input)
+
+		requireValidADF(t, result)
+		expected := doc(listOf([]jira4claude.ADFNode{para("Title"), para("Heading")}))
+		assert.Equal(t, expected, result)
+		assert.Equal(t, []jira4claude.ConversionIssue{
+			unwrappedExpandIssue("listItem"),
+			downgradedHeadingIssue("listItem"),
+		}, issues)
+	})
 }
