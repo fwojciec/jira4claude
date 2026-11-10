@@ -23,9 +23,9 @@ type downloader struct {
 	mu          sync.Mutex
 	attachments []*jira4claude.Attachment
 	downloaded  []string
-	// fail, when set, makes the download of that ID fail with failErr.
-	fail    string
-	failErr error
+	// fails makes the download of each ID in it write "part" and fail
+	// with the error given.
+	fails map[string]error
 }
 
 func (d *downloader) service(t *testing.T) *mock.AttachmentService {
@@ -39,9 +39,9 @@ func (d *downloader) service(t *testing.T) *mock.AttachmentService {
 			d.mu.Lock()
 			d.downloaded = append(d.downloaded, id)
 			d.mu.Unlock()
-			if id == d.fail {
+			if err, ok := d.fails[id]; ok {
 				n, _ := io.WriteString(w, "part")
-				return int64(n), d.failErr
+				return int64(n), err
 			}
 			n, err := io.WriteString(w, "content of "+id)
 			return int64(n), err
@@ -269,43 +269,21 @@ func TestRun_AttachmentDownload(t *testing.T) {
 		assert.Equal(t, "content of 10000", fileContent(t, existing))
 	})
 
-	t.Run("--all stops at a failure, keeps and prints what was saved, and exits non-zero", func(t *testing.T) {
+	t.Run("a single selected attachment that fails is reported as one error", func(t *testing.T) {
 		t.Parallel()
 
 		dir := t.TempDir()
 		d := &downloader{
-			attachments: []*jira4claude.Attachment{sized("1", "a.txt"), sized("2", "b.txt"), sized("3", "c.txt")},
-			fail:        "2",
-			failErr:     &jira4claude.Error{Code: jira4claude.EForbidden, Message: "no access"},
-		}
-
-		res := runCLI(t, attachmentDeps(t, d.service(t)), "attachment", "download", "TEST-1", "--all", "--dir", dir)
-
-		assert.Equal(t, 3, res.code)
-		assert.Equal(t, filepath.Join(dir, "a.txt")+"\n", res.stdout)
-		assert.Equal(t, "[error] attachment 2 (\"b.txt\"): no access\n", res.stderr)
-		assert.Equal(t, []string{"a.txt"}, dirEntries(t, dir), "no partial or temporary file is left")
-		assert.Equal(t, []string{"1", "2"}, d.ids())
-	})
-
-	t.Run("--all failure part-way in --json mode keeps stdout one array", func(t *testing.T) {
-		t.Parallel()
-
-		dir := t.TempDir()
-		d := &downloader{
-			attachments: []*jira4claude.Attachment{sized("1", "a.txt"), sized("2", "b.txt")},
-			fail:        "2",
-			failErr:     errors.New("connection reset"),
+			attachments: []*jira4claude.Attachment{sized("1", "a.txt")},
+			fails:       map[string]error{"1": errors.New("connection reset")},
 		}
 
 		res := runCLI(t, attachmentDeps(t, d.service(t)), "--json", "attachment", "download", "TEST-1", "--all", "--dir", dir)
 
 		assert.Equal(t, 7, res.code)
-		var got []map[string]any
-		require.NoError(t, json.Unmarshal([]byte(res.stdout), &got), "stdout: %q", res.stdout)
-		require.Len(t, got, 1)
-		assert.Equal(t, "1", got[0]["id"])
-		assertJSONError(t, res.stderr, jira4claude.EInternal, "attachment 2 (\"b.txt\"): connection reset")
+		assert.Empty(t, res.stdout)
+		assertJSONError(t, res.stderr, jira4claude.EInternal, "attachment 1 (\"a.txt\"): connection reset")
+		assert.Empty(t, dirEntries(t, dir))
 	})
 
 	t.Run("a size other than the one Jira reports is an error and no file is kept", func(t *testing.T) {
@@ -335,6 +313,139 @@ func TestRun_AttachmentDownload(t *testing.T) {
 		assert.Contains(t, res.stderr, "attachments 2 and 3 would be saved under the same name")
 		assert.Empty(t, dirEntries(t, dir))
 	})
+}
+
+// TestRun_AttachmentDownloadPartialFailure follows the shape of
+// TestRun_IssueViewPartialFailure: with several attachments, each failure is
+// its own error line, a summary error follows, the files saved are printed,
+// and the exit code is that of the first failure.
+func TestRun_AttachmentDownloadPartialFailure(t *testing.T) {
+	t.Parallel()
+
+	three := func() []*jira4claude.Attachment {
+		return []*jira4claude.Attachment{sized("1", "a.txt"), sized("2", "b.txt"), sized("3", "c.txt")}
+	}
+
+	t.Run("an existing file does not stop the other downloads", func(t *testing.T) {
+		t.Parallel()
+
+		dir := t.TempDir()
+		existing := filepath.Join(dir, "b.txt")
+		require.NoError(t, os.WriteFile(existing, []byte("mine"), 0o600))
+		d := &downloader{attachments: three()}
+
+		res := runCLI(t, attachmentDeps(t, d.service(t)), "attachment", "download", "TEST-1", "--all", "--dir", dir)
+
+		assert.Equal(t, 1, res.code)
+		assert.Equal(t, filepath.Join(dir, "a.txt")+"\n"+filepath.Join(dir, "c.txt")+"\n", res.stdout)
+		assert.Equal(t,
+			"[error] attachment 2 (\"b.txt\"): "+existing+" already exists; use --overwrite to replace it\n"+
+				"[error] could not save 1 of 3 attachments: 2\n",
+			res.stderr)
+		assert.Equal(t, "mine", fileContent(t, existing))
+		assert.Equal(t, []string{"1", "3"}, d.ids())
+	})
+
+	t.Run("a download failure leaves no partial file and the rest are saved", func(t *testing.T) {
+		t.Parallel()
+
+		dir := t.TempDir()
+		d := &downloader{attachments: three(), fails: map[string]error{"2": errors.New("connection reset")}}
+
+		res := runCLI(t, attachmentDeps(t, d.service(t)), "attachment", "download", "TEST-1", "--all", "--dir", dir)
+
+		assert.Equal(t, 7, res.code)
+		assert.Equal(t, "[error] attachment 2 (\"b.txt\"): connection reset\n[error] could not save 1 of 3 attachments: 2\n", res.stderr)
+		assert.ElementsMatch(t, []string{"a.txt", "c.txt"}, dirEntries(t, dir), "no partial or temporary file is left")
+		assert.Equal(t, []string{"1", "2", "3"}, d.ids())
+	})
+
+	t.Run("JSON prints the saved files as one array and one error line per failure", func(t *testing.T) {
+		t.Parallel()
+
+		dir := t.TempDir()
+		d := &downloader{attachments: three(), fails: map[string]error{"2": errors.New("connection reset")}}
+
+		res := runCLI(t, attachmentDeps(t, d.service(t)), "--json", "attachment", "download", "TEST-1", "--all", "--dir", dir)
+
+		assert.Equal(t, 7, res.code)
+		var got []map[string]any
+		require.NoError(t, json.Unmarshal([]byte(res.stdout), &got), "stdout: %q", res.stdout)
+		require.Len(t, got, 2)
+		assert.Equal(t, "1", got[0]["id"])
+		assert.Equal(t, "3", got[1]["id"])
+		lines := stderrLines(t, res.stderr)
+		require.Len(t, lines, 2)
+		assert.Equal(t, map[string]any{"level": "error", "error": true, "code": jira4claude.EInternal, "message": "attachment 2 (\"b.txt\"): connection reset"}, lines[0])
+		assert.Equal(t, map[string]any{"level": "error", "error": true, "code": jira4claude.EInternal, "message": "could not save 1 of 3 attachments: 2"}, lines[1])
+	})
+
+	t.Run("differing failures exit with the code of the first", func(t *testing.T) {
+		t.Parallel()
+
+		dir := t.TempDir()
+		d := &downloader{attachments: three(), fails: map[string]error{
+			"1": &jira4claude.Error{Code: jira4claude.ENotFound, Message: "gone"},
+			"3": errors.New("connection reset"),
+		}}
+
+		res := runCLI(t, attachmentDeps(t, d.service(t)), "attachment", "download", "TEST-1", "--all", "--dir", dir)
+
+		assert.Equal(t, 4, res.code)
+		assert.Equal(t, filepath.Join(dir, "b.txt")+"\n", res.stdout)
+		assert.Equal(t,
+			"[error] attachment 1 (\"a.txt\"): gone\n"+
+				"[error] attachment 3 (\"c.txt\"): connection reset\n"+
+				"[error] could not save 2 of 3 attachments: 1, 3\n",
+			res.stderr)
+	})
+
+	t.Run("every file failing prints no data", func(t *testing.T) {
+		t.Parallel()
+
+		dir := t.TempDir()
+		d := &downloader{attachments: three()[:2], fails: map[string]error{
+			"1": errors.New("connection reset"),
+			"2": errors.New("connection reset"),
+		}}
+
+		res := runCLI(t, attachmentDeps(t, d.service(t)), "attachment", "download", "TEST-1", "--all", "--dir", dir)
+
+		assert.Equal(t, 7, res.code)
+		assert.Empty(t, res.stdout)
+		assert.Contains(t, res.stderr, "[error] could not save 2 of 2 attachments: 1, 2\n")
+		assert.NotContains(t, res.stderr, "[info]")
+		assert.Empty(t, dirEntries(t, dir))
+	})
+
+	for _, tc := range []struct {
+		code string
+		exit int
+	}{
+		{jira4claude.EUnauthorized, 2},
+		{jira4claude.EForbidden, 3},
+		{jira4claude.ERateLimit, 6},
+	} {
+		t.Run(tc.code+" stops the run: the rest would fail the same way", func(t *testing.T) {
+			t.Parallel()
+
+			dir := t.TempDir()
+			d := &downloader{attachments: three(), fails: map[string]error{
+				"2": &jira4claude.Error{Code: tc.code, Message: "denied"},
+			}}
+
+			res := runCLI(t, attachmentDeps(t, d.service(t)), "attachment", "download", "TEST-1", "--all", "--dir", dir)
+
+			assert.Equal(t, tc.exit, res.code)
+			assert.Equal(t, filepath.Join(dir, "a.txt")+"\n", res.stdout)
+			assert.Equal(t,
+				"[error] attachment 2 (\"b.txt\"): denied\n"+
+					"[error] could not save 2 of 3 attachments: 2; stopped after a "+tc.code+" error, not tried: 3\n",
+				res.stderr)
+			assert.Equal(t, []string{"1", "2"}, d.ids())
+			assert.Equal(t, []string{"a.txt"}, dirEntries(t, dir))
+		})
+	}
 }
 
 func TestRun_AttachmentDownloadFlags(t *testing.T) {

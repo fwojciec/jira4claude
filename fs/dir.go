@@ -33,6 +33,11 @@ type Dir struct {
 	// never replaces one of them, even under another name that the file
 	// system treats as equal (case or Unicode normalisation on macOS).
 	saved []iofs.FileInfo
+
+	// link and rename are root.Link and root.Rename; tests replace them to
+	// take the path for file systems without hard links (export_test.go).
+	link   func(oldname, newname string) error
+	rename func(oldname, newname string) error
 }
 
 // OpenDir opens an existing directory for saving. It never creates the
@@ -60,7 +65,7 @@ func OpenDir(path string, overwrite bool) (*Dir, error) {
 	if err != nil {
 		return nil, &jira4claude.Error{Code: jira4claude.EValidation, Message: "cannot open download directory " + path, Inner: err}
 	}
-	return &Dir{root: root, path: abs, overwrite: overwrite}, nil
+	return &Dir{root: root, path: abs, overwrite: overwrite, link: root.Link, rename: root.Rename}, nil
 }
 
 // Close releases the directory.
@@ -159,30 +164,39 @@ func (d *Dir) remember(name string) {
 }
 
 // place moves the temporary file to name. Without overwrite it never
-// replaces anything: a hard link fails if the name exists in any form. On a
-// file system without hard links, the name is reserved with O_EXCL (which
-// also refuses a symlink) and the temporary file renamed over the
-// reservation. With overwrite, the regular file that check accepted is
-// replaced by a rename, which replaces a directory entry and never follows a
-// symlink.
+// replaces anything: a hard link fails if the name exists in any form. With
+// overwrite, the regular file that check accepted is replaced by a rename,
+// which replaces a directory entry and never follows a symlink.
+//
+// On a file system without hard links (FAT, exFAT, some network file
+// systems), the name is reserved by creating it with O_CREATE|O_EXCL, which
+// fails on any existing entry and never follows a symlink, and the complete
+// temporary file is then renamed over the reservation. The standard library
+// has no portable rename that refuses an existing target (Linux
+// renameat2(RENAME_NOREPLACE) and macOS renamex_np(RENAME_EXCL) need
+// golang.org/x/sys), so the reservation cannot be avoided: an empty file
+// exists under name between the two calls, with no network I/O in between;
+// a process killed exactly there leaves that empty file. A failed rename
+// removes the reservation, if it is still the file created here.
 func (d *Dir) place(tmp, name string) error {
 	if d.overwrite {
 		if err := d.check(name); err != nil {
 			return err
 		}
-		if err := d.root.Rename(tmp, name); err != nil {
+		if err := d.rename(tmp, name); err != nil {
 			return &jira4claude.Error{Code: jira4claude.EInternal, Message: "failed to save " + d.display(name), Inner: err}
 		}
 		return nil
 	}
 
-	err := d.root.Link(tmp, name)
+	err := d.link(tmp, name)
 	if err == nil {
 		return nil
 	}
 	if errors.Is(err, iofs.ErrExist) {
 		return existsError(d.display(name))
 	}
+
 	reserved, err := d.root.OpenFile(name, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if errors.Is(err, iofs.ErrExist) {
 		return existsError(d.display(name))
@@ -190,10 +204,14 @@ func (d *Dir) place(tmp, name string) error {
 	if err != nil {
 		return &jira4claude.Error{Code: jira4claude.EInternal, Message: "failed to save " + d.display(name), Inner: err}
 	}
+	reservation, statErr := reserved.Stat()
 	// Error ignored: the file is empty and only reserves the name.
 	_ = reserved.Close()
-	if err := d.root.Rename(tmp, name); err != nil {
-		_ = d.root.Remove(name)
+	if err := d.rename(tmp, name); err != nil {
+		if current, err := d.root.Lstat(name); statErr == nil && err == nil && os.SameFile(reservation, current) {
+			// Error ignored: the rename failure is what is reported.
+			_ = d.root.Remove(name)
+		}
 		return &jira4claude.Error{Code: jira4claude.EInternal, Message: "failed to save " + d.display(name), Inner: err}
 	}
 	return nil

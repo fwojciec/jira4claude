@@ -63,8 +63,14 @@ func (c *AttachmentDownloadCmd) Validate() error {
 // before Jira is asked anything; the attachments are read from the issue, so
 // an --id must belong to KEY; every local name is decided (and clashes
 // resolved) before the first download; each file goes through fs.Dir.Save.
-// With --all, the first failure stops the run: the files already saved stay
-// and are printed, and the error is returned.
+// A failure before the downloads (directory, list, names) stops the run.
+//
+// With several attachments, as issue view does with several keys, a failure
+// to save one is printed as its own error and the others are still tried,
+// except after an unauthorized, forbidden or rate-limit error, which would
+// repeat for each (see stopsRun). The files saved are printed, and a summary
+// error naming the failed IDs is returned with the code of the first
+// failure. A single selected attachment that fails is returned as it is.
 func (c *AttachmentDownloadCmd) Run(ctx *AttachmentContext) error {
 	dir, err := fs.OpenDir(c.Dir, c.Overwrite)
 	if err != nil {
@@ -89,25 +95,66 @@ func (c *AttachmentDownloadCmd) Run(ctx *AttachmentContext) error {
 	}
 
 	saved := make([]jira4claude.SavedAttachmentView, 0, len(selected))
+	var failed, notTried []string
+	var firstErr, stopErr error
 	for i, a := range selected {
+		if stopErr != nil {
+			notTried = append(notTried, a.ID)
+			continue
+		}
 		path, n, err := dir.Save(names[i], a.Size, func(w io.Writer) error {
 			_, err := ctx.Service.Download(context.Background(), a.ID, w)
 			return err
 		})
 		if err != nil {
-			if len(saved) > 0 {
-				ctx.Printer.SavedAttachments(c.Key, saved)
-			}
-			return &jira4claude.Error{
+			fileErr := &jira4claude.Error{
 				Code:    jira4claude.ErrorCode(err),
 				Message: fmt.Sprintf("attachment %s (%q)", a.ID, a.Filename),
 				Inner:   err,
 			}
+			if len(selected) == 1 {
+				return fileErr
+			}
+			ctx.Printer.Error(fileErr)
+			failed = append(failed, a.ID)
+			if firstErr == nil {
+				firstErr = err
+			}
+			if stopsRun(err) {
+				stopErr = err
+			}
+			continue
 		}
 		saved = append(saved, jira4claude.SavedAttachmentView{ID: a.ID, Filename: a.Filename, Path: path, Size: n})
 	}
-	ctx.Printer.SavedAttachments(c.Key, saved)
-	return nil
+
+	// With every file failed there is no data to print; the empty-result
+	// notice would wrongly say the issue has no attachments.
+	if len(saved) > 0 || len(failed) == 0 {
+		ctx.Printer.SavedAttachments(c.Key, saved)
+	}
+	if len(failed) == 0 {
+		return nil
+	}
+	msg := fmt.Sprintf("could not save %d of %d attachments: %s",
+		len(failed)+len(notTried), len(selected), strings.Join(failed, ", "))
+	if stopErr != nil {
+		msg += fmt.Sprintf("; stopped after a %s error, not tried: %s",
+			jira4claude.ErrorCode(stopErr), strings.Join(notTried, ", "))
+	}
+	return &jira4claude.Error{Code: jira4claude.ErrorCode(firstErr), Message: msg}
+}
+
+// stopsRun reports whether a failure to save one attachment would repeat for
+// every other one, so that --all should stop: Jira refused the credentials,
+// the permission or the request rate. Other failures (a file that exists, a
+// broken connection, a size mismatch) are particular to one file.
+func stopsRun(err error) bool {
+	switch jira4claude.ErrorCode(err) {
+	case jira4claude.EUnauthorized, jira4claude.EForbidden, jira4claude.ERateLimit:
+		return true
+	}
+	return false
 }
 
 // selectAttachments picks the attachments named by --id, --name or --all.

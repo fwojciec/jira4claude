@@ -335,6 +335,66 @@ func TestDir_Save(t *testing.T) {
 		assert.Empty(t, entries(t, dir))
 	})
 
+	t.Run("without hard links the file is still saved", func(t *testing.T) {
+		t.Parallel()
+
+		dir := t.TempDir()
+		d := openDir(t, dir, false)
+		fs.WithoutHardLinks(d)
+
+		path, n, err := d.Save("a.txt", 3, content("new"))
+
+		require.NoError(t, err)
+		assert.Equal(t, int64(3), n)
+		assert.Equal(t, "new", readFile(t, path))
+		assert.Equal(t, []string{"a.txt"}, entries(t, dir), "no temporary file is left")
+	})
+
+	t.Run("without hard links a file that appears during the download is not replaced", func(t *testing.T) {
+		t.Parallel()
+
+		for _, symlink := range []bool{false, true} {
+			dir := t.TempDir()
+			target := filepath.Join(dir, "a.txt")
+			outside := filepath.Join(t.TempDir(), "victim")
+			require.NoError(t, os.WriteFile(outside, []byte("precious"), 0o600))
+			d := openDir(t, dir, false)
+			fs.WithoutHardLinks(d)
+
+			_, _, err := d.Save("a.txt", 0, func(w io.Writer) error {
+				if symlink {
+					require.NoError(t, os.Symlink(outside, target))
+				} else {
+					require.NoError(t, os.WriteFile(target, []byte("raced"), 0o600))
+				}
+				return content("new")(w)
+			})
+
+			require.Error(t, err, "symlink=%v", symlink)
+			assert.Equal(t, jira4claude.EValidation, jira4claude.ErrorCode(err))
+			assert.Equal(t, "precious", readFile(t, outside))
+			if !symlink {
+				assert.Equal(t, "raced", readFile(t, target))
+			}
+			assert.Equal(t, []string{"a.txt"}, entries(t, dir), "the temporary file is removed")
+		}
+	})
+
+	t.Run("without hard links a failed rename leaves neither the reservation nor the temporary file", func(t *testing.T) {
+		t.Parallel()
+
+		dir := t.TempDir()
+		d := openDir(t, dir, false)
+		fs.WithoutHardLinks(d)
+		boom := errors.New("rename failed")
+		fs.FailRename(d, boom)
+
+		_, _, err := d.Save("a.txt", 0, content("new"))
+
+		require.ErrorIs(t, err, boom)
+		assert.Empty(t, entries(t, dir))
+	})
+
 	t.Run("a name that is not a plain base name is refused and nothing is written", func(t *testing.T) {
 		t.Parallel()
 
