@@ -99,7 +99,7 @@ func adfHeadingToGFM(node *jira4claude.ADFNode, skipped *skippedCollector) strin
 		}
 	}
 
-	text := adfInlineToGFM(node, skipped)
+	text := escapeHeadingClose(adfInlineToGFM(node, skipped))
 	return strings.Repeat("#", level) + " " + text
 }
 
@@ -479,10 +479,12 @@ func adfInlineToGFM(node *jira4claude.ADFNode, skipped *skippedCollector) string
 		child := &node.Content[i]
 		switch child.Type {
 		case "text":
+			lineStart := i == 0 || node.Content[i-1].Type == "hardBreak"
+			text := escapeTextNode(child, lineStart)
 			if len(child.Marks) == 0 {
-				result.WriteString(child.Text)
+				result.WriteString(text)
 			} else {
-				result.WriteString(applyMarks(child.Text, child.Marks))
+				result.WriteString(applyMarks(text, child.Marks))
 			}
 		case "hardBreak":
 			result.WriteString("\n")

@@ -98,10 +98,11 @@ func TestRoundTrip_Tildes(t *testing.T) {
 func TestRoundTrip_PlainTextTildeFromJira(t *testing.T) {
 	t.Parallel()
 
-	// A text node from Jira holding lone tildes, or a backslash before a
-	// tilde, must come back from ADF -> Markdown -> ADF unchanged and without
-	// gaining a strike mark. Literal "~~" in Jira text is tracked separately
-	// (GitHub issue 153).
+	// A text node from Jira holding lone tildes, a literal "~~" pair, or a
+	// backslash before a tilde, must come back from ADF -> Markdown -> ADF
+	// unchanged and without gaining a strike mark. The read side escapes a
+	// "~~" pair and a backslash before punctuation; the write side decodes
+	// exactly those escapes (GitHub issue 153).
 	strong := []jira4claude.ADFMark{{Type: "strong"}}
 	for _, tc := range []struct {
 		name  string
@@ -114,6 +115,11 @@ func TestRoundTrip_PlainTextTildeFromJira(t *testing.T) {
 		{"triple tildes", "x ~~~a~~~ y", nil},
 		{"backslash before tilde in path", `C:\~user`, nil},
 		{"backslash before spaced tilde", `a \~ b`, nil},
+		{"literal double tildes", "a ~~b~~ c", nil},
+		{"literal double tildes in strong", "a ~~b~~ c", strong},
+		{"backslash before double tildes", `a \~~b~~ c`, nil},
+		{"double tildes at start", "~~b~~", nil},
+		{"triple tildes at start", "~~~ x", nil},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
