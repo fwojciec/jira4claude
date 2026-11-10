@@ -630,6 +630,41 @@ func TestPrinter_Warning_MultipleWarnings(t *testing.T) {
 	assert.Contains(t, errOutput, "second warning")
 }
 
+func TestPrinter_ConversionIssue(t *testing.T) {
+	t.Parallel()
+
+	t.Run("renders kind, node and detail to stderr", func(t *testing.T) {
+		t.Parallel()
+
+		var out, errOut bytes.Buffer
+		p := jsonpkg.NewPrinterWithIO(&out, &errOut)
+
+		p.ConversionIssue(jira4claude.ConversionIssue{
+			Kind:   jira4claude.ConversionDropped,
+			Node:   "Image",
+			Detail: "skipped unsupported node type 'Image'",
+		})
+
+		assert.Empty(t, out.String(), "conversion issues should not go to stdout")
+		assert.Equal(t, "warning: dropped Image: skipped unsupported node type 'Image'\n", errOut.String())
+	})
+
+	t.Run("renders degraded issues", func(t *testing.T) {
+		t.Parallel()
+
+		var out, errOut bytes.Buffer
+		p := jsonpkg.NewPrinterWithIO(&out, &errOut)
+
+		p.ConversionIssue(jira4claude.ConversionIssue{
+			Kind:   jira4claude.ConversionDegraded,
+			Node:   "emoji",
+			Detail: "rendered as text",
+		})
+
+		assert.Equal(t, "warning: degraded emoji: rendered as text\n", errOut.String())
+	})
+}
+
 // decodeFieldsArray decodes the {source, scope, omitted, fields} wrapper
 // emitted by Printer.Fields and returns the fields array for inspection.
 func decodeFieldsArray(t *testing.T, b []byte) []map[string]any {

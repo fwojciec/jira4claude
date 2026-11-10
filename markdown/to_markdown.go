@@ -12,8 +12,8 @@ import (
 
 // toMarkdown converts an Atlassian Document Format (ADF) document to GitHub-flavored markdown.
 // This is useful for displaying Jira issue content in a readable format.
-// Returns warnings for any elements that were skipped during conversion.
-func toMarkdown(adfDoc *jira4claude.ADFNode) (string, []string) {
+// Returns a ConversionIssue for any element that was skipped during conversion.
+func toMarkdown(adfDoc *jira4claude.ADFNode) (string, []jira4claude.ConversionIssue) {
 	if adfDoc == nil {
 		return "", nil
 	}
@@ -31,7 +31,7 @@ func toMarkdown(adfDoc *jira4claude.ADFNode) (string, []string) {
 		}
 	}
 
-	return strings.Join(parts, "\n\n"), skipped.warnings()
+	return strings.Join(parts, "\n\n"), skipped.issues()
 }
 
 // adfNodeToGFM converts a single ADF node to markdown.

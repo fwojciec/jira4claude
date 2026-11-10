@@ -17,44 +17,51 @@ import (
 	"github.com/yuin/goldmark/text"
 )
 
-// skippedCollector tracks node types that were skipped during conversion.
-// Each unique node type generates one warning.
+// skippedCollector tracks content that a conversion could not carry over.
+// Each unique node type produces one jira4claude.ConversionIssue of kind
+// dropped: every site that records a node today omits its content from the
+// output. (No converter path produces a degraded issue yet.)
 type skippedCollector struct {
-	types map[string]struct{}
+	types map[string]jira4claude.ConversionIssue
 }
 
 func newSkippedCollector() *skippedCollector {
-	return &skippedCollector{types: make(map[string]struct{})}
+	return &skippedCollector{types: make(map[string]jira4claude.ConversionIssue)}
 }
 
+// add records nodeType as dropped: its content is not in the output.
 func (s *skippedCollector) add(nodeType string) {
-	s.types[nodeType] = struct{}{}
+	s.types[nodeType] = jira4claude.ConversionIssue{
+		Kind:   jira4claude.ConversionDropped,
+		Node:   nodeType,
+		Detail: fmt.Sprintf("skipped unsupported node type '%s'", nodeType),
+	}
 }
 
-// warnings returns a slice of warning messages for each skipped node type.
-// Warnings are sorted alphabetically by node type for deterministic output.
-// Returns nil if no nodes were skipped.
-func (s *skippedCollector) warnings() []string {
+// issues returns one ConversionIssue per recorded node type, sorted
+// alphabetically by node for deterministic output. Returns nil if nothing was
+// recorded.
+func (s *skippedCollector) issues() []jira4claude.ConversionIssue {
 	if len(s.types) == 0 {
 		return nil
 	}
-	types := make([]string, 0, len(s.types))
-	for t := range s.types {
-		types = append(types, t)
+	nodes := make([]string, 0, len(s.types))
+	for n := range s.types {
+		nodes = append(nodes, n)
 	}
-	sort.Strings(types)
-	warnings := make([]string, len(types))
-	for i, t := range types {
-		warnings[i] = fmt.Sprintf("skipped unsupported node type '%s'", t)
+	sort.Strings(nodes)
+	issues := make([]jira4claude.ConversionIssue, len(nodes))
+	for i, n := range nodes {
+		issues[i] = s.types[n]
 	}
-	return warnings
+	return issues
 }
 
 // toADF converts GitHub-flavored markdown to Atlassian Document Format (ADF).
 // The result can be used directly in Jira API requests for description and comment fields.
-// Returns warnings for any elements that were skipped during conversion.
+// Returns a ConversionIssue for any content that was dropped or degraded.
 // Always returns a non-nil *ADFNode.
-func toADF(markdown string) (*jira4claude.ADFNode, []string) {
+func toADF(markdown string) (*jira4claude.ADFNode, []jira4claude.ConversionIssue) {
 	markdown = NormalizeUnicode(markdown)
 
 	md := goldmark.New(
@@ -77,7 +84,7 @@ func toADF(markdown string) (*jira4claude.ADFNode, []string) {
 		Type:    "doc",
 		Version: 1,
 		Content: content,
-	}, skipped.warnings()
+	}, skipped.issues()
 }
 
 // convertNode recursively converts goldmark AST nodes to ADF nodes.

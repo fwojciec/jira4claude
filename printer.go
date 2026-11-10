@@ -18,6 +18,9 @@ type LinkPrinter interface {
 type MessagePrinter interface {
 	Success(msg string, keys ...string)
 	Warning(msg string)
+	// ConversionIssue reports content that a Markdown/ADF conversion dropped
+	// or degraded. It is a warning: it never changes the exit code.
+	ConversionIssue(issue ConversionIssue)
 	Error(err error)
 }
 

@@ -10,15 +10,16 @@ var _ jira4claude.Printer = (*Printer)(nil)
 // Unlike IssueService, methods with nil function fields do not panic;
 // they only record the call for assertion.
 type Printer struct {
-	IssueFn       func(view jira4claude.IssueView)
-	IssuesFn      func(view jira4claude.IssueListView)
-	CommentFn     func(view jira4claude.CommentView)
-	TransitionsFn func(key string, ts []*jira4claude.Transition)
-	FieldsFn      func(view jira4claude.IssueFieldsView)
-	LinksFn       func(key string, links []jira4claude.RelatedIssueView)
-	SuccessFn     func(msg string, keys ...string)
-	WarningFn     func(msg string)
-	ErrorFn       func(err error)
+	IssueFn           func(view jira4claude.IssueView)
+	IssuesFn          func(view jira4claude.IssueListView)
+	CommentFn         func(view jira4claude.CommentView)
+	TransitionsFn     func(key string, ts []*jira4claude.Transition)
+	FieldsFn          func(view jira4claude.IssueFieldsView)
+	LinksFn           func(key string, links []jira4claude.RelatedIssueView)
+	SuccessFn         func(msg string, keys ...string)
+	WarningFn         func(msg string)
+	ConversionIssueFn func(issue jira4claude.ConversionIssue)
+	ErrorFn           func(err error)
 
 	// Captured calls for assertions
 	IssueCalls       []jira4claude.IssueView
@@ -37,8 +38,9 @@ type Printer struct {
 		Msg  string
 		Keys []string
 	}
-	WarningCalls []string
-	ErrorCalls   []error
+	WarningCalls         []string
+	ConversionIssueCalls []jira4claude.ConversionIssue
+	ErrorCalls           []error
 }
 
 func (p *Printer) Issue(view jira4claude.IssueView) {
@@ -103,6 +105,13 @@ func (p *Printer) Warning(msg string) {
 	p.WarningCalls = append(p.WarningCalls, msg)
 	if p.WarningFn != nil {
 		p.WarningFn(msg)
+	}
+}
+
+func (p *Printer) ConversionIssue(issue jira4claude.ConversionIssue) {
+	p.ConversionIssueCalls = append(p.ConversionIssueCalls, issue)
+	if p.ConversionIssueFn != nil {
+		p.ConversionIssueFn(issue)
 	}
 }
 

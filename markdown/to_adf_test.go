@@ -495,7 +495,7 @@ func TestConverter_ToADF(t *testing.T) {
 
 		// Both HTML blocks produce the same skipped type, so only one warning
 		require.Len(t, warnings, 1)
-		assert.Contains(t, warnings[0], "HTMLBlock")
+		assert.Equal(t, "HTMLBlock", warnings[0].Node)
 	})
 
 	t.Run("returns empty warnings slice when no content is skipped", func(t *testing.T) {
@@ -1518,7 +1518,8 @@ func TestConverter_ToADF(t *testing.T) {
 
 		// Should produce a warning about unsupported image conversion
 		require.NotEmpty(t, warnings)
-		assert.Contains(t, warnings[0], "Image")
+		assert.Equal(t, "Image", warnings[0].Node)
+		assert.Equal(t, jira4claude.ConversionDropped, warnings[0].Kind)
 
 		// The surrounding text should still be present
 		require.GreaterOrEqual(t, len(result.Content), 2)
@@ -1534,7 +1535,8 @@ func TestConverter_ToADF(t *testing.T) {
 
 		// Should produce a warning about unsupported image conversion
 		require.NotEmpty(t, warnings)
-		assert.Contains(t, warnings[0], "Image")
+		assert.Equal(t, "Image", warnings[0].Node)
+		assert.Equal(t, jira4claude.ConversionDropped, warnings[0].Kind)
 
 		// The paragraph should have text content (image dropped)
 		require.Len(t, result.Content, 1)

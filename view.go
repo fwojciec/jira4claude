@@ -57,8 +57,10 @@ type RelatedIssueView struct {
 }
 
 // ToIssueView converts a domain Issue to a display-ready IssueView.
-// The converter is used to convert ADF to markdown, and any warnings are passed to the warn callback.
-func ToIssueView(issue *Issue, conv Converter, warn func(string), serverURL string) IssueView {
+// The converter is used to convert ADF to markdown, and every conversion issue
+// is passed to the warn callback. Reads never fail on conversion issues, even
+// dropped ones.
+func ToIssueView(issue *Issue, conv Converter, warn func(ConversionIssue), serverURL string) IssueView {
 	var description string
 	if issue.Description != nil {
 		desc, warnings := conv.ToMarkdown(issue.Description)
@@ -198,7 +200,8 @@ func ToIssueListItems(issues []*Issue) []IssueListItem {
 }
 
 // ToCommentView converts a domain Comment to a display-ready CommentView.
-func ToCommentView(comment *Comment, conv Converter, warn func(string)) CommentView {
+// Every conversion issue is passed to the warn callback.
+func ToCommentView(comment *Comment, conv Converter, warn func(ConversionIssue)) CommentView {
 	body, warnings := conv.ToMarkdown(comment.Body)
 	for _, w := range warnings {
 		warn(w)

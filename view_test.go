@@ -18,7 +18,7 @@ func TestToIssueView(t *testing.T) {
 		t.Parallel()
 
 		conv := &mock.Converter{
-			ToMarkdownFn: func(adf *jira4claude.ADFNode) (string, []string) {
+			ToMarkdownFn: func(adf *jira4claude.ADFNode) (string, []jira4claude.ConversionIssue) {
 				return "# Hello World", nil
 			},
 		}
@@ -36,8 +36,8 @@ func TestToIssueView(t *testing.T) {
 			Updated: time.Date(2024, 1, 2, 12, 0, 0, 0, time.UTC),
 		}
 
-		var warnings []string
-		view := jira4claude.ToIssueView(issue, conv, func(w string) { warnings = append(warnings, w) }, "https://test.atlassian.net")
+		var warnings []jira4claude.ConversionIssue
+		view := jira4claude.ToIssueView(issue, conv, func(w jira4claude.ConversionIssue) { warnings = append(warnings, w) }, "https://test.atlassian.net")
 
 		assert.Equal(t, "TEST-1", view.Key)
 		assert.Equal(t, "Test issue", view.Summary)
@@ -49,8 +49,8 @@ func TestToIssueView(t *testing.T) {
 		t.Parallel()
 
 		conv := &mock.Converter{
-			ToMarkdownFn: func(adf *jira4claude.ADFNode) (string, []string) {
-				return "text", []string{"unsupported element: emoji", "unknown node type"}
+			ToMarkdownFn: func(adf *jira4claude.ADFNode) (string, []jira4claude.ConversionIssue) {
+				return "text", []jira4claude.ConversionIssue{{Kind: jira4claude.ConversionDropped, Node: "unsupported element: emoji"}, {Kind: jira4claude.ConversionDropped, Node: "unknown node type"}}
 			},
 		}
 
@@ -66,17 +66,17 @@ func TestToIssueView(t *testing.T) {
 			Updated: time.Date(2024, 1, 2, 12, 0, 0, 0, time.UTC),
 		}
 
-		var warnings []string
-		_ = jira4claude.ToIssueView(issue, conv, func(w string) { warnings = append(warnings, w) }, "")
+		var warnings []jira4claude.ConversionIssue
+		_ = jira4claude.ToIssueView(issue, conv, func(w jira4claude.ConversionIssue) { warnings = append(warnings, w) }, "")
 
-		assert.Equal(t, []string{"unsupported element: emoji", "unknown node type"}, warnings)
+		assert.Equal(t, []jira4claude.ConversionIssue{{Kind: jira4claude.ConversionDropped, Node: "unsupported element: emoji"}, {Kind: jira4claude.ConversionDropped, Node: "unknown node type"}}, warnings)
 	})
 
 	t.Run("converts comment bodies to markdown", func(t *testing.T) {
 		t.Parallel()
 
 		conv := &mock.Converter{
-			ToMarkdownFn: func(adf *jira4claude.ADFNode) (string, []string) {
+			ToMarkdownFn: func(adf *jira4claude.ADFNode) (string, []jira4claude.ConversionIssue) {
 				if adf != nil && adf.Text != "" {
 					return adf.Text + " (converted)", nil
 				}
@@ -101,8 +101,8 @@ func TestToIssueView(t *testing.T) {
 			Updated: time.Date(2024, 1, 2, 12, 0, 0, 0, time.UTC),
 		}
 
-		var warnings []string
-		view := jira4claude.ToIssueView(issue, conv, func(w string) { warnings = append(warnings, w) }, "")
+		var warnings []jira4claude.ConversionIssue
+		view := jira4claude.ToIssueView(issue, conv, func(w jira4claude.ConversionIssue) { warnings = append(warnings, w) }, "")
 
 		assert.Len(t, view.Comments, 1)
 		assert.Equal(t, "comment body (converted)", view.Comments[0].Body)
@@ -113,8 +113,8 @@ func TestToIssueView(t *testing.T) {
 		t.Parallel()
 
 		conv := &mock.Converter{
-			ToMarkdownFn: func(adf *jira4claude.ADFNode) (string, []string) {
-				return "text", []string{"comment warning"}
+			ToMarkdownFn: func(adf *jira4claude.ADFNode) (string, []jira4claude.ConversionIssue) {
+				return "text", []jira4claude.ConversionIssue{{Kind: jira4claude.ConversionDropped, Node: "comment warning"}}
 			},
 		}
 
@@ -134,18 +134,18 @@ func TestToIssueView(t *testing.T) {
 			Updated: time.Date(2024, 1, 2, 12, 0, 0, 0, time.UTC),
 		}
 
-		var warnings []string
-		_ = jira4claude.ToIssueView(issue, conv, func(w string) { warnings = append(warnings, w) }, "")
+		var warnings []jira4claude.ConversionIssue
+		_ = jira4claude.ToIssueView(issue, conv, func(w jira4claude.ConversionIssue) { warnings = append(warnings, w) }, "")
 
 		// Description warning + comment warning
-		assert.Contains(t, warnings, "comment warning")
+		assert.Contains(t, warnings, jira4claude.ConversionIssue{Kind: jira4claude.ConversionDropped, Node: "comment warning"})
 	})
 
 	t.Run("handles nil description", func(t *testing.T) {
 		t.Parallel()
 
 		conv := &mock.Converter{
-			ToMarkdownFn: func(adf *jira4claude.ADFNode) (string, []string) {
+			ToMarkdownFn: func(adf *jira4claude.ADFNode) (string, []jira4claude.ConversionIssue) {
 				return "", nil
 			},
 		}
@@ -160,8 +160,8 @@ func TestToIssueView(t *testing.T) {
 			Updated:     time.Date(2024, 1, 2, 12, 0, 0, 0, time.UTC),
 		}
 
-		var warnings []string
-		view := jira4claude.ToIssueView(issue, conv, func(w string) { warnings = append(warnings, w) }, "")
+		var warnings []jira4claude.ConversionIssue
+		view := jira4claude.ToIssueView(issue, conv, func(w jira4claude.ConversionIssue) { warnings = append(warnings, w) }, "")
 
 		assert.Empty(t, view.Description)
 	})
@@ -170,7 +170,7 @@ func TestToIssueView(t *testing.T) {
 		t.Parallel()
 
 		conv := &mock.Converter{
-			ToMarkdownFn: func(adf *jira4claude.ADFNode) (string, []string) {
+			ToMarkdownFn: func(adf *jira4claude.ADFNode) (string, []jira4claude.ConversionIssue) {
 				return "", nil
 			},
 		}
@@ -212,8 +212,8 @@ func TestToIssueView(t *testing.T) {
 			Updated: time.Date(2024, 1, 2, 12, 0, 0, 0, time.UTC),
 		}
 
-		var warnings []string
-		view := jira4claude.ToIssueView(issue, conv, func(w string) { warnings = append(warnings, w) }, "")
+		var warnings []jira4claude.ConversionIssue
+		view := jira4claude.ToIssueView(issue, conv, func(w jira4claude.ConversionIssue) { warnings = append(warnings, w) }, "")
 
 		assert.Len(t, view.RelatedIssues, 2)
 		// Outward link (blocks) comes first
@@ -233,7 +233,7 @@ func TestToIssueView(t *testing.T) {
 		t.Parallel()
 
 		conv := &mock.Converter{
-			ToMarkdownFn: func(adf *jira4claude.ADFNode) (string, []string) {
+			ToMarkdownFn: func(adf *jira4claude.ADFNode) (string, []jira4claude.ConversionIssue) {
 				return "", nil
 			},
 		}
@@ -247,7 +247,7 @@ func TestToIssueView(t *testing.T) {
 			Updated: time.Date(2024, 1, 2, 12, 0, 0, 0, time.UTC),
 		}
 
-		view := jira4claude.ToIssueView(issue, conv, func(w string) {}, "https://test.atlassian.net")
+		view := jira4claude.ToIssueView(issue, conv, func(w jira4claude.ConversionIssue) {}, "https://test.atlassian.net")
 
 		assert.Equal(t, "https://test.atlassian.net/browse/TEST-1", view.URL)
 	})
@@ -256,7 +256,7 @@ func TestToIssueView(t *testing.T) {
 		t.Parallel()
 
 		conv := &mock.Converter{
-			ToMarkdownFn: func(adf *jira4claude.ADFNode) (string, []string) {
+			ToMarkdownFn: func(adf *jira4claude.ADFNode) (string, []jira4claude.ConversionIssue) {
 				return "", nil
 			},
 		}
@@ -270,7 +270,7 @@ func TestToIssueView(t *testing.T) {
 			Updated: time.Date(2024, 1, 16, 14, 45, 0, 0, time.UTC),
 		}
 
-		view := jira4claude.ToIssueView(issue, conv, func(w string) {}, "")
+		view := jira4claude.ToIssueView(issue, conv, func(w jira4claude.ConversionIssue) {}, "")
 
 		assert.Equal(t, "2024-01-15T10:30:00Z", view.Created)
 		assert.Equal(t, "2024-01-16T14:45:00Z", view.Updated)
@@ -280,7 +280,7 @@ func TestToIssueView(t *testing.T) {
 		t.Parallel()
 
 		conv := &mock.Converter{
-			ToMarkdownFn: func(adf *jira4claude.ADFNode) (string, []string) {
+			ToMarkdownFn: func(adf *jira4claude.ADFNode) (string, []jira4claude.ConversionIssue) {
 				return "", nil
 			},
 		}
@@ -305,7 +305,7 @@ func TestToIssueView(t *testing.T) {
 			Updated: time.Date(2024, 1, 2, 12, 0, 0, 0, time.UTC),
 		}
 
-		view := jira4claude.ToIssueView(issue, conv, func(w string) {}, "")
+		view := jira4claude.ToIssueView(issue, conv, func(w jira4claude.ConversionIssue) {}, "")
 
 		assert.Equal(t, "TEST", view.Project)
 		assert.Equal(t, "High", view.Priority)
@@ -322,7 +322,7 @@ func TestToIssueView(t *testing.T) {
 		t.Parallel()
 
 		conv := &mock.Converter{
-			ToMarkdownFn: func(adf *jira4claude.ADFNode) (string, []string) {
+			ToMarkdownFn: func(adf *jira4claude.ADFNode) (string, []jira4claude.ConversionIssue) {
 				return "", nil
 			},
 		}
@@ -337,7 +337,7 @@ func TestToIssueView(t *testing.T) {
 			Updated: time.Date(2024, 1, 2, 12, 0, 0, 0, time.UTC),
 		}
 
-		view := jira4claude.ToIssueView(issue, conv, func(w string) {}, "")
+		view := jira4claude.ToIssueView(issue, conv, func(w jira4claude.ConversionIssue) {}, "")
 
 		assert.Empty(t, view.RelatedIssues)
 	})
@@ -348,7 +348,7 @@ func TestToIssueView_CustomFields(t *testing.T) {
 
 	newConv := func() *mock.Converter {
 		return &mock.Converter{
-			ToMarkdownFn: func(adf *jira4claude.ADFNode) (string, []string) {
+			ToMarkdownFn: func(adf *jira4claude.ADFNode) (string, []jira4claude.ConversionIssue) {
 				return "", nil
 			},
 		}
@@ -372,7 +372,7 @@ func TestToIssueView_CustomFields(t *testing.T) {
 			Updated:          time.Date(2024, 1, 2, 12, 0, 0, 0, time.UTC),
 		}
 
-		view := jira4claude.ToIssueView(issue, newConv(), func(w string) {}, "")
+		view := jira4claude.ToIssueView(issue, newConv(), func(w jira4claude.ConversionIssue) {}, "")
 
 		assert.Equal(t, customFields, view.CustomFields)
 	})
@@ -392,7 +392,7 @@ func TestToIssueView_CustomFields(t *testing.T) {
 			Updated: time.Date(2024, 1, 2, 12, 0, 0, 0, time.UTC),
 		}
 
-		view := jira4claude.ToIssueView(issue, newConv(), func(w string) {}, "")
+		view := jira4claude.ToIssueView(issue, newConv(), func(w jira4claude.ConversionIssue) {}, "")
 
 		data, err := json.Marshal(view)
 		require.NoError(t, err)
@@ -421,7 +421,7 @@ func TestToIssueView_CustomFields(t *testing.T) {
 			Updated:          time.Date(2024, 1, 2, 12, 0, 0, 0, time.UTC),
 		}
 
-		view := jira4claude.ToIssueView(issue, newConv(), func(w string) {}, "")
+		view := jira4claude.ToIssueView(issue, newConv(), func(w jira4claude.ConversionIssue) {}, "")
 
 		data, err := json.Marshal(view)
 		require.NoError(t, err)
@@ -442,7 +442,7 @@ func TestToIssueView_CustomFields(t *testing.T) {
 			Updated:          time.Date(2024, 1, 2, 12, 0, 0, 0, time.UTC),
 		}
 
-		view := jira4claude.ToIssueView(issue, newConv(), func(w string) {}, "")
+		view := jira4claude.ToIssueView(issue, newConv(), func(w jira4claude.ConversionIssue) {}, "")
 
 		data, err := json.Marshal(view)
 		require.NoError(t, err)
@@ -513,7 +513,7 @@ func TestToCommentView(t *testing.T) {
 		t.Parallel()
 
 		conv := &mock.Converter{
-			ToMarkdownFn: func(adf *jira4claude.ADFNode) (string, []string) {
+			ToMarkdownFn: func(adf *jira4claude.ADFNode) (string, []jira4claude.ConversionIssue) {
 				return "**bold** text", nil
 			},
 		}
@@ -525,8 +525,8 @@ func TestToCommentView(t *testing.T) {
 			Created: time.Date(2024, 1, 15, 10, 30, 0, 0, time.UTC),
 		}
 
-		var warnings []string
-		view := jira4claude.ToCommentView(comment, conv, func(w string) { warnings = append(warnings, w) })
+		var warnings []jira4claude.ConversionIssue
+		view := jira4claude.ToCommentView(comment, conv, func(w jira4claude.ConversionIssue) { warnings = append(warnings, w) })
 
 		assert.Equal(t, "10001", view.ID)
 		assert.Equal(t, "John Doe", view.Author)
@@ -539,8 +539,8 @@ func TestToCommentView(t *testing.T) {
 		t.Parallel()
 
 		conv := &mock.Converter{
-			ToMarkdownFn: func(adf *jira4claude.ADFNode) (string, []string) {
-				return "text", []string{"unsupported node type", "emoji not supported"}
+			ToMarkdownFn: func(adf *jira4claude.ADFNode) (string, []jira4claude.ConversionIssue) {
+				return "text", []jira4claude.ConversionIssue{{Kind: jira4claude.ConversionDropped, Node: "unsupported node type"}, {Kind: jira4claude.ConversionDropped, Node: "emoji not supported"}}
 			},
 		}
 
@@ -551,17 +551,17 @@ func TestToCommentView(t *testing.T) {
 			Created: time.Date(2024, 1, 15, 10, 30, 0, 0, time.UTC),
 		}
 
-		var warnings []string
-		_ = jira4claude.ToCommentView(comment, conv, func(w string) { warnings = append(warnings, w) })
+		var warnings []jira4claude.ConversionIssue
+		_ = jira4claude.ToCommentView(comment, conv, func(w jira4claude.ConversionIssue) { warnings = append(warnings, w) })
 
-		assert.Equal(t, []string{"unsupported node type", "emoji not supported"}, warnings)
+		assert.Equal(t, []jira4claude.ConversionIssue{{Kind: jira4claude.ConversionDropped, Node: "unsupported node type"}, {Kind: jira4claude.ConversionDropped, Node: "emoji not supported"}}, warnings)
 	})
 
 	t.Run("handles nil author", func(t *testing.T) {
 		t.Parallel()
 
 		conv := &mock.Converter{
-			ToMarkdownFn: func(adf *jira4claude.ADFNode) (string, []string) {
+			ToMarkdownFn: func(adf *jira4claude.ADFNode) (string, []jira4claude.ConversionIssue) {
 				return "text", nil
 			},
 		}
@@ -573,7 +573,7 @@ func TestToCommentView(t *testing.T) {
 			Created: time.Date(2024, 1, 15, 10, 30, 0, 0, time.UTC),
 		}
 
-		view := jira4claude.ToCommentView(comment, conv, func(w string) {})
+		view := jira4claude.ToCommentView(comment, conv, func(w jira4claude.ConversionIssue) {})
 
 		assert.Empty(t, view.Author)
 	})
@@ -645,7 +645,7 @@ func TestToIssueView_Subtasks(t *testing.T) {
 		t.Parallel()
 
 		conv := &mock.Converter{
-			ToMarkdownFn: func(adf *jira4claude.ADFNode) (string, []string) {
+			ToMarkdownFn: func(adf *jira4claude.ADFNode) (string, []jira4claude.ConversionIssue) {
 				return "", nil
 			},
 		}
@@ -673,7 +673,7 @@ func TestToIssueView_Subtasks(t *testing.T) {
 			Updated: time.Date(2024, 1, 2, 12, 0, 0, 0, time.UTC),
 		}
 
-		view := jira4claude.ToIssueView(issue, conv, func(w string) {}, "")
+		view := jira4claude.ToIssueView(issue, conv, func(w jira4claude.ConversionIssue) {}, "")
 
 		assert.Len(t, view.RelatedIssues, 2)
 		assert.Equal(t, "subtask", view.RelatedIssues[0].Relationship)
@@ -690,7 +690,7 @@ func TestToIssueView_Subtasks(t *testing.T) {
 		t.Parallel()
 
 		conv := &mock.Converter{
-			ToMarkdownFn: func(adf *jira4claude.ADFNode) (string, []string) {
+			ToMarkdownFn: func(adf *jira4claude.ADFNode) (string, []jira4claude.ConversionIssue) {
 				return "", nil
 			},
 		}
@@ -704,7 +704,7 @@ func TestToIssueView_Subtasks(t *testing.T) {
 			Updated: time.Date(2024, 1, 2, 12, 0, 0, 0, time.UTC),
 		}
 
-		view := jira4claude.ToIssueView(issue, conv, func(w string) {}, "")
+		view := jira4claude.ToIssueView(issue, conv, func(w jira4claude.ConversionIssue) {}, "")
 
 		assert.Empty(t, view.RelatedIssues)
 	})

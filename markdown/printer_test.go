@@ -556,6 +556,39 @@ func TestPrinter_Warning(t *testing.T) {
 	})
 }
 
+func TestPrinter_ConversionIssue(t *testing.T) {
+	t.Parallel()
+
+	t.Run("renders kind, node and detail to stderr", func(t *testing.T) {
+		t.Parallel()
+		var out, errOut bytes.Buffer
+		p := markdown.NewPrinterWithIO(&out, &errOut)
+
+		p.ConversionIssue(jira4claude.ConversionIssue{
+			Kind:   jira4claude.ConversionDropped,
+			Node:   "Image",
+			Detail: "skipped unsupported node type 'Image'",
+		})
+
+		assert.Empty(t, out.String())
+		assert.Equal(t, "[warn] dropped Image: skipped unsupported node type 'Image'\n", errOut.String())
+	})
+
+	t.Run("renders degraded issues", func(t *testing.T) {
+		t.Parallel()
+		var out, errOut bytes.Buffer
+		p := markdown.NewPrinterWithIO(&out, &errOut)
+
+		p.ConversionIssue(jira4claude.ConversionIssue{
+			Kind:   jira4claude.ConversionDegraded,
+			Node:   "emoji",
+			Detail: "rendered as text",
+		})
+
+		assert.Equal(t, "[warn] degraded emoji: rendered as text\n", errOut.String())
+	})
+}
+
 func TestPrinter_Error(t *testing.T) {
 	t.Parallel()
 

@@ -35,7 +35,7 @@ func (c *IssueViewCmd) Run(ctx *IssueContext) error {
 	if err != nil {
 		return err
 	}
-	view := jira4claude.ToIssueView(issue, ctx.Converter, ctx.Printer.Warning, ctx.Config.Server)
+	view := jira4claude.ToIssueView(issue, ctx.Converter, ctx.Printer.ConversionIssue, ctx.Config.Server)
 	ctx.Printer.Issue(view)
 	return nil
 }
@@ -159,6 +159,7 @@ type IssueCreateCmd struct {
 	Parent      string   `help:"Parent issue key (pass --type=Sub-task explicitly for classic-project sub-tasks)" short:"P"`
 	Assignee    string   `help:"Assignee: 'me', email, or account ID" short:"A"`
 	FieldJSON   []string `name:"field-json" sep:"none" help:"Set field by ID, value is JSON (repeatable). Example: customfield_10801='{\"value\":\"High\"}'"`
+	Force       bool     `help:"Write even if Markdown conversion drops content (e.g. images); dropped content is reported as a warning"`
 }
 
 // Run executes the create command.
@@ -171,10 +172,10 @@ func (c *IssueCreateCmd) Run(ctx *IssueContext) error {
 	// Convert description to ADF (plain text is valid GFM)
 	var description *jira4claude.ADFNode
 	if c.Description != "" {
-		var warnings []string
-		description, warnings = ctx.Converter.ToADF(c.Description)
-		for _, w := range warnings {
-			ctx.Printer.Warning(w)
+		var err error
+		description, err = convertForWrite(ctx, "description", c.Description, c.Force)
+		if err != nil {
+			return err
 		}
 	}
 
@@ -231,10 +232,22 @@ type IssueUpdateCmd struct {
 	Parent      *string  `help:"Parent issue key" short:"P" xor:"parent"`
 	ClearParent bool     `help:"Remove from parent" name:"clear-parent" xor:"parent"`
 	FieldJSON   []string `name:"field-json" sep:"none" help:"Set field by ID, value is JSON (repeatable). Example: customfield_10801='{\"value\":\"High\"}'"`
+	Force       bool     `help:"Write even if Markdown conversion drops content (e.g. images); dropped content is reported as a warning"`
 }
 
 // Run executes the update command.
 func (c *IssueUpdateCmd) Run(ctx *IssueContext) error {
+	// Convert description to ADF (plain text is valid GFM). This runs first so
+	// a refusal happens before any service call, including assignee lookup.
+	var description **jira4claude.ADFNode
+	if c.Description != nil && *c.Description != "" {
+		adfDoc, err := convertForWrite(ctx, "description", *c.Description, c.Force)
+		if err != nil {
+			return err
+		}
+		description = &adfDoc
+	}
+
 	// Resolve assignee if provided
 	if c.Assignee != nil {
 		accountID, err := ResolveAssignee(context.Background(), *c.Assignee, ctx.UserService)
@@ -242,16 +255,6 @@ func (c *IssueUpdateCmd) Run(ctx *IssueContext) error {
 			return err
 		}
 		c.Assignee = &accountID
-	}
-
-	// Convert description to ADF (plain text is valid GFM)
-	var description **jira4claude.ADFNode
-	if c.Description != nil && *c.Description != "" {
-		adfDoc, warnings := ctx.Converter.ToADF(*c.Description)
-		for _, w := range warnings {
-			ctx.Printer.Warning(w)
-		}
-		description = &adfDoc
 	}
 
 	customFields, err := ParseFieldJSON(c.FieldJSON)
@@ -449,16 +452,17 @@ func (c *IssueAssignCmd) Run(ctx *IssueContext) error {
 
 // IssueCommentCmd adds a comment.
 type IssueCommentCmd struct {
-	Key  string `arg:"" help:"Issue key"`
-	Body string `help:"Comment body" short:"b" required:""`
+	Key   string `arg:"" help:"Issue key"`
+	Body  string `help:"Comment body" short:"b" required:""`
+	Force bool   `help:"Write even if Markdown conversion drops content (e.g. images); dropped content is reported as a warning"`
 }
 
 // Run executes the comment command.
 func (c *IssueCommentCmd) Run(ctx *IssueContext) error {
 	// Convert body to ADF (plain text is valid GFM)
-	body, warnings := ctx.Converter.ToADF(c.Body)
-	for _, w := range warnings {
-		ctx.Printer.Warning(w)
+	body, err := convertForWrite(ctx, "comment body", c.Body, c.Force)
+	if err != nil {
+		return err
 	}
 
 	comment, err := ctx.Service.AddComment(context.Background(), c.Key, body)
@@ -500,4 +504,21 @@ func (c *IssueDeleteCommentCmd) Run(ctx *IssueContext) error {
 	}
 	ctx.Printer.Success("Deleted comment "+c.CommentID+" from", c.Key)
 	return nil
+}
+
+// convertForWrite converts markdown to ADF for a write. Every conversion issue
+// is reported as a warning. If any content was dropped and force is false, it
+// returns a validation error naming the dropped nodes instead, so the caller
+// writes nothing. field names the input in that error (e.g. "description").
+func convertForWrite(ctx *IssueContext, field, md string, force bool) (*jira4claude.ADFNode, error) {
+	doc, issues := ctx.Converter.ToADF(md)
+	if !force {
+		if err := jira4claude.DroppedContentError(field, issues); err != nil {
+			return nil, err
+		}
+	}
+	for _, issue := range issues {
+		ctx.Printer.ConversionIssue(issue)
+	}
+	return doc, nil
 }

@@ -138,7 +138,7 @@ Jira stores content in Atlassian Document Format (ADF), not markdown. This CLI h
 - **Storage**: CLI converts to ADF when sending to Jira API
 - **Output**: CLI converts ADF back to markdown when displaying
 
-Unsupported elements (like embedded images) generate warnings but don't block operations.
+Conversion problems are reported as `dropped` (content would be lost) or `degraded` (content kept in another form). On write, `issue create`, `issue update --description` and `issue comment` refuse with exit code 1 if any content would be dropped (for example a Markdown image), and write nothing; pass `--force` to write anyway, with the dropped content reported as a warning. `degraded` content, and anything unsupported when reading an issue, only produces a warning.
 
 ## Commands
 

@@ -357,6 +357,11 @@ func (p *Printer) Warning(msg string) {
 	fmt.Fprintf(p.err, "[warn] %s\n", msg)
 }
 
+// ConversionIssue prints a conversion issue to stderr as a warning.
+func (p *Printer) ConversionIssue(issue jira4claude.ConversionIssue) {
+	p.Warning(issue.String())
+}
+
 // Error prints an error message to stderr.
 func (p *Printer) Error(err error) {
 	fmt.Fprintf(p.err, "[error] %s\n", jira4claude.ErrorMessage(err))

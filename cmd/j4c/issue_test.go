@@ -18,7 +18,7 @@ import (
 // mockConverter returns a converter that creates valid ADF from markdown.
 func mockConverter() *mock.Converter {
 	return &mock.Converter{
-		ToADFFn: func(markdown string) (*jira4claude.ADFNode, []string) {
+		ToADFFn: func(markdown string) (*jira4claude.ADFNode, []jira4claude.ConversionIssue) {
 			return &jira4claude.ADFNode{
 				Type:    "doc",
 				Version: 1,
@@ -35,7 +35,7 @@ func mockConverter() *mock.Converter {
 				},
 			}, nil
 		},
-		ToMarkdownFn: func(adf *jira4claude.ADFNode) (string, []string) {
+		ToMarkdownFn: func(adf *jira4claude.ADFNode) (string, []jira4claude.ConversionIssue) {
 			var result string
 			for _, block := range adf.Content {
 				for _, node := range block.Content {

@@ -503,7 +503,7 @@ func TestConverter_ToMarkdown(t *testing.T) {
 
 		// Should return warning listing skipped content
 		require.Len(t, warnings, 1)
-		assert.Contains(t, warnings[0], "bodiedExtension")
+		assert.Equal(t, "bodiedExtension", warnings[0].Node)
 	})
 
 	t.Run("accumulates multiple warnings for different skipped node types", func(t *testing.T) {
@@ -551,8 +551,8 @@ func TestConverter_ToMarkdown(t *testing.T) {
 
 		// Should return individual warnings for each skipped node type, sorted alphabetically
 		require.Len(t, warnings, 2)
-		assert.Contains(t, warnings[0], "bodiedExtension")
-		assert.Contains(t, warnings[1], "extension")
+		assert.Equal(t, "bodiedExtension", warnings[0].Node)
+		assert.Equal(t, "extension", warnings[1].Node)
 	})
 
 	t.Run("returns empty warnings slice when no content is skipped", func(t *testing.T) {
@@ -1897,7 +1897,7 @@ func TestConverter_ToMarkdown(t *testing.T) {
 
 		assert.Equal(t, "Content:  end.", result)
 		require.Len(t, warnings, 1)
-		assert.Contains(t, warnings[0], "inlineExtension")
+		assert.Equal(t, "inlineExtension", warnings[0].Node)
 	})
 
 	t.Run("handles unknown inline node with warning", func(t *testing.T) {
@@ -1923,7 +1923,7 @@ func TestConverter_ToMarkdown(t *testing.T) {
 
 		assert.Equal(t, "Before  after.", result)
 		require.Len(t, warnings, 1)
-		assert.Contains(t, warnings[0], "futureInlineNode")
+		assert.Equal(t, "futureInlineNode", warnings[0].Node)
 	})
 
 	t.Run("converts underline mark to u tag", func(t *testing.T) {
@@ -2449,10 +2449,10 @@ func TestConverter_ToMarkdown(t *testing.T) {
 
 		assert.Equal(t, "Before\n\nAfter", result)
 		require.Len(t, warnings, 4)
-		assert.Contains(t, warnings[0], "bodiedExtension")
-		assert.Contains(t, warnings[1], "extension")
-		assert.Contains(t, warnings[2], "extensionFrame")
-		assert.Contains(t, warnings[3], "multiBodiedExtension")
+		assert.Equal(t, "bodiedExtension", warnings[0].Node)
+		assert.Equal(t, "extension", warnings[1].Node)
+		assert.Equal(t, "extensionFrame", warnings[2].Node)
+		assert.Equal(t, "multiBodiedExtension", warnings[3].Node)
 	})
 
 	t.Run("silently drops annotation mark preserving text", func(t *testing.T) {

@@ -9,14 +9,14 @@ var _ jira4claude.Converter = (*Converter)(nil)
 // Each method delegates to its corresponding function field (e.g., ToADF calls ToADFFn).
 // Calling a method without setting its function field will panic.
 type Converter struct {
-	ToADFFn      func(markdown string) (*jira4claude.ADFNode, []string)
-	ToMarkdownFn func(adf *jira4claude.ADFNode) (string, []string)
+	ToADFFn      func(markdown string) (*jira4claude.ADFNode, []jira4claude.ConversionIssue)
+	ToMarkdownFn func(adf *jira4claude.ADFNode) (string, []jira4claude.ConversionIssue)
 }
 
-func (c *Converter) ToADF(markdown string) (*jira4claude.ADFNode, []string) {
+func (c *Converter) ToADF(markdown string) (*jira4claude.ADFNode, []jira4claude.ConversionIssue) {
 	return c.ToADFFn(markdown)
 }
 
-func (c *Converter) ToMarkdown(adf *jira4claude.ADFNode) (string, []string) {
+func (c *Converter) ToMarkdown(adf *jira4claude.ADFNode) (string, []jira4claude.ConversionIssue) {
 	return c.ToMarkdownFn(adf)
 }
