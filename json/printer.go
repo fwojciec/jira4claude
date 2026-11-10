@@ -44,6 +44,31 @@ func (p *Printer) Issue(view jira4claude.IssueView) {
 	p.encode(view)
 }
 
+// IssueViews prints the issues of a several-key view as a JSON array of issue
+// objects, in the order asked; [] when none could be read.
+func (p *Printer) IssueViews(views []jira4claude.IssueView) {
+	if views == nil {
+		views = []jira4claude.IssueView{}
+	}
+	p.encode(views)
+}
+
+// IssueSelection prints the fields issue view --field selected. Each issue is
+// an object holding "key" and then the selected fields in the order asked.
+// One key gives that object; several keys give an array of them, in the order
+// asked ([] when none could be read).
+func (p *Printer) IssueSelection(view jira4claude.IssueSelectionView) {
+	if !view.Several && len(view.Issues) == 1 {
+		p.encode(view.Issues[0])
+		return
+	}
+	issues := view.Issues
+	if issues == nil {
+		issues = []jira4claude.SelectedIssueView{}
+	}
+	p.encode(issues)
+}
+
 // Issues prints issues as a JSON object: {issues, truncated}. truncated is
 // always present and tells a consumer that more matching issues exist beyond
 // those shown. The issues array is emitted as [] (not null) when empty.

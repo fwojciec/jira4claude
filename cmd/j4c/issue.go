@@ -12,7 +12,7 @@ import (
 
 // IssueCmd groups issue subcommands.
 type IssueCmd struct {
-	View          IssueViewCmd          `cmd:"" help:"View an issue"`
+	View          IssueViewCmd          `cmd:"" help:"View one or more issues, whole or by field"`
 	List          IssueListCmd          `cmd:"" help:"List issues"`
 	Ready         IssueReadyCmd         `cmd:"" help:"List issues ready to work on"`
 	Create        IssueCreateCmd        `cmd:"" help:"Create an issue"`
@@ -26,19 +26,69 @@ type IssueCmd struct {
 	DeleteComment IssueDeleteCommentCmd `cmd:"delete-comment" help:"Delete a comment from an issue"`
 }
 
-// IssueViewCmd views an issue.
+// IssueViewCmd views one or more issues, whole or by field.
 type IssueViewCmd struct {
-	Key string `arg:"" help:"Issue key (e.g., PROJ-123)"`
+	Keys  []string `arg:"" name:"key" help:"Issue keys (e.g., PROJ-123); several are printed in the order given"`
+	Field []string `name:"field" sep:"none" placeholder:"NAME" help:"Print only this field (repeatable or comma-separated): key, project, summary, description, status, type, priority, assignee, reporter, labels, relatedIssues, comments, created, updated, url, or a custom field ID (customfield_NNNNN). One key and one field print the raw value; otherwise each value follows a line '==> KEY FIELD <=='. With --json: an object of key and fields per issue"`
 }
 
-// Run executes the view command.
+// Run executes the view command. One key behaves as it always has: a failed
+// read is the command's error. With several keys every key is read; the
+// issues read are printed in the order asked, each failure is reported on
+// stderr as "KEY: message", and the command fails with the code of the first
+// failure in the order asked.
 func (c *IssueViewCmd) Run(ctx *IssueContext) error {
-	issue, err := ctx.Service.Get(context.Background(), c.Key)
+	// Split commas here rather than in the parser, which drops an empty
+	// value: --field "$UNSET" must fail, not print the whole issue.
+	names := make([]string, 0, len(c.Field))
+	for _, f := range c.Field {
+		names = append(names, strings.Split(f, ",")...)
+	}
+	fields, err := jira4claude.ParseViewFields(names)
 	if err != nil {
 		return err
 	}
-	view := jira4claude.ToIssueView(issue, ctx.Converter, ctx.Printer.ConversionIssue, ctx.Config.Server)
-	ctx.Printer.Issue(view)
+
+	views := make([]jira4claude.IssueView, 0, len(c.Keys))
+	var failed []string
+	var firstErr error
+	for _, key := range c.Keys {
+		issue, err := ctx.Service.Get(context.Background(), key)
+		if err != nil {
+			if len(c.Keys) == 1 {
+				return err
+			}
+			ctx.Printer.Error(&jira4claude.Error{Code: jira4claude.ErrorCode(err), Message: key, Inner: err})
+			failed = append(failed, key)
+			if firstErr == nil {
+				firstErr = err
+			}
+			continue
+		}
+		views = append(views, jira4claude.ToIssueView(issue, ctx.Converter, ctx.Printer.ConversionIssue, ctx.Config.Server))
+	}
+
+	several := len(c.Keys) > 1
+	switch {
+	case len(fields) > 0:
+		selection := jira4claude.IssueSelectionView{Fields: fields, Several: several}
+		for _, view := range views {
+			selection.Issues = append(selection.Issues, jira4claude.SelectViewFields(view, fields))
+		}
+		ctx.Printer.IssueSelection(selection)
+	case several:
+		ctx.Printer.IssueViews(views)
+	default:
+		ctx.Printer.Issue(views[0])
+	}
+
+	if len(failed) > 0 {
+		return &jira4claude.Error{
+			Code: jira4claude.ErrorCode(firstErr),
+			Message: fmt.Sprintf("could not read %d of %d issues: %s",
+				len(failed), len(c.Keys), strings.Join(failed, ", ")),
+		}
+	}
 	return nil
 }
 

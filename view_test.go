@@ -1,6 +1,7 @@
 package jira4claude_test
 
 import (
+	"bytes"
 	"encoding/json"
 	"testing"
 	"time"
@@ -1002,5 +1003,110 @@ func TestSelectIssueFields(t *testing.T) {
 		assert.Empty(t, selected)
 		assert.Equal(t, jira4claude.FieldScopeFiltered, scope)
 		assert.Equal(t, 5, omitted)
+	})
+}
+
+func TestParseViewFields(t *testing.T) {
+	t.Parallel()
+
+	t.Run("no names selects nothing", func(t *testing.T) {
+		t.Parallel()
+
+		got, err := jira4claude.ParseViewFields(nil)
+
+		require.NoError(t, err)
+		assert.Empty(t, got)
+	})
+
+	t.Run("names are matched without case and returned as the JSON keys", func(t *testing.T) {
+		t.Parallel()
+
+		got, err := jira4claude.ParseViewFields([]string{"Description", "RELATEDISSUES", "CustomField_10016"})
+
+		require.NoError(t, err)
+		assert.Equal(t, []string{"description", "relatedIssues", "customfield_10016"}, got)
+	})
+
+	t.Run("a repeated name is kept once, at its first position", func(t *testing.T) {
+		t.Parallel()
+
+		got, err := jira4claude.ParseViewFields([]string{"status", "summary", "Status"})
+
+		require.NoError(t, err)
+		assert.Equal(t, []string{"status", "summary"}, got)
+	})
+
+	t.Run("every built-in name is accepted", func(t *testing.T) {
+		t.Parallel()
+
+		got, err := jira4claude.ParseViewFields(jira4claude.ViewFieldNames())
+
+		require.NoError(t, err)
+		assert.Equal(t, jira4claude.ViewFieldNames(), got)
+	})
+
+	t.Run("an unknown name is a validation error naming the valid ones", func(t *testing.T) {
+		t.Parallel()
+
+		_, err := jira4claude.ParseViewFields([]string{"summary", "descripton"})
+
+		require.Error(t, err)
+		assert.Equal(t, jira4claude.EValidation, jira4claude.ErrorCode(err))
+		assert.Contains(t, err.Error(), `unknown field "descripton"`)
+		assert.Contains(t, err.Error(), "key, project, summary, description, status, type, priority, assignee, reporter, labels, relatedIssues, comments, created, updated, url")
+		assert.Contains(t, err.Error(), "customfield_")
+	})
+}
+
+// objectKeys returns the keys of the flat JSON object doc, in order.
+func objectKeys(t *testing.T, doc []byte) []string {
+	t.Helper()
+	dec := json.NewDecoder(bytes.NewReader(doc))
+	_, err := dec.Token() // {
+	require.NoError(t, err)
+	var keys []string
+	for dec.More() {
+		tok, err := dec.Token()
+		require.NoError(t, err)
+		keys = append(keys, tok.(string))
+		var value json.RawMessage
+		require.NoError(t, dec.Decode(&value))
+	}
+	return keys
+}
+
+func TestSelectViewFields(t *testing.T) {
+	t.Parallel()
+
+	view := jira4claude.IssueView{
+		Key:          "TEST-1",
+		Summary:      "Sum",
+		CustomFields: map[string]jira4claude.CustomFieldValue{"customfield_1": {Name: "Points", Value: json.RawMessage(`5`)}},
+	}
+
+	t.Run("values follow the fields asked", func(t *testing.T) {
+		t.Parallel()
+
+		got := jira4claude.SelectViewFields(view, []string{"summary", "labels", "comments", "relatedIssues", "customfield_1", "customfield_2"})
+
+		assert.Equal(t, "TEST-1", got.Key)
+		assert.Equal(t, []jira4claude.ViewFieldValue{
+			{Name: "summary", Value: "Sum"},
+			{Name: "labels", Value: []string{}},
+			{Name: "comments", Value: []jira4claude.CommentView{}},
+			{Name: "relatedIssues", Value: []jira4claude.RelatedIssueView{}},
+			{Name: "customfield_1", Value: json.RawMessage(`5`)},
+			{Name: "customfield_2", Value: json.RawMessage(nil)},
+		}, got.Fields)
+	})
+
+	t.Run("JSON puts the key first and keeps the order asked", func(t *testing.T) {
+		t.Parallel()
+
+		got, err := json.Marshal(jira4claude.SelectViewFields(view, []string{"summary", "key", "customfield_2", "customfield_1"}))
+
+		require.NoError(t, err)
+		assert.JSONEq(t, `{"key":"TEST-1","summary":"Sum","customfield_2":null,"customfield_1":5}`, string(got))
+		assert.Equal(t, []string{"key", "summary", "customfield_2", "customfield_1"}, objectKeys(t, got), "key order")
 	})
 }

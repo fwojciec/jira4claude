@@ -106,6 +106,73 @@ func (p *Printer) Issue(view jira4claude.IssueView) {
 	}
 }
 
+// IssueViews prints the pages of a several-key view in the order asked, a
+// blank line apart. Nothing is printed when no issue could be read.
+func (p *Printer) IssueViews(views []jira4claude.IssueView) {
+	for i, view := range views {
+		if i > 0 {
+			fmt.Fprintln(p.out)
+		}
+		p.Issue(view)
+	}
+}
+
+// IssueSelection prints the fields issue view --field selected.
+//
+// One key and one field print the raw value alone, so that it can be
+// redirected to a file. Otherwise each value follows a header line
+// "==> KEY FIELD <==", per issue in the order asked and per field in the
+// order asked. A value is never decorated: see selectionValue.
+func (p *Printer) IssueSelection(view jira4claude.IssueSelectionView) {
+	if !view.Several && len(view.Fields) == 1 && len(view.Issues) == 1 && len(view.Issues[0].Fields) == 1 {
+		p.writeValue(view.Issues[0].Fields[0].Value)
+		return
+	}
+	for _, issue := range view.Issues {
+		for _, f := range issue.Fields {
+			fmt.Fprintf(p.out, "==> %s %s <==\n", issue.Key, f.Name)
+			p.writeValue(f.Value)
+		}
+	}
+}
+
+// writeValue prints a selected value ending in exactly one newline, or
+// nothing for an empty value.
+func (p *Printer) writeValue(value any) {
+	text := strings.TrimRight(selectionValue(value), "\n")
+	if text == "" {
+		return
+	}
+	fmt.Fprintln(p.out, text)
+}
+
+// selectionValue renders a selected value as text: a string as it is (the
+// description is the Markdown issue update --description takes back), labels
+// one per line, and anything structured (comments, related issues, a custom
+// field) as compact JSON on one line; a custom field the issue does not set is
+// null, as --field-json takes it.
+func selectionValue(value any) string {
+	switch v := value.(type) {
+	case string:
+		return v
+	case []string:
+		return strings.Join(v, "\n")
+	case json.RawMessage:
+		if v == nil {
+			return "null"
+		}
+		return compactJSON(v)
+	default:
+		var buf bytes.Buffer
+		enc := json.NewEncoder(&buf)
+		enc.SetEscapeHTML(false)
+		if err := enc.Encode(v); err != nil {
+			return fmt.Sprint(v)
+		}
+		return buf.String()
+	}
+}
+
 // renderCustomFields prints a "## Custom Fields" section listing each populated
 // custom field as "**Name:** value". The field ID is used as a label fallback
 // when the display name is empty. Values are the raw API JSON, compacted to a

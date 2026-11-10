@@ -3,6 +3,11 @@ package jira4claude
 // IssuePrinter handles issue command output.
 type IssuePrinter interface {
 	Issue(view IssueView)
+	// IssueViews prints the issues of an issue view asked for several keys,
+	// in the order asked (possibly none, when every key failed).
+	IssueViews(views []IssueView)
+	// IssueSelection prints the fields issue view --field selected.
+	IssueSelection(view IssueSelectionView)
 	Issues(view IssueListView)
 	Comment(view CommentView)
 	Transitions(key string, ts []*Transition)

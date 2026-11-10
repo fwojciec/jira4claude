@@ -1765,7 +1765,7 @@ func TestIssueViewCmd(t *testing.T) {
 			Converter: mockConverter(),
 			Config:    &jira4claude.Config{Project: "TEST", Server: "https://test.atlassian.net"},
 		}
-		cmd := main.IssueViewCmd{Key: "TEST-1"}
+		cmd := main.IssueViewCmd{Keys: []string{"TEST-1"}}
 		err := cmd.Run(ctx)
 
 		require.NoError(t, err)
@@ -1796,7 +1796,7 @@ func TestIssueViewCmd(t *testing.T) {
 			Converter: mockConverter(),
 			Config:    &jira4claude.Config{Project: "TEST", Server: "https://test.atlassian.net"},
 		}
-		cmd := main.IssueViewCmd{Key: "TEST-1"}
+		cmd := main.IssueViewCmd{Keys: []string{"TEST-1"}}
 		err := cmd.Run(ctx)
 
 		require.NoError(t, err)
@@ -1855,7 +1855,7 @@ func TestIssueViewCmd(t *testing.T) {
 			Converter: mockConverter(),
 			Config:    &jira4claude.Config{Project: "TEST", Server: "https://test.atlassian.net"},
 		}
-		cmd := main.IssueViewCmd{Key: "TEST-1"}
+		cmd := main.IssueViewCmd{Keys: []string{"TEST-1"}}
 		err := cmd.Run(ctx)
 
 		require.NoError(t, err)

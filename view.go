@@ -1,7 +1,10 @@
 package jira4claude
 
 import (
+	"bytes"
 	"encoding/json"
+	"slices"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -111,6 +114,182 @@ func ToIssueView(issue *Issue, conv Converter, warn func(ConversionIssue), serve
 		URL:           url,
 		CustomFields:  issue.ReadCustomFields,
 	}
+}
+
+// customFieldPrefix starts the ID of every Jira custom field.
+const customFieldPrefix = "customfield_"
+
+// ViewFieldNames returns the built-in field names issue view --field accepts:
+// the keys of the JSON view, in its order. A custom field is selected by its
+// ID (customfield_NNNNN) instead; it has no name here.
+func ViewFieldNames() []string {
+	return []string{
+		"key", "project", "summary", "description", "status", "type", "priority",
+		"assignee", "reporter", "labels", "relatedIssues", "comments",
+		"created", "updated", "url",
+	}
+}
+
+// ParseViewFields checks the field names given to issue view --field and
+// returns them as ViewFieldNames spells them (custom field IDs in lower case),
+// in the order given, each once. Names match without regard to case. A custom
+// field is named by its ID, customfield_ followed by digits; display names are
+// not accepted, because they are known only after the issue has been read,
+// and a typo must fail before any request. An unknown name is a validation
+// error that lists the valid ones.
+func ParseViewFields(names []string) ([]string, error) {
+	builtin := ViewFieldNames()
+	fields := make([]string, 0, len(names))
+	for _, name := range names {
+		field, ok := canonicalViewField(name, builtin)
+		if !ok {
+			return nil, &Error{
+				Code: EValidation,
+				Message: "unknown field " + strconv.Quote(name) + "; valid fields: " + strings.Join(builtin, ", ") +
+					", or a custom field ID such as customfield_10016 (see issue view --json, customFields)",
+			}
+		}
+		if !slices.Contains(fields, field) {
+			fields = append(fields, field)
+		}
+	}
+	return fields, nil
+}
+
+// canonicalViewField returns the spelling of name in builtin, or the lower
+// case form of a custom field ID, and whether name is either.
+func canonicalViewField(name string, builtin []string) (string, bool) {
+	for _, b := range builtin {
+		if strings.EqualFold(name, b) {
+			return b, true
+		}
+	}
+	lower := strings.ToLower(name)
+	digits, ok := strings.CutPrefix(lower, customFieldPrefix)
+	if !ok || digits == "" {
+		return "", false
+	}
+	for _, r := range digits {
+		if r < '0' || r > '9' {
+			return "", false
+		}
+	}
+	return lower, true
+}
+
+// ViewFieldValue is one selected field of an issue view. Value is a string
+// for the scalar fields, []string for labels, []CommentView for comments,
+// []RelatedIssueView for relatedIssues, and the raw API json.RawMessage for a
+// custom field (nil, which encodes as null, when the issue does not set it).
+type ViewFieldValue struct {
+	Name  string
+	Value any
+}
+
+// SelectedIssueView is the fields of one issue that issue view --field
+// selected, in the order asked. It encodes as a JSON object whose first key
+// is "key", followed by the selected fields ("key" itself only once).
+type SelectedIssueView struct {
+	Key    string
+	Fields []ViewFieldValue
+}
+
+// MarshalJSON encodes the selection as an object that keeps the field order.
+func (s SelectedIssueView) MarshalJSON() ([]byte, error) {
+	var buf bytes.Buffer
+	buf.WriteString(`{"key":`)
+	key, err := json.Marshal(s.Key)
+	if err != nil {
+		return nil, err
+	}
+	buf.Write(key)
+	for _, f := range s.Fields {
+		if f.Name == "key" {
+			continue
+		}
+		name, err := json.Marshal(f.Name)
+		if err != nil {
+			return nil, err
+		}
+		value, err := json.Marshal(f.Value)
+		if err != nil {
+			return nil, err
+		}
+		buf.WriteByte(',')
+		buf.Write(name)
+		buf.WriteByte(':')
+		buf.Write(value)
+	}
+	buf.WriteByte('}')
+	return buf.Bytes(), nil
+}
+
+// IssueSelectionView is the output of issue view --field: the selected fields
+// of every issue that was read, in the order the keys were asked.
+//
+// Several records whether more than one key was asked; it decides the shape
+// (a list rather than a single record) even when only one issue could be read.
+type IssueSelectionView struct {
+	Fields  []string
+	Issues  []SelectedIssueView
+	Several bool
+}
+
+// SelectViewFields picks fields, as returned by ParseViewFields, out of view.
+// List values are never nil, so that they encode as [].
+func SelectViewFields(view IssueView, fields []string) SelectedIssueView {
+	selected := SelectedIssueView{Key: view.Key, Fields: make([]ViewFieldValue, 0, len(fields))}
+	for _, f := range fields {
+		selected.Fields = append(selected.Fields, ViewFieldValue{Name: f, Value: viewFieldValue(view, f)})
+	}
+	return selected
+}
+
+func viewFieldValue(view IssueView, field string) any {
+	switch field {
+	case "key":
+		return view.Key
+	case "project":
+		return view.Project
+	case "summary":
+		return view.Summary
+	case "description":
+		return view.Description
+	case "status":
+		return view.Status
+	case "type":
+		return view.Type
+	case "priority":
+		return view.Priority
+	case "assignee":
+		return view.Assignee
+	case "reporter":
+		return view.Reporter
+	case "labels":
+		return nonNil(view.Labels)
+	case "relatedIssues":
+		return nonNil(view.RelatedIssues)
+	case "comments":
+		return nonNil(view.Comments)
+	case "created":
+		return view.Created
+	case "updated":
+		return view.Updated
+	case "url":
+		return view.URL
+	}
+	cf, ok := view.CustomFields[field]
+	if !ok {
+		return json.RawMessage(nil)
+	}
+	return cf.Value
+}
+
+func nonNil[T any](s []T) []T {
+	if s == nil {
+		return []T{}
+	}
+	return s
 }
 
 // IssueListItem is a minimal representation for list display.

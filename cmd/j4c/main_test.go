@@ -242,7 +242,7 @@ func TestIssueViewCmd_ReturnsServiceError(t *testing.T) {
 			Printer: printer,
 		}
 
-		cmd := main.IssueViewCmd{Key: "TEST-999"}
+		cmd := main.IssueViewCmd{Keys: []string{"TEST-999"}}
 		err := cmd.Run(issueCtx)
 
 		require.Error(t, err)
@@ -613,7 +613,7 @@ func TestRun_UsageError(t *testing.T) {
 		assert.Equal(t, 1, res.code)
 		assert.Empty(t, res.stdout)
 		assert.True(t, strings.HasPrefix(res.stderr, "Usage: j4c issue view <key>"), "stderr: %q", res.stderr)
-		assert.True(t, strings.HasSuffix(res.stderr, "\nj4c: error: expected \"<key>\"\n"), "stderr: %q", res.stderr)
+		assert.True(t, strings.HasSuffix(res.stderr, "\nj4c: error: expected \"<key> ...\"\n"), "stderr: %q", res.stderr)
 	})
 
 	t.Run("JSON mode prints the parser's message as one JSON line on stderr", func(t *testing.T) {
@@ -623,7 +623,7 @@ func TestRun_UsageError(t *testing.T) {
 
 		assert.Equal(t, 1, res.code)
 		assert.Empty(t, res.stdout)
-		assertJSONError(t, res.stderr, jira4claude.EValidation, `expected "<key>"`)
+		assertJSONError(t, res.stderr, jira4claude.EValidation, `expected "<key> ..."`)
 	})
 
 	t.Run("no command prints full usage to stderr and exits 1", func(t *testing.T) {
@@ -699,7 +699,7 @@ func TestRun_UsageError(t *testing.T) {
 
 		assert.Equal(t, 1, res.code)
 		assert.Empty(t, res.stdout)
-		assertJSONError(t, res.stderr, jira4claude.EValidation, `expected "<key>"`)
+		assertJSONError(t, res.stderr, jira4claude.EValidation, `expected "<key> ..."`)
 	})
 
 	t.Run("--json with a value follows the parser's boolean values", func(t *testing.T) {

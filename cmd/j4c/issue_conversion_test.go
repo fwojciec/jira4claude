@@ -411,7 +411,7 @@ func TestIssueViewCmd_UnsupportedNodesWarn(t *testing.T) {
 		Converter: markdown.New(),
 		Config:    &jira4claude.Config{Project: "TEST"},
 	}
-	cmd := main.IssueViewCmd{Key: "TEST-1"}
+	cmd := main.IssueViewCmd{Keys: []string{"TEST-1"}}
 
 	err := cmd.Run(ctx)
 
