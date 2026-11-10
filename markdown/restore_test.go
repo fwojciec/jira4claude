@@ -176,6 +176,150 @@ func TestRestore_ReadLossOfAnEditedBlockIsCounted(t *testing.T) {
 	})
 }
 
+// TestRestore_SwappedTokensOfNodesThatDifferOnlyInLocalID checks that the
+// localId of a protected node counts when the edit is compared with the
+// read: it came from the original through the token, not from the writer.
+func TestRestore_SwappedTokensOfNodesThatDifferOnlyInLocalID(t *testing.T) {
+	t.Parallel()
+
+	withID := func(n jira4claude.ADFNode, id string) jira4claude.ADFNode {
+		var attrs map[string]any
+		require.NoError(t, json.Unmarshal(n.Attrs, &attrs))
+		attrs["localId"] = id
+		data, err := json.Marshal(attrs)
+		require.NoError(t, err)
+		n.Attrs = data
+		return n
+	}
+	swap := func(a, b string) func(string) string {
+		return func(md string) string {
+			md = strings.Replace(md, a, "\x00", 1)
+			md = strings.Replace(md, b, a, 1)
+			return strings.Replace(md, "\x00", b, 1)
+		}
+	}
+	m1, m2 := withID(mention("u1", "Jo"), "id-1"), withID(mention("u1", "Jo"), "id-2")
+	s1 := rawNode(t, `{"type":"status","attrs":{"text":"DONE","color":"green","localId":"s-1"}}`)
+	s2 := rawNode(t, `{"type":"status","attrs":{"text":"DONE","color":"green","localId":"s-2"}}`)
+	e1 := rawNode(t, `{"type":"extension","attrs":{"extensionType":"com.x","extensionKey":"k","localId":"e-1"}}`)
+	e2 := rawNode(t, `{"type":"extension","attrs":{"extensionType":"com.x","extensionKey":"k","localId":"e-2"}}`)
+
+	tests := []struct {
+		name      string
+		doc       *jira4claude.ADFNode
+		a, b      string
+		want      []jira4claude.ADFNode
+		unchanged bool
+	}{
+		{
+			name: "mentions in one paragraph",
+			doc:  docOf(paraOf(m1, plainText(" and "), m2)),
+			a:    "{{mention:1 Jo}}", b: "{{mention:2 Jo}}",
+			want: []jira4claude.ADFNode{m2, m1},
+		},
+		{
+			name: "statuses in two paragraphs",
+			doc:  docOf(paraOf(s1), paraOf(s2)),
+			a:    "{{status:1 DONE}}", b: "{{status:2 DONE}}",
+			want: []jira4claude.ADFNode{s2, s1},
+		},
+		{
+			name: "extension blocks",
+			doc:  docOf(e1, paraOf(plainText("text")), e2),
+			a:    "{{extension:1", b: "{{extension:2",
+			want: []jira4claude.ADFNode{e2, e1},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			md, got, issues := readEditWrite(t, tt.doc, swap(tt.a, tt.b))
+			require.Contains(t, md, tt.a, "the token form this test swaps")
+			require.Contains(t, md, tt.b, "the token form this test swaps")
+			assert.Empty(t, issues)
+			assert.Equal(t, jsonOf(t, tt.want), jsonOf(t, protectedNodes(got)))
+		})
+	}
+}
+
+// TestRestore_UnchangedCellOfAReshapedTable checks that a paragraph put
+// back in a table that gained a row is not reported again: its cell is
+// not restored whole, but the paragraph is.
+func TestRestore_UnchangedCellOfAReshapedTable(t *testing.T) {
+	t.Parallel()
+
+	card := `{"type":"inlineCard","attrs":{"data":{"@type":"Document","name":"x"}}}`
+	cell := func(cellType, content string) string {
+		return `{"type":"` + cellType + `","attrs":{},"content":[{"type":"paragraph","content":[` + content + `]}]}`
+	}
+	head, body := `{"type":"text","text":"Head"}`, `{"type":"text","text":"Body"}`
+	withCard := `{"type":"text","text":"Card "},` + card
+	for _, tt := range []struct{ name, head, body string }{
+		{"in a tableCell", head, withCard},
+		{"in a tableHeader", withCard, body},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			doc := docOf(rawNode(t, `{"type":"table","attrs":{},"content":[`+
+				`{"type":"tableRow","content":[`+cell("tableHeader", tt.head)+`]},`+
+				`{"type":"tableRow","content":[`+cell("tableCell", tt.body)+`]}]}`))
+
+			t.Run("a row added", func(t *testing.T) {
+				t.Parallel()
+				_, got, issues := readEditWrite(t, doc, func(md string) string { return md + "\n| added |" })
+				assert.Empty(t, jira4claude.DroppedIssues(issues))
+				assert.Contains(t, jsonOf(t, got), `"@type":"Document"`, "the card stays")
+				assert.Contains(t, jsonOf(t, got), "added")
+			})
+
+			t.Run("the paragraph holding the card edited", func(t *testing.T) {
+				t.Parallel()
+				_, _, issues := readEditWrite(t, doc, func(md string) string { return strings.Replace(md, "Card", "Kard", 1) })
+				dropped := jira4claude.DroppedIssues(issues)
+				require.Len(t, dropped, 1)
+				assert.Equal(t, "inlineCard", dropped[0].Node)
+				assert.True(t, dropped[0].Existing)
+			})
+		})
+	}
+}
+
+// TestRestore_UnchangedBlockOfAnEditedContainer checks, for each container,
+// that a block put back whole beside an edited sibling is not reported
+// again: the read of every container enters the block's quiet scope. A
+// table cell is covered by TestRestore_UnchangedCellOfAReshapedTable: two
+// paragraphs of one cell read as one, so editing one edits both.
+func TestRestore_UnchangedBlockOfAnEditedContainer(t *testing.T) {
+	t.Parallel()
+
+	card := `{"type":"inlineCard","attrs":{"data":{"@type":"Document","name":"x"}}}`
+	withCard := `{"type":"paragraph","content":[{"type":"text","text":"Card "},` + card + `]}`
+	other := `{"type":"paragraph","content":[{"type":"text","text":"Other"}]}`
+	item := func(p string) string { return `{"type":"listItem","content":[` + p + `]}` }
+	tests := []struct{ name, block string }{
+		{"bulletList", `{"type":"bulletList","content":[` + item(withCard) + `,` + item(other) + `]}`},
+		{"orderedList", `{"type":"orderedList","attrs":{"order":1},"content":[` + item(withCard) + `,` + item(other) + `]}`},
+		{"listItem", `{"type":"bulletList","content":[{"type":"listItem","content":[` + withCard + `,` + other + `]}]}`},
+		{"blockquote", `{"type":"blockquote","content":[` + withCard + `,` + other + `]}`},
+		{"panel", `{"type":"panel","attrs":{"panelType":"info"},"content":[` + withCard + `,` + other + `]}`},
+		{"expand", `{"type":"expand","attrs":{"title":"T"},"content":[` + withCard + `,` + other + `]}`},
+		{"taskList", `{"type":"taskList","attrs":{"localId":""},"content":[` +
+			`{"type":"taskItem","attrs":{"localId":"","state":"TODO"},"content":[{"type":"text","text":"Card "},` + card + `]},` +
+			`{"type":"taskItem","attrs":{"localId":"","state":"TODO"},"content":[{"type":"text","text":"Other"}]}]}`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			doc := docOf(rawNode(t, tt.block))
+			md, got, issues := readEditWrite(t, doc, func(md string) string { return strings.Replace(md, "Other", "Changed", 1) })
+			require.Contains(t, md, "Other")
+			assert.Empty(t, jira4claude.DroppedIssues(issues), md)
+			assert.Contains(t, jsonOf(t, got), `"@type":"Document"`, "the card stays")
+			assert.Contains(t, jsonOf(t, got), "Changed")
+		})
+	}
+}
+
 func TestRestore_DeletedTokenOfIdenticalNodes(t *testing.T) {
 	t.Parallel()
 

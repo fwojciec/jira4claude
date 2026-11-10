@@ -104,7 +104,9 @@ func containerKind(nodeType string) int {
 // as far as the edit allows. noGeometry is set inside a table whose shape
 // changed.
 func (rs *restorer) node(o, r, e *jira4claude.ADFNode, noGeometry bool) jira4claude.ADFNode {
-	if o.Type != e.Type || r.Type != e.Type {
+	if o.Type != e.Type || r.Type != e.Type || !readerKnows(e.Type) {
+		// A protected node is the original's own, put back from its token;
+		// merging another original's attributes into it would mix the two.
 		return *e
 	}
 	geometric := isTablePart(e.Type)
@@ -335,8 +337,10 @@ func childKeys(nodes []jira4claude.ADFNode) []string {
 	return keys
 }
 
-// normKey returns n as JSON with its localIds left out, so two documents the
-// writer made from the same Markdown compare equal.
+// normKey returns n as JSON with the localIds the writer makes left out, so
+// two documents the writer made from the same Markdown compare equal. A
+// protected node is kept whole: its localId came from the original through
+// its token, so it tells two nodes apart that differ only in it.
 func normKey(n *jira4claude.ADFNode) string {
 	data, err := json.Marshal(withoutLocalIDs(*n))
 	if err != nil {
@@ -346,6 +350,9 @@ func normKey(n *jira4claude.ADFNode) string {
 }
 
 func withoutLocalIDs(n jira4claude.ADFNode) jira4claude.ADFNode {
+	if !readerKnows(n.Type) {
+		return n
+	}
 	if n.Attrs != nil {
 		var attrs map[string]json.RawMessage
 		if json.Unmarshal(n.Attrs, &attrs) == nil {

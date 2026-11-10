@@ -671,7 +671,11 @@ func adfTableCellToGFM(node *jira4claude.ADFNode, skipped *skippedCollector) str
 		var part string
 		if child.Type == "paragraph" {
 			// A GFM table row is one line, so a hard break becomes a space.
+			// The paragraph is rendered here, not by adfNodeToGFM, so it
+			// enters its quiet scope itself.
+			done := skipped.within(child)
 			part = adfInlineLineToGFM(child, skipped, true)
+			done()
 		} else {
 			part = adfNodeToGFM(child, skipped)
 		}
