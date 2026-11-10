@@ -784,6 +784,195 @@ func TestConverter_ToADF(t *testing.T) {
 		assert.Equal(t, expected, result)
 	})
 
+	t.Run("converts soft line break to a space", func(t *testing.T) {
+		t.Parallel()
+
+		converter := markdown.New()
+		result, warnings := converter.ToADF("line one\nline two")
+
+		expected := &jira4claude.ADFNode{
+			Type:    "doc",
+			Version: 1,
+			Content: []jira4claude.ADFNode{
+				{
+					Type: "paragraph",
+					Content: []jira4claude.ADFNode{
+						{Type: "text", Text: "line one line two"},
+					},
+				},
+			},
+		}
+
+		assert.Empty(t, warnings)
+		requireValidADF(t, result)
+		assert.Equal(t, expected, result)
+	})
+
+	t.Run("keeps the space for a soft line break in every inline context", func(t *testing.T) {
+		t.Parallel()
+
+		strong := []jira4claude.ADFMark{{Type: "strong"}}
+		em := []jira4claude.ADFMark{{Type: "em"}}
+		code := []jira4claude.ADFMark{{Type: "code"}}
+		underline := []jira4claude.ADFMark{{Type: "underline"}}
+		link := []jira4claude.ADFMark{{Type: "link", Attrs: json.RawMessage(`{"href":"https://example.com"}`)}}
+
+		tests := []struct {
+			name     string
+			markdown string
+			// path of Content indexes from the doc to the paragraph-like node
+			path     []int
+			expected []jira4claude.ADFNode
+		}{
+			{
+				name:     "after emphasis",
+				markdown: "**bold**\nnext",
+				path:     []int{0},
+				expected: []jira4claude.ADFNode{
+					{Type: "text", Text: "bold", Marks: strong},
+					{Type: "text", Text: " next"},
+				},
+			},
+			{
+				name:     "before emphasis",
+				markdown: "prev\n*it*",
+				path:     []int{0},
+				expected: []jira4claude.ADFNode{
+					{Type: "text", Text: "prev "},
+					{Type: "text", Text: "it", Marks: em},
+				},
+			},
+			{
+				name:     "inside emphasis",
+				markdown: "**one\ntwo**",
+				path:     []int{0},
+				expected: []jira4claude.ADFNode{
+					{Type: "text", Text: "one two", Marks: strong},
+				},
+			},
+			{
+				name:     "after link",
+				markdown: "[site](https://example.com)\nnext",
+				path:     []int{0},
+				expected: []jira4claude.ADFNode{
+					{Type: "text", Text: "site", Marks: link},
+					{Type: "text", Text: " next"},
+				},
+			},
+			{
+				name:     "inside link",
+				markdown: "[my\nsite](https://example.com)",
+				path:     []int{0},
+				expected: []jira4claude.ADFNode{
+					{Type: "text", Text: "my site", Marks: link},
+				},
+			},
+			{
+				name:     "after inline code",
+				markdown: "`code`\nnext",
+				path:     []int{0},
+				expected: []jira4claude.ADFNode{
+					{Type: "text", Text: "code", Marks: code},
+					{Type: "text", Text: " next"},
+				},
+			},
+			{
+				name:     "before inline code",
+				markdown: "prev\n`code`",
+				path:     []int{0},
+				expected: []jira4claude.ADFNode{
+					{Type: "text", Text: "prev "},
+					{Type: "text", Text: "code", Marks: code},
+				},
+			},
+			{
+				name:     "inside inline HTML mark",
+				markdown: "<u>one\ntwo</u>",
+				path:     []int{0},
+				expected: []jira4claude.ADFNode{
+					{Type: "text", Text: "one two", Marks: underline},
+				},
+			},
+			{
+				name:     "in list item",
+				markdown: "- one\n  two",
+				path:     []int{0, 0, 0},
+				expected: []jira4claude.ADFNode{
+					{Type: "text", Text: "one two"},
+				},
+			},
+			{
+				name:     "in task item",
+				markdown: "- [ ] one\n  two",
+				path:     []int{0, 0},
+				expected: []jira4claude.ADFNode{
+					{Type: "text", Text: "one two"},
+				},
+			},
+			{
+				name:     "in blockquote",
+				markdown: "> one\n> two",
+				path:     []int{0, 0},
+				expected: []jira4claude.ADFNode{
+					{Type: "text", Text: "one two"},
+				},
+			},
+			{
+				name:     "in panel first paragraph",
+				markdown: "> [!NOTE]\n> one\n> two",
+				path:     []int{0, 0},
+				expected: []jira4claude.ADFNode{
+					{Type: "text", Text: "one two"},
+				},
+			},
+		}
+
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				t.Parallel()
+
+				converter := markdown.New()
+				result, warnings := converter.ToADF(tt.markdown)
+
+				assert.Empty(t, warnings)
+				requireValidADF(t, result)
+
+				node := result
+				for _, idx := range tt.path {
+					require.Greater(t, len(node.Content), idx)
+					node = &node.Content[idx]
+				}
+				assert.Equal(t, tt.expected, node.Content)
+			})
+		}
+	})
+
+	t.Run("converts backslash hard line break to hardBreak node without a space", func(t *testing.T) {
+		t.Parallel()
+
+		converter := markdown.New()
+		result, warnings := converter.ToADF("Line one\\\nLine two")
+
+		expected := &jira4claude.ADFNode{
+			Type:    "doc",
+			Version: 1,
+			Content: []jira4claude.ADFNode{
+				{
+					Type: "paragraph",
+					Content: []jira4claude.ADFNode{
+						{Type: "text", Text: "Line one"},
+						{Type: "hardBreak"},
+						{Type: "text", Text: "Line two"},
+					},
+				},
+			},
+		}
+
+		assert.Empty(t, warnings)
+		requireValidADF(t, result)
+		assert.Equal(t, expected, result)
+	})
+
 	t.Run("converts strikethrough to strike mark", func(t *testing.T) {
 		t.Parallel()
 

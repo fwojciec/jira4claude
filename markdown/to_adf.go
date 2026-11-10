@@ -738,6 +738,11 @@ func convertInlineNode(node ast.Node, source []byte, marks []jira4claude.ADFMark
 	switch n := node.(type) {
 	case *ast.Text:
 		text := string(n.Segment.Value(source))
+		// A soft line break renders as a space; without it the words on
+		// either side of the line ending would be joined.
+		if n.SoftLineBreak() {
+			text += " "
+		}
 		if text == "" {
 			return nil
 		}
