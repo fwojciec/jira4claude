@@ -121,11 +121,15 @@ func convertNode(node ast.Node, source []byte, skipped *skippedCollector) []jira
 	for child := node.FirstChild(); child != nil; child = child.NextSibling() {
 		// Check for <details> opening HTMLBlock
 		if htmlBlock, ok := child.(*ast.HTMLBlock); ok {
-			if title, found := detectDetailsOpen(htmlBlock, source); found {
-				// Collect siblings until </details>
+			if opener, found := detectDetailsOpen(htmlBlock, source); found {
+				// Collect siblings until </details>. Text that shares the
+				// opening HTMLBlock comes first in the body.
 				bodyContent, next, closed := collectExpandContent(child.NextSibling(), source, skipped)
+				if opener.text != "" {
+					bodyContent = append([]jira4claude.ADFNode{textParagraph(opener.text)}, bodyContent...)
+				}
 				if closed {
-					attrs, _ := json.Marshal(map[string]any{"title": title})
+					attrs, _ := json.Marshal(map[string]any{"title": opener.title})
 					if bodyContent == nil {
 						bodyContent = []jira4claude.ADFNode{}
 					}
@@ -533,37 +537,63 @@ func htmlBlockText(node ast.Node, source []byte) (string, bool) {
 	return strings.TrimSpace(text.String()), true
 }
 
-// detailsSummary extracts the text between <summary> and </summary>.
-func detailsSummary(text string) (string, bool) {
-	summaryStart := strings.Index(text, "<summary>")
-	summaryEnd := strings.Index(text, "</summary>")
-	if summaryStart == -1 || summaryEnd < summaryStart {
-		return "", false
-	}
-	return text[summaryStart+len("<summary>") : summaryEnd], true
+// detailsOpener is an HTMLBlock that opens a <details> element.
+type detailsOpener struct {
+	plain      bool   // the tag is exactly <details>, with no attributes
+	hasSummary bool   // a <summary>...</summary> element follows the tag
+	title      string // the summary text, as written
+	text       string // any other text in the block, joined into one line
 }
 
-// detectDetailsOpen checks if an HTMLBlock starts with <details><summary>...</summary>
-// and returns the extracted title if found. Only such a block opens an expand.
-func detectDetailsOpen(htmlBlock *ast.HTMLBlock, source []byte) (string, bool) {
-	text, ok := htmlBlockText(htmlBlock, source)
-	if !ok || !strings.HasPrefix(text, "<details>") {
-		return "", false
-	}
-	return detailsSummary(text)
-}
-
-// isDetailsOpenTag checks if a node is an HTMLBlock that opens a <details>
-// element, with or without attributes or a summary. Inside an expand, every
-// such block raises the nesting depth so that its </details> closes it rather
-// than the enclosing expand.
-func isDetailsOpenTag(node ast.Node, source []byte) bool {
+// parseDetailsOpener reports whether node is an HTMLBlock that opens a
+// <details> element, with or without attributes or a summary, and splits it
+// into its summary and the rest of its text. goldmark keeps every line up to
+// the next blank line in the same HTMLBlock, so the block can also hold body
+// text; that text is returned so it is not lost. A block that also contains
+// </details> is not an opener: the caller's fallback reports it as dropped.
+func parseDetailsOpener(node ast.Node, source []byte) (detailsOpener, bool) {
 	text, ok := htmlBlockText(node, source)
-	if !ok {
-		return false
+	if !ok || strings.Contains(text, "</details>") {
+		return detailsOpener{}, false
 	}
 	rest, found := strings.CutPrefix(text, "<details")
-	return found && rest != "" && (rest[0] == '>' || rest[0] == ' ' || rest[0] == '\t' || rest[0] == '\n')
+	if !found || rest == "" || !strings.ContainsRune("> \t\r\n", rune(rest[0])) {
+		return detailsOpener{}, false
+	}
+	tagEnd := strings.IndexByte(rest, '>')
+	if tagEnd == -1 {
+		return detailsOpener{}, false
+	}
+	opener := detailsOpener{plain: tagEnd == 0}
+	rest = rest[tagEnd+1:]
+
+	summaryStart := strings.Index(rest, "<summary>")
+	summaryEnd := strings.Index(rest, "</summary>")
+	if summaryStart != -1 && summaryEnd > summaryStart {
+		opener.hasSummary = true
+		opener.title = rest[summaryStart+len("<summary>") : summaryEnd]
+		rest = rest[:summaryStart] + "\n" + rest[summaryEnd+len("</summary>"):]
+	}
+	opener.text = strings.Join(strings.Fields(rest), " ")
+	return opener, true
+}
+
+// textParagraph builds a paragraph holding text as a single plain text node.
+func textParagraph(text string) jira4claude.ADFNode {
+	return jira4claude.ADFNode{
+		Type:    "paragraph",
+		Content: []jira4claude.ADFNode{{Type: "text", Text: text}},
+	}
+}
+
+// detectDetailsOpen checks if a node is an HTMLBlock that starts with
+// <details><summary>...</summary>. Only such a block opens an expand.
+func detectDetailsOpen(node ast.Node, source []byte) (detailsOpener, bool) {
+	opener, ok := parseDetailsOpener(node, source)
+	if !ok || !opener.plain || !opener.hasSummary {
+		return detailsOpener{}, false
+	}
+	return opener, true
 }
 
 // isDetailsClose checks if an HTMLBlock is a </details> closing tag.
@@ -588,8 +618,8 @@ const nestedDetailsDetail = "nested <details> flattened into the enclosing expan
 // <details> elements, starting at 1 for the block being collected. ADF cannot
 // nest expand nodes, so a nested <details> is flattened: its open and close
 // tags are consumed, its summary (if any) becomes a plain paragraph at that
-// position, its body joins the enclosing body, and the flattening is reported
-// as degraded.
+// position, followed by any other text from its opening HTMLBlock; its body
+// joins the enclosing body, and the flattening is reported as degraded.
 func collectExpandContent(start ast.Node, source []byte, skipped *skippedCollector) ([]jira4claude.ADFNode, ast.Node, bool) {
 	var bodyContent []jira4claude.ADFNode
 	depth := 1
@@ -601,17 +631,18 @@ func collectExpandContent(start ast.Node, source []byte, skipped *skippedCollect
 			if depth == 0 {
 				return bodyContent, current, true
 			}
-		case isDetailsOpenTag(current, source):
-			depth++
-			skipped.degrade("details", nestedDetailsDetail)
-			text, _ := htmlBlockText(current, source)
-			if title, ok := detailsSummary(text); ok && strings.TrimSpace(title) != "" {
-				bodyContent = append(bodyContent, jira4claude.ADFNode{
-					Type:    "paragraph",
-					Content: []jira4claude.ADFNode{{Type: "text", Text: strings.TrimSpace(title)}},
-				})
-			}
 		default:
+			if opener, ok := parseDetailsOpener(current, source); ok {
+				depth++
+				skipped.degrade("details", nestedDetailsDetail)
+				if title := strings.TrimSpace(opener.title); title != "" {
+					bodyContent = append(bodyContent, textParagraph(title))
+				}
+				if opener.text != "" {
+					bodyContent = append(bodyContent, textParagraph(opener.text))
+				}
+				continue
+			}
 			adfNode, ok := nodeToADF(current, source, skipped)
 			if ok {
 				bodyContent = append(bodyContent, adfNode)

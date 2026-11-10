@@ -178,3 +178,159 @@ func TestToADF_UnclosedDetails(t *testing.T) {
 		}, issues)
 	})
 }
+
+// TestToADF_DetailsTagBlockText covers text that goldmark keeps in the same
+// HTMLBlock as a <details> or </details> tag because no blank line separates
+// them. That text must be kept, or reported as dropped so a write refuses;
+// it must never be lost silently.
+func TestToADF_DetailsTagBlockText(t *testing.T) {
+	t.Parallel()
+
+	t.Run("top-level opener keeps body text that follows the summary", func(t *testing.T) {
+		t.Parallel()
+
+		input := "<details><summary>Title</summary>\nbody text\n\nmore\n\n</details>"
+
+		result, issues := markdown.New().ToADF(input)
+
+		requireValidADF(t, result)
+		expected := &jira4claude.ADFNode{
+			Type:    "doc",
+			Version: 1,
+			Content: []jira4claude.ADFNode{
+				expandNode(t, "Title", para("body text"), para("more")),
+			},
+		}
+		assert.Equal(t, expected, result)
+		assert.Empty(t, issues)
+	})
+
+	t.Run("opener text on several lines becomes one paragraph", func(t *testing.T) {
+		t.Parallel()
+
+		input := "<details><summary>Title</summary>\nline one\nline two\n\n</details>"
+
+		result, issues := markdown.New().ToADF(input)
+
+		requireValidADF(t, result)
+		expected := &jira4claude.ADFNode{
+			Type:    "doc",
+			Version: 1,
+			Content: []jira4claude.ADFNode{
+				expandNode(t, "Title", para("line one line two")),
+			},
+		}
+		assert.Equal(t, expected, result)
+		assert.Empty(t, issues)
+	})
+
+	t.Run("nested opener keeps body text that follows the summary", func(t *testing.T) {
+		t.Parallel()
+
+		input := "<details><summary>Outer</summary>\n\nbody\n\n" +
+			"<details><summary>Inner</summary>\nsecret content\n\n</details>\n\n" +
+			"tail\n\n</details>\n\nafter"
+
+		result, issues := markdown.New().ToADF(input)
+
+		requireValidADF(t, result)
+		expected := &jira4claude.ADFNode{
+			Type:    "doc",
+			Version: 1,
+			Content: []jira4claude.ADFNode{
+				expandNode(t, "Outer", para("body"), para("Inner"), para("secret content"), para("tail")),
+				para("after"),
+			},
+		}
+		assert.Equal(t, expected, result)
+		assert.Equal(t, []jira4claude.ConversionIssue{nestedDetailsIssue()}, issues)
+	})
+
+	t.Run("nested opener without a summary keeps its text", func(t *testing.T) {
+		t.Parallel()
+
+		input := "<details><summary>Outer</summary>\n\n" +
+			"<details open>\ninner text\n\n</details>\n\n" +
+			"</details>"
+
+		result, issues := markdown.New().ToADF(input)
+
+		requireValidADF(t, result)
+		expected := &jira4claude.ADFNode{
+			Type:    "doc",
+			Version: 1,
+			Content: []jira4claude.ADFNode{
+				expandNode(t, "Outer", para("inner text")),
+			},
+		}
+		assert.Equal(t, expected, result)
+		assert.Equal(t, []jira4claude.ConversionIssue{nestedDetailsIssue()}, issues)
+	})
+
+	t.Run("a nested block that opens and closes in one HTML block is dropped", func(t *testing.T) {
+		t.Parallel()
+
+		input := "<details><summary>Outer</summary>\n\nbody\n\n" +
+			"<details><summary>Inner</summary>\ninner\n</details>\n\n" +
+			"tail\n\n</details>\n\nafter"
+
+		result, issues := markdown.New().ToADF(input)
+
+		requireValidADF(t, result)
+		expected := &jira4claude.ADFNode{
+			Type:    "doc",
+			Version: 1,
+			Content: []jira4claude.ADFNode{
+				expandNode(t, "Outer", para("body"), para("tail")),
+				para("after"),
+			},
+		}
+		assert.Equal(t, expected, result)
+		assert.Equal(t, []jira4claude.ConversionIssue{droppedHTMLBlock()}, issues)
+	})
+
+	t.Run("a top-level block that opens and closes in one HTML block is dropped", func(t *testing.T) {
+		t.Parallel()
+
+		input := "<details><summary>T</summary>\nbody\n</details>\n\nafter\n\n" +
+			"<details><summary>Next</summary>\n\nnext\n\n</details>"
+
+		result, issues := markdown.New().ToADF(input)
+
+		requireValidADF(t, result)
+		expected := &jira4claude.ADFNode{
+			Type:    "doc",
+			Version: 1,
+			Content: []jira4claude.ADFNode{
+				para("after"),
+				expandNode(t, "Next", para("next")),
+			},
+		}
+		assert.Equal(t, expected, result)
+		assert.Equal(t, []jira4claude.ConversionIssue{droppedHTMLBlock()}, issues)
+	})
+
+	t.Run("a closing tag followed by text in one HTML block is dropped", func(t *testing.T) {
+		t.Parallel()
+
+		input := "<details><summary>T</summary>\n\nbody\n\n</details>\ntrailing\n\nafter"
+
+		result, issues := markdown.New().ToADF(input)
+
+		requireValidADF(t, result)
+		for _, node := range result.Content {
+			assert.NotEqual(t, "expand", node.Type, "the close tag block does not close the expand")
+		}
+		assert.Contains(t, issues, droppedHTMLBlock())
+	})
+}
+
+// droppedHTMLBlock is the dropped issue for an HTML block the converter could
+// not carry over.
+func droppedHTMLBlock() jira4claude.ConversionIssue {
+	return jira4claude.ConversionIssue{
+		Kind:   jira4claude.ConversionDropped,
+		Node:   "HTMLBlock",
+		Detail: "skipped unsupported node type 'HTMLBlock'",
+	}
+}
