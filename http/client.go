@@ -189,9 +189,18 @@ func (c *Client) NewJSONRequest(ctx context.Context, method, path string, body a
 // DoRequest executes an HTTP request and handles common response processing.
 // It returns the response body on success, or an error if the request fails
 // or the status code doesn't match the expected value.
-// Transient failures (5xx, 429, connection errors) are retried with exponential backoff.
+//
+// Retry policy depends on whether the method is idempotent:
+//   - GET, PUT, DELETE (and any other non-POST method) are retried with
+//     exponential backoff on 429, 5xx and connection errors.
+//   - POST is retried on 429 only. A 5xx or connection error is returned at
+//     once, because the server may already have applied the request and a
+//     retry could duplicate it (for example a second issue or comment).
+//
+// The request body is rewound (via req.GetBody) before every retry.
 func (c *Client) DoRequest(req *http.Request, expectedStatus int) ([]byte, error) {
 	var lastErr error
+	idempotent := req.Method != http.MethodPost
 
 	for attempt := 0; attempt <= c.maxRetries; attempt++ {
 		if attempt > 0 {
@@ -205,16 +214,22 @@ func (c *Client) DoRequest(req *http.Request, expectedStatus int) ([]byte, error
 					Inner:   req.Context().Err(),
 				}
 			}
+			if err := rewindBody(req); err != nil {
+				return nil, err
+			}
 		}
 
 		body, statusCode, err := c.doRequestOnce(req)
 		if err != nil {
-			// Connection error - retry
-			lastErr = &jira4claude.Error{
+			connErr := &jira4claude.Error{
 				Code:    jira4claude.EInternal,
 				Message: "request failed",
 				Inner:   err,
 			}
+			if !idempotent {
+				return nil, mayHaveBeenApplied(req, connErr)
+			}
+			lastErr = connErr
 			continue
 		}
 
@@ -222,30 +237,66 @@ func (c *Client) DoRequest(req *http.Request, expectedStatus int) ([]byte, error
 			return body, nil
 		}
 
-		// Check if retryable status code
-		if isRetryableStatus(statusCode) {
-			if apiErr := ParseErrorResponse(statusCode, body); apiErr != nil {
-				lastErr = apiErr
-			} else {
-				lastErr = &jira4claude.Error{
-					Code:    statusCodeToErrorCode(statusCode),
-					Message: fmt.Sprintf("unexpected status: %d", statusCode),
-				}
-			}
-			continue
-		}
+		statusErr := statusError(statusCode, body)
 
-		// Non-retryable error - return immediately
-		if apiErr := ParseErrorResponse(statusCode, body); apiErr != nil {
-			return nil, apiErr
-		}
-		return nil, &jira4claude.Error{
-			Code:    statusCodeToErrorCode(statusCode),
-			Message: fmt.Sprintf("unexpected status: %d", statusCode),
+		switch {
+		case statusCode == http.StatusTooManyRequests:
+			// Rate limited: the request was not applied, so any method may retry.
+			lastErr = statusErr
+			continue
+		case isRetryableStatus(statusCode) && idempotent:
+			lastErr = statusErr
+			continue
+		case isRetryableStatus(statusCode):
+			return nil, mayHaveBeenApplied(req, statusErr)
+		default:
+			return nil, statusErr
 		}
 	}
 
 	return nil, lastErr
+}
+
+// statusError builds the domain error for an unexpected status code, using the
+// Jira error body when it has one.
+func statusError(statusCode int, body []byte) error {
+	if apiErr := ParseErrorResponse(statusCode, body); apiErr != nil {
+		return apiErr
+	}
+	return &jira4claude.Error{
+		Code:    statusCodeToErrorCode(statusCode),
+		Message: fmt.Sprintf("unexpected status: %d", statusCode),
+	}
+}
+
+// mayHaveBeenApplied wraps err for a non-idempotent request that failed in a
+// way that does not tell whether the server applied it. The error code of err
+// is kept.
+func mayHaveBeenApplied(req *http.Request, err error) error {
+	return &jira4claude.Error{
+		Code: jira4claude.ErrorCode(err),
+		Message: fmt.Sprintf("%s %s failed and was not retried; the request may have been applied, check before retrying",
+			req.Method, req.URL.Path),
+		Inner: err,
+	}
+}
+
+// rewindBody resets req.Body for another attempt. Requests without a body or
+// without GetBody are left unchanged.
+func rewindBody(req *http.Request) error {
+	if req.Body == nil || req.GetBody == nil {
+		return nil
+	}
+	body, err := req.GetBody()
+	if err != nil {
+		return &jira4claude.Error{
+			Code:    jira4claude.EInternal,
+			Message: "failed to rewind request body for retry",
+			Inner:   err,
+		}
+	}
+	req.Body = body
+	return nil
 }
 
 // doRequestOnce executes a single HTTP request attempt.

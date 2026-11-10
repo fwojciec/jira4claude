@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -744,4 +745,186 @@ func TestClient_DoRequest_Retry(t *testing.T) {
 		// Should have only made 1 attempt before being cancelled during backoff
 		assert.Equal(t, 1, attempts)
 	})
+}
+
+// recordingServer starts a test server that records every request body it
+// receives and answers attempt n (1-based) with statuses[n-1], or with
+// finalStatus once statuses is exhausted. A status of 0 closes the client
+// connection without responding, simulating a connection error.
+type recordingServer struct {
+	*httptest.Server
+
+	mu     sync.Mutex
+	bodies []string
+}
+
+func newRecordingServer(t *testing.T, finalStatus int, statuses ...int) *recordingServer {
+	t.Helper()
+
+	rs := &recordingServer{}
+	rs.Server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, err := io.ReadAll(r.Body)
+		if err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		rs.mu.Lock()
+		rs.bodies = append(rs.bodies, string(b))
+		n := len(rs.bodies)
+		rs.mu.Unlock()
+
+		status := finalStatus
+		if n <= len(statuses) {
+			status = statuses[n-1]
+		}
+		switch status {
+		case 0:
+			rs.CloseClientConnections()
+		case http.StatusInternalServerError:
+			w.WriteHeader(status)
+			_, _ = w.Write([]byte(`{"errorMessages": ["Server error"]}`))
+		default:
+			w.WriteHeader(status)
+		}
+	}))
+	t.Cleanup(rs.Close)
+
+	return rs
+}
+
+func (rs *recordingServer) receivedBodies() []string {
+	rs.mu.Lock()
+	defer rs.mu.Unlock()
+	return append([]string(nil), rs.bodies...)
+}
+
+func TestClient_DoRequest_RetryPolicy(t *testing.T) {
+	t.Parallel()
+
+	const payload = `{"summary":"hello"}`
+
+	newJSONRequest := func(t *testing.T, client *jirahttp.Client, method string) *http.Request {
+		t.Helper()
+		req, err := client.NewJSONRequest(context.Background(), method, "/rest/api/3/issue", map[string]string{"summary": "hello"})
+		require.NoError(t, err)
+		return req
+	}
+
+	t.Run("POST answered with 500 reaches the server once and may have been applied", func(t *testing.T) {
+		t.Parallel()
+
+		server := newRecordingServer(t, http.StatusCreated, http.StatusInternalServerError)
+		client := newTestClient(t, server.URL, "user", "pass", jirahttp.WithRetryBaseDelay(0))
+
+		_, err := client.DoRequest(newJSONRequest(t, client, http.MethodPost), http.StatusCreated)
+
+		require.Error(t, err)
+		assert.Len(t, server.receivedBodies(), 1)
+		assert.Equal(t, jira4claude.EInternal, jira4claude.ErrorCode(err))
+		assert.Contains(t, err.Error(), "may have been applied")
+		assert.Contains(t, err.Error(), "Server error")
+	})
+
+	t.Run("POST answered with 503 without error body is not retried", func(t *testing.T) {
+		t.Parallel()
+
+		server := newRecordingServer(t, http.StatusCreated, http.StatusServiceUnavailable)
+		client := newTestClient(t, server.URL, "user", "pass", jirahttp.WithRetryBaseDelay(0))
+
+		_, err := client.DoRequest(newJSONRequest(t, client, http.MethodPost), http.StatusCreated)
+
+		require.Error(t, err)
+		assert.Len(t, server.receivedBodies(), 1)
+		assert.Equal(t, jira4claude.EInternal, jira4claude.ErrorCode(err))
+		assert.Contains(t, err.Error(), "may have been applied")
+	})
+
+	t.Run("POST that fails with a connection error is not retried", func(t *testing.T) {
+		t.Parallel()
+
+		server := newRecordingServer(t, http.StatusCreated, 0)
+		client := newTestClient(t, server.URL, "user", "pass", jirahttp.WithRetryBaseDelay(0))
+
+		_, err := client.DoRequest(newJSONRequest(t, client, http.MethodPost), http.StatusCreated)
+
+		require.Error(t, err)
+		assert.Len(t, server.receivedBodies(), 1)
+		assert.Equal(t, jira4claude.EInternal, jira4claude.ErrorCode(err))
+		assert.Contains(t, err.Error(), "may have been applied")
+	})
+
+	t.Run("POST answered with 429 then success is retried with its full body", func(t *testing.T) {
+		t.Parallel()
+
+		server := newRecordingServer(t, http.StatusCreated, http.StatusTooManyRequests)
+		client := newTestClient(t, server.URL, "user", "pass", jirahttp.WithRetryBaseDelay(0))
+
+		_, err := client.DoRequest(newJSONRequest(t, client, http.MethodPost), http.StatusCreated)
+
+		require.NoError(t, err)
+		bodies := server.receivedBodies()
+		require.Len(t, bodies, 2)
+		assert.JSONEq(t, payload, bodies[0])
+		assert.JSONEq(t, payload, bodies[1])
+	})
+
+	t.Run("POST answered with 429 until retries run out returns rate limit error", func(t *testing.T) {
+		t.Parallel()
+
+		server := newRecordingServer(t, http.StatusTooManyRequests)
+		client := newTestClient(t, server.URL, "user", "pass", jirahttp.WithRetryBaseDelay(0))
+
+		_, err := client.DoRequest(newJSONRequest(t, client, http.MethodPost), http.StatusCreated)
+
+		require.Error(t, err)
+		assert.Len(t, server.receivedBodies(), 4) // 1 initial + 3 retries
+		assert.Equal(t, jira4claude.ERateLimit, jira4claude.ErrorCode(err))
+		assert.NotContains(t, err.Error(), "may have been applied")
+	})
+
+	t.Run("POST answered with 429 then 500 stops after the 500", func(t *testing.T) {
+		t.Parallel()
+
+		server := newRecordingServer(t, http.StatusCreated,
+			http.StatusTooManyRequests, http.StatusInternalServerError)
+		client := newTestClient(t, server.URL, "user", "pass", jirahttp.WithRetryBaseDelay(0))
+
+		_, err := client.DoRequest(newJSONRequest(t, client, http.MethodPost), http.StatusCreated)
+
+		require.Error(t, err)
+		assert.Len(t, server.receivedBodies(), 2)
+		assert.Equal(t, jira4claude.EInternal, jira4claude.ErrorCode(err))
+		assert.Contains(t, err.Error(), "may have been applied")
+	})
+
+	for _, method := range []string{http.MethodGet, http.MethodPut, http.MethodDelete} {
+		t.Run(method+" is still retried on 5xx with its full body", func(t *testing.T) {
+			t.Parallel()
+
+			server := newRecordingServer(t, http.StatusNoContent,
+				http.StatusInternalServerError, http.StatusBadGateway)
+			client := newTestClient(t, server.URL, "user", "pass", jirahttp.WithRetryBaseDelay(0))
+
+			_, err := client.DoRequest(newJSONRequest(t, client, method), http.StatusNoContent)
+
+			require.NoError(t, err)
+			bodies := server.receivedBodies()
+			require.Len(t, bodies, 3)
+			for _, b := range bodies {
+				assert.JSONEq(t, payload, b)
+			}
+		})
+
+		t.Run(method+" is still retried on connection error", func(t *testing.T) {
+			t.Parallel()
+
+			server := newRecordingServer(t, http.StatusNoContent, 0)
+			client := newTestClient(t, server.URL, "user", "pass", jirahttp.WithRetryBaseDelay(0))
+
+			_, err := client.DoRequest(newJSONRequest(t, client, method), http.StatusNoContent)
+
+			require.NoError(t, err)
+			assert.Len(t, server.receivedBodies(), 2)
+		})
+	}
 }
