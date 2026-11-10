@@ -304,6 +304,13 @@ func blockAllowedIn(nodeType, class string) bool {
 		}
 	case "bodiedExtension":
 		return class == "doc" || class == "layoutColumn"
+	case "blockCard", "embedCard":
+		switch class {
+		case "doc", "expand", "tableCell", "layoutColumn", "bodiedExtension":
+			return true
+		case "panel":
+			return nodeType == "blockCard"
+		}
 	}
 	return false
 }

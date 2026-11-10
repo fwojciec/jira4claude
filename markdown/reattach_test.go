@@ -411,6 +411,7 @@ func TestReattach_ContainersRoundTrip(t *testing.T) {
 	t.Parallel()
 
 	single := `{"type":"mediaSingle","attrs":{"layout":"center"},"content":[{"type":"media","attrs":{"id":"m","type":"file","collection":"c","alt":"pic"}}]}`
+	blockCard := `{"type":"blockCard","attrs":{"url":"https://example.com/x"}}`
 	cell := func(blocks ...jira4claude.ADFNode) jira4claude.ADFNode {
 		return jira4claude.ADFNode{Type: "tableCell", Content: blocks}
 	}
@@ -424,29 +425,65 @@ func TestReattach_ContainersRoundTrip(t *testing.T) {
 	tests := []struct {
 		name string
 		doc  *jira4claude.ADFNode
+		// invalid: the schema rejects the document (a blockCard is not
+		// allowed in a list item or blockquote); it is restored as read.
+		invalid bool
 	}{
 		{"table cell with text and an image", docOf(jira4claude.ADFNode{Type: "table", Content: []jira4claude.ADFNode{
 			row(header(paraOf(plainText("h1"))), header(paraOf(plainText("h2")))),
 			row(cell(paraOf(plainText("shot")), rawNode(t, single)), cell(paraOf(plainText("by "), mention("u1", "Ann")))),
-		}})},
+		}}), false},
 		{"list item", docOf(jira4claude.ADFNode{Type: "bulletList", Content: []jira4claude.ADFNode{
 			{Type: "listItem", Content: []jira4claude.ADFNode{paraOf(plainText("x")), rawNode(t, single)}},
-		}})},
+		}}), false},
 		{"blockquote", docOf(jira4claude.ADFNode{Type: "blockquote", Content: []jira4claude.ADFNode{
 			paraOf(plainText("x "), mention("u1", "Ann")), rawNode(t, single),
-		}})},
+		}}), false},
 		{"heading", docOf(jira4claude.ADFNode{Type: "heading", Attrs: json.RawMessage(`{"level":2}`), Content: []jira4claude.ADFNode{
 			plainText("by "), mention("u1", "Ann"),
-		}})},
+		}}), false},
+		{"panel", docOf(jira4claude.ADFNode{Type: "panel", Attrs: json.RawMessage(`{"panelType":"info"}`), Content: []jira4claude.ADFNode{
+			paraOf(plainText("x "), mention("u1", "Ann")), rawNode(t, single), rawNode(t, blockCard),
+		}}), false},
+		{"expand", docOf(jira4claude.ADFNode{Type: "expand", Attrs: json.RawMessage(`{"title":"t"}`), Content: []jira4claude.ADFNode{
+			paraOf(plainText("x "), mention("u1", "Ann")), rawNode(t, single), rawNode(t, blockCard),
+		}}), false},
+		{"task item", docOf(jira4claude.ADFNode{Type: "taskList", Attrs: json.RawMessage(`{"localId":"l"}`), Content: []jira4claude.ADFNode{
+			{Type: "taskItem", Attrs: json.RawMessage(`{"localId":"i","state":"TODO"}`), Content: []jira4claude.ADFNode{
+				plainText("ask "), mention("u1", "Ann"),
+			}},
+		}}), false},
+		{"unknown block in a list item, table cell and blockquote", docOf(
+			jira4claude.ADFNode{Type: "bulletList", Content: []jira4claude.ADFNode{
+				{Type: "listItem", Content: []jira4claude.ADFNode{paraOf(plainText("x")), rawNode(t, blockCard)}},
+			}},
+			jira4claude.ADFNode{Type: "table", Content: []jira4claude.ADFNode{
+				row(header(paraOf(plainText("h")))),
+				row(cell(paraOf(plainText("x")), rawNode(t, blockCard))),
+			}},
+			jira4claude.ADFNode{Type: "blockquote", Content: []jira4claude.ADFNode{paraOf(plainText("x")), rawNode(t, blockCard)}},
+		), true},
+		{"layout, which the reader flattens into the document", docOf(jira4claude.ADFNode{Type: "layoutSection", Content: []jira4claude.ADFNode{
+			{Type: "layoutColumn", Content: []jira4claude.ADFNode{paraOf(plainText("x")), rawNode(t, blockCard), rawNode(t, single)}},
+		}}), true},
+		{"mention with a pipe in a table cell", docOf(jira4claude.ADFNode{Type: "table", Content: []jira4claude.ADFNode{
+			row(header(paraOf(plainText("h")))),
+			row(cell(paraOf(jira4claude.ADFNode{Type: "mention", Attrs: json.RawMessage(`{"id":"u1","text":"@A | B \\| C"}`)}))),
+		}}), false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			requireValidADF(t, tt.doc)
+			if !tt.invalid {
+				requireValidADF(t, tt.doc)
+			}
 			md, got, issues := readEditWrite(t, tt.doc, nil)
 			assert.Empty(t, issues, "markdown was %q", md)
+			assert.NotEmpty(t, protectedNodes(tt.doc))
 			assert.Equal(t, jsonOf(t, protectedNodes(tt.doc)), jsonOf(t, protectedNodes(got)), "markdown was %q", md)
-			requireValidADF(t, got)
+			if !tt.invalid {
+				requireValidADF(t, got)
+			}
 		})
 	}
 }
@@ -522,7 +559,8 @@ func protectedNodes(doc *jira4claude.ADFNode) []jira4claude.ADFNode {
 	walk = func(n jira4claude.ADFNode) {
 		switch n.Type {
 		case "media", "mediaSingle", "mediaGroup", "mediaInline", "mention",
-			"extension", "inlineExtension", "bodiedExtension", "multiBodiedExtension", "extensionFrame":
+			"extension", "inlineExtension", "bodiedExtension", "multiBodiedExtension", "extensionFrame",
+			"blockCard", "embedCard":
 			out = append(out, n)
 			return
 		}

@@ -18,7 +18,7 @@ const (
 // carry over faithfully.
 type ConversionIssue struct {
 	Kind   string `json:"kind"`   // ConversionDropped or ConversionDegraded
-	Node   string `json:"node"`   // e.g. "Image", "HTMLBlock", "extension"
+	Node   string `json:"node"`   // e.g. "Image", "HTMLBlock", or a token such as "{{mention:2 Jane Doe}}"
 	Detail string `json:"detail"` // human-readable explanation
 }
 
