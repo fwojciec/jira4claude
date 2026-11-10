@@ -629,18 +629,26 @@ func (c *IssueAssignCmd) Run(ctx *IssueContext) error {
 	}
 	// Read the assignee back: an account ID given on the command line has no
 	// display name until Jira supplies it.
-	after, err := ctx.Service.Get(context.Background(), c.Key)
-	if err != nil {
-		return &jira4claude.Error{
-			Code:    jira4claude.ErrorCode(err),
-			Message: action + " " + c.Key + ", but reading it back failed",
-			Inner:   err,
+	after, readErr := ctx.Service.Get(context.Background(), c.Key)
+	if readErr != nil {
+		// The assignment was made, so it is still reported, with the
+		// account ID sent; the failed read is the error.
+		after = &jira4claude.Issue{Key: c.Key}
+		if accountID != "" {
+			after.Assignee = &jira4claude.User{AccountID: accountID}
 		}
 	}
 
 	result := newResult(ctx.Config, c.Key, action)
 	result.Changes = map[string]jira4claude.Change{"assignee": jira4claude.AssigneeChange(before, after)}
 	ctx.Printer.Mutation(result)
+	if readErr != nil {
+		return &jira4claude.Error{
+			Code:    jira4claude.ErrorCode(readErr),
+			Message: action + " " + c.Key + ", but reading it back failed",
+			Inner:   readErr,
+		}
+	}
 	return nil
 }
 

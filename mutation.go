@@ -60,7 +60,9 @@ type MutationResult struct {
 // are a string, nil for an empty field (no assignee, no parent), a []string
 // for labels, or the raw JSON Jira holds for a custom field. A description is
 // not reported as text: Edit says how it was changed (EditSet, EditAppended
-// or EditCleared), and From and To are unused.
+// or EditCleared), and From and To are unused. Edit is also EditSet for a
+// built-in field written by ID (--field-json), whose value the read does not
+// carry.
 type Change struct {
 	From any
 	To   any
@@ -127,7 +129,16 @@ func UpdateChanges(before, after *Issue, update IssueUpdate) map[string]Change {
 		changes["parent"] = Change{From: parentKey(before), To: parentKey(after)}
 	}
 	for id := range update.CustomFields {
-		changes[id] = Change{From: customValue(before, id), To: customValue(after, id)}
+		if strings.HasPrefix(id, "customfield_") {
+			changes[id] = Change{From: customValue(before, id), To: customValue(after, id)}
+			continue
+		}
+		// A built-in field set by --field-json: the read holds no raw value
+		// for it, so report the write without claiming values. A typed flag
+		// for the same field keeps its own entry.
+		if _, typed := changes[id]; !typed {
+			changes[id] = Change{Edit: EditSet}
+		}
 	}
 	switch update.Description.Mode() {
 	case DescriptionKeep:

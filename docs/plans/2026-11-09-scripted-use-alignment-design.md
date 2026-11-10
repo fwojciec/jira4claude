@@ -182,7 +182,7 @@ As built (#149, #150):
 - **`--clear-description`** on a description holding protected nodes needs `--force`.
 - **Create, comment and append** have no original document. Token text there is written as plain text and reported as `degraded` (`Converter.FindTokens`).
 - **`--if-updated`** is honoured on every update, accepts RFC 3339 and Jira's own form, and compares instants at millisecond precision. Only `updated` gained milliseconds in the JSON view.
-- **Not built yet:** step 4's re-read and report, which belongs with the mutation results of milestone 2. Without `--if-updated`, nodes of the same kind that moved between read and write are not detected.
+- **Step 4** came with the mutation results of milestone 2 (jir-mi82): every update now reads first; the result reports the `updated` time Jira holds after the write, and `removed` names what `--force` deleted. Without `--if-updated`, nodes of the same kind that moved between read and write are still not detected.
 
 #### 1.5 Retry policy (F7)
 

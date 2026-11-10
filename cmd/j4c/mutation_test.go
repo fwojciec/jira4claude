@@ -574,7 +574,9 @@ func TestRun_MutationReadFailures(t *testing.T) {
 		assert.Empty(t, res.stdout)
 	})
 
-	t.Run("an assignment whose read-back fails says it was made, and fails", func(t *testing.T) {
+	// As with create's assignee fallback: the write happened, so stdout still
+	// reports it, with the account ID that was sent; the failure is on stderr.
+	t.Run("an assignment whose read-back fails is reported, and fails", func(t *testing.T) {
 		t.Parallel()
 
 		reads := 0
@@ -592,7 +594,7 @@ func TestRun_MutationReadFailures(t *testing.T) {
 		res := runCLI(t, testDeps(svc, me()), "issue", "assign", "TEST-1", "-a", "me")
 
 		assert.Equal(t, 4, res.code)
-		assert.Empty(t, res.stdout)
+		assert.Equal(t, "TEST-1: assigned\n  assignee: Jane Doe → u-me\n"+testURL+"TEST-1\n", res.stdout)
 		assert.Equal(t, "[error] assigned TEST-1, but reading it back failed: issue does not exist\n", res.stderr)
 	})
 }

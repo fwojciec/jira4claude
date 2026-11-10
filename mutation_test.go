@@ -127,6 +127,27 @@ func TestUpdateChanges(t *testing.T) {
 		assert.Equal(t, map[string]jira4claude.Change{"customfield_2": {From: nil, To: nil}}, got)
 	})
 
+	t.Run("a non-custom field set by ID is reported as set, without values the read cannot show", func(t *testing.T) {
+		t.Parallel()
+
+		empty := []string{}
+		got := jira4claude.UpdateChanges(before, after, jira4claude.IssueUpdate{
+			Summary: str("New"),
+			Labels:  &empty,
+			CustomFields: map[string]json.RawMessage{
+				"duedate": json.RawMessage(`"2026-12-01"`),
+				"summary": json.RawMessage(`"Other"`),
+				"labels":  json.RawMessage(`["x"]`),
+			},
+		})
+
+		assert.Equal(t, map[string]jira4claude.Change{
+			"summary": {From: "Old", To: "New"},
+			"labels":  {From: []string{"a"}, To: []string{}},
+			"duedate": {Edit: jira4claude.EditSet},
+		}, got, "the typed entries are kept")
+	})
+
 	descriptionModes := []struct {
 		name   string
 		update jira4claude.DescriptionUpdate
