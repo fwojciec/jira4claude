@@ -42,7 +42,7 @@ func adfNodeToGFM(node *jira4claude.ADFNode, skipped *skippedCollector) string {
 	case "heading":
 		return adfHeadingToGFM(node, skipped)
 	case "codeBlock":
-		return adfCodeBlockToGFM(node)
+		return adfCodeBlockToGFM(node, skipped)
 	case "bulletList":
 		return adfBulletListToGFM(node, skipped)
 	case "orderedList":
@@ -104,7 +104,7 @@ func adfHeadingToGFM(node *jira4claude.ADFNode, skipped *skippedCollector) strin
 }
 
 // adfCodeBlockToGFM converts an ADF codeBlock to a fenced code block.
-func adfCodeBlockToGFM(node *jira4claude.ADFNode) string {
+func adfCodeBlockToGFM(node *jira4claude.ADFNode, skipped *skippedCollector) string {
 	lang := ""
 	if node.Attrs != nil {
 		var attrs map[string]any
@@ -115,6 +115,15 @@ func adfCodeBlockToGFM(node *jira4claude.ADFNode) string {
 		}
 	}
 
+	// The info string's first word is the language, so a language with
+	// whitespace in it cannot be written whole.
+	if word := infoFirstWord(lang); word != lang {
+		if skipped != nil {
+			skipped.degrade("codeBlock", "a code block language containing whitespace cannot be written in Markdown; only its first word is kept")
+		}
+		lang = word
+	}
+
 	var code string
 	for _, child := range node.Content {
 		if child.Type == "text" {
@@ -122,7 +131,80 @@ func adfCodeBlockToGFM(node *jira4claude.ADFNode) string {
 		}
 	}
 
-	return fmt.Sprintf("```%s\n%s\n```", lang, code)
+	// The info string of a backtick fence cannot contain a backtick, so such
+	// a language takes a tilde fence. The fence is longer than any run of
+	// its character that starts a line of the code, so no line closes it.
+	fenceChar := "`"
+	if strings.Contains(lang, "`") {
+		fenceChar = "~"
+	}
+	fence := strings.Repeat(fenceChar, max(3, longestLineStartRun(code, fenceChar[0])+1))
+	info := lang
+	if strings.HasPrefix(info, fenceChar) {
+		// Written directly after the fence it would lengthen the fence.
+		info = " " + info
+	}
+	if code == "" {
+		return fence + info + "\n" + fence
+	}
+	return fence + info + "\n" + code + "\n" + fence
+}
+
+// infoFirstWord returns the first word of a fenced code block info string,
+// which is what the write side takes as the language. The words are
+// separated by the blanks goldmark trims and splits on; a line ending cannot
+// be in an info string at all.
+func infoFirstWord(info string) string {
+	const blanks = " \t\n\r"
+	info = strings.TrimLeft(info, blanks)
+	if i := strings.IndexAny(info, blanks); i >= 0 {
+		info = info[:i]
+	}
+	return info
+}
+
+// longestLineStartRun returns the length of the longest run of c that
+// starts a line of text, after any indentation.
+func longestLineStartRun(text string, c byte) int {
+	longest := 0
+	for _, line := range strings.Split(text, "\n") {
+		line = strings.TrimLeft(line, " \t")
+		n := 0
+		for n < len(line) && line[n] == c {
+			n++
+		}
+		longest = max(longest, n)
+	}
+	return longest
+}
+
+// codeSpan writes text as a CommonMark code span. The delimiter is a
+// backtick run longer than any run inside the text, so none closes the span
+// early. The parser strips one space from each end when the text both starts
+// and ends with a space or a line ending and is not all blanks, and a
+// backtick at either edge would join the delimiter, so in those cases the
+// text is padded with one space on each side. A line ending has no form in
+// a code span (it reads as a space) and is written as a space; the caller
+// reports it.
+func codeSpan(text string) string {
+	text = strings.ReplaceAll(text, "\n", " ")
+	longest, run := 0, 0
+	for i := range len(text) {
+		if text[i] == '`' {
+			run++
+			longest = max(longest, run)
+		} else {
+			run = 0
+		}
+	}
+	delim := strings.Repeat("`", longest+1)
+
+	blank := strings.Trim(text, " \t\r") == ""
+	spaceEdges := strings.HasPrefix(text, " ") && strings.HasSuffix(text, " ") && !blank
+	if spaceEdges || strings.HasPrefix(text, "`") || strings.HasSuffix(text, "`") {
+		text = " " + text + " "
+	}
+	return delim + text + delim
 }
 
 // adfBulletListToGFM converts an ADF bulletList to markdown.
@@ -507,6 +589,9 @@ func adfInlineLineToGFM(node *jira4claude.ADFNode, skipped *skippedCollector, si
 		case "text":
 			lineStart := i == 0 || items[i-1].Type == "hardBreak"
 			text := escapeTextNode(items, i, lineStart)
+			if skipped != nil && hasCodeMark(child.Marks) && strings.Contains(child.Text, "\n") {
+				skipped.degrade("text", "a line break inside inline code cannot be written in a Markdown code span; it is read as a space")
+			}
 			if len(child.Marks) == 0 {
 				result.WriteString(text)
 			} else {
@@ -558,15 +643,15 @@ func emittingInline(content []jira4claude.ADFNode, skipped *skippedCollector) []
 	// text with the same marks: written separately, the two would get
 	// delimiters between them ("**a\***" + "**b**") that do not read back.
 	// Label nodes merge too: they are written as plain text with no syntax
-	// of their own, so merging changes nothing but the delimiters. Code is
-	// not merged: a code span strips one blank or newline from each end, so
-	// one span would lose characters that two spans keep.
+	// of their own, so merging changes nothing but the delimiters. Code
+	// merges too: two code spans written side by side would join their
+	// backtick runs, and one span keeps the text exactly (see codeSpan).
 	label := func(text string, marks []jira4claude.ADFMark) {
 		if text == "" {
 			return
 		}
 		if last := len(items) - 1; last >= 0 && items[last].Type == "text" &&
-			!hasCodeMark(marks) && marksEqual(items[last].Marks, marks) {
+			marksEqual(items[last].Marks, marks) {
 			items[last].Text += text
 			return
 		}
@@ -681,21 +766,24 @@ func applyMarks(text string, marks []jira4claude.ADFMark) string {
 		}
 	}
 
-	// Expel leading/trailing whitespace so delimiters hug content.
-	// If text is whitespace-only, skip all marks to avoid empty delimiters.
-	trimmed := strings.Trim(text, " \t")
-	if trimmed == "" {
-		return text
-	}
-	leading := text[:len(text)-len(strings.TrimLeft(text, " \t"))]
-	trailing := text[len(strings.TrimRight(text, " \t")):]
-	result := trimmed
+	var leading, trailing, result string
 
 	// Apply marks innermost → outermost.
-	// Code is exclusive: suppresses em/strong/strike.
+	// Code is exclusive: suppresses em/strong/strike. A code span keeps its
+	// blanks, so code text is not trimmed.
 	if hasCode {
-		result = "`" + result + "`"
+		result = codeSpan(text)
 	} else {
+		// Expel leading/trailing whitespace so delimiters hug content.
+		// If text is whitespace-only, skip all marks to avoid empty delimiters.
+		trimmed := strings.Trim(text, " \t")
+		if trimmed == "" {
+			return text
+		}
+		leading = text[:len(text)-len(strings.TrimLeft(text, " \t"))]
+		trailing = text[len(strings.TrimRight(text, " \t")):]
+		result = trimmed
+
 		if hasStrike {
 			result = "~~" + result + "~~"
 		}

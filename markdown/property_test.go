@@ -112,6 +112,14 @@ var propertySeeds = []string{
 	"<details><summary></summary>\n\n</details>",
 	"> [!NOTE]",
 	"- > [!NOTE]",
+	// #160 code spans and code blocks
+	"`` a`b ``",
+	"` `` `",
+	"` `",
+	"````\n```",
+	"~~~0`",
+	"~~~0\t 0",
+	"`\n`\n-",
 }
 
 // addPropertySeeds adds propertySeeds and the Markdown fixtures in testdata
@@ -242,7 +250,6 @@ func TestPropertyKnownFailures(t *testing.T) {
 		// Known before #147 (comments on #147).
 		gapListsMerge      = "adjacent lists that render with the same marker merge into one list on read (#147 comments, #157); also at top level, and a bulletList after a taskList becomes task items (read)"
 		gapAdjacentMarks   = "adjacent text nodes with different marks and no space between them read back with misplaced delimiters (#147 comments) (read)"
-		gapCodeBackticks   = "inline code text containing backticks is not fenced with a longer backtick run on read (#147 comments) (read)"
 		gapHrefEscaping    = "link hrefs are not escaped on read (#147 comments) (read)"
 		gapTableAfterBreak = "a table delimiter row after a hard break is not escaped on read (#147 comments) (read)"
 
@@ -253,15 +260,12 @@ func TestPropertyKnownFailures(t *testing.T) {
 		gapUnlinkedURL     = "URL text the writer did not linkify (after an unmatched [) is linkified on rewrite, because the reader's \\[ escape re-enables linkify (read)"
 		gapDuplicateMarks  = "nested emphasis of the same kind gives a text node duplicate marks ([em, em]) (write)"
 		gapEmptyItem       = "an empty list item is read as a bare marker, so it ends its parent item or forms a thematic break (read)"
-		gapCodeFence       = "code blocks are always fenced with ``` on read, so code containing ``` or a language containing ` breaks the fence (read)"
 		gapCarriageReturn  = "a lone carriage return is not normalised on write and is parsed inconsistently (write)"
 		gapBackslashEntity = "a literal backslash before the reader's &#32; trailing-space entity escapes the entity (read)"
-		gapLanguageTab     = "a code block language keeps a trailing tab from the info string (write)"
 		gapMarkOrder       = "mark order follows Markdown nesting, so the same marks come back in a different order; no content is lost (write: no canonical mark order)"
 		gapControlEntity   = "a numeric entity for a control character (including CR) puts that character in ADF text, though NormalizeUnicode replaces raw control characters; the reader writes it back raw (write)"
 		gapInvalidUTF8     = "invalid UTF-8 is not replaced before parsing, so emphasis flanking differs between writes (write)"
 		gapStrikeEdgeTilde = "a tilde at the edge of struck text is not escaped on read, so it merges with the ~~ delimiter (read)"
-		gapNewlineInCode   = "a line ending inside a code span is kept as a newline instead of a space, and read back raw (write)"
 	)
 
 	tests := []struct {
@@ -274,12 +278,9 @@ func TestPropertyKnownFailures(t *testing.T) {
 		{"two nested task lists after a task item", gapListsMerge, "- [ ] a\n  - [ ] b\n  + [ ] c"},
 		{"bullet list after a task list", gapListsMerge, "+ [X] a\n* b"},
 		{"strong ending in punctuation, then a letter", gapAdjacentMarks, "**a.**&#97;"},
-		{"code with a backtick", gapCodeBackticks, "`` a`b ``"},
-		{"code that is two backticks", gapCodeBackticks, "` `` `"},
 		{"href with a space", gapHrefEscaping, "[a](<b c>)"},
 		{"href with a parenthesis", gapHrefEscaping, "[0](( )"},
 		{"delimiter row after a hard break", gapTableAfterBreak, "\\\n\\|-"},
-		{"code span of one space", gapEdgeWhitespace, "` `"},
 		{"underline with a trailing space", gapEdgeWhitespace, "<u>a </u>b"},
 		{"link text equal to a non-URL href", gapLinkTextIsHref, "a [0](0)"},
 		{"empty href", gapEmptyHref, "[0000]()"},
@@ -288,16 +289,12 @@ func TestPropertyKnownFailures(t *testing.T) {
 		{"strong inside strong", gapDuplicateMarks, "**__a__**"},
 		{"empty nested item before parent content", gapEmptyItem, "* 0)\n  0"},
 		{"three nested empty items", gapEmptyItem, "+ * *"},
-		{"code containing a fence", gapCodeFence, "````\n```"},
-		{"language containing a backtick", gapCodeFence, "~~~0`"},
 		{"carriage returns", gapCarriageReturn, "\r#\r0"},
 		{"backslash then trailing space", gapBackslashEntity, "<A>\n\\ "},
-		{"language with a tab", gapLanguageTab, "~~~0\t 0"},
 		{"strong around em", gapMarkOrder, "**_0_**"},
 		{"control character entity", gapControlEntity, "&#X1;"},
 		{"carriage return entity", gapControlEntity, "&#Xd;"},
 		{"invalid UTF-8 after a link", gapInvalidUTF8, "*0 []()\x81*"},
-		{"code span across a line in a heading", gapNewlineInCode, "`\n`\n-"},
 		{"struck tilde", gapStrikeEdgeTilde, "~~&#126;~~"},
 		{"struck text ending in a tilde", gapStrikeEdgeTilde, "~~a&#126;~~"},
 	}

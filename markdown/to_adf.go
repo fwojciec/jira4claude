@@ -275,13 +275,24 @@ func convertFencedCodeBlock(node *ast.FencedCodeBlock, source []byte) jira4claud
 		result.Content = []jira4claude.ADFNode{{Type: "text", Text: codeText}}
 	}
 
-	lang := string(node.Language(source))
+	lang := infoLanguage(node.Language(source))
 	if lang != "" {
 		attrs, _ := json.Marshal(map[string]any{"language": lang})
 		result.Attrs = attrs
 	}
 
 	return result
+}
+
+// infoLanguage returns the language of a fenced code block: the first word
+// of its info string. goldmark's Language splits the info string at a space
+// only, so a tab after the first word would stay in the language.
+func infoLanguage(lang []byte) string {
+	s := string(lang)
+	if i := strings.IndexAny(s, " \t"); i >= 0 {
+		s = s[:i]
+	}
+	return s
 }
 
 // convertIndentedCodeBlock converts a goldmark indented code block to an ADF
@@ -942,7 +953,13 @@ func convertInlineNode(node ast.Node, source []byte, marks []jira4claude.ADFMark
 		var codeText string
 		for child := n.FirstChild(); child != nil; child = child.NextSibling() {
 			if textNode, ok := child.(*ast.Text); ok {
-				codeText += string(textNode.Segment.Value(source))
+				// A line ending inside a code span is a space (CommonMark
+				// 6.1); goldmark leaves it at the end of the line's segment.
+				value := string(textNode.Segment.Value(source))
+				if strings.HasSuffix(value, "\n") {
+					value = strings.TrimSuffix(value, "\n") + " "
+				}
+				codeText += value
 			}
 		}
 		// ADF's code mark is exclusive: per the schema, a text node carrying

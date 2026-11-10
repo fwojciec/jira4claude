@@ -875,30 +875,21 @@ func TestRoundTrip_AdjacentTextNodesWithSameMarks(t *testing.T) {
 		assert.Equal(t, "**a** ***b***", md)
 	})
 
-	// Code spans are not merged: one span would strip a newline or a space
-	// at its edge that two spans keep. The blank between the spans comes
-	// back unmarked, as it does without merging.
-	t.Run("code is not merged", func(t *testing.T) {
+	// Code merges too (#160): two spans side by side would join their
+	// backtick runs, and one span keeps blanks at its edges, so the text,
+	// blanks included, comes back whole and still code.
+	t.Run("code is merged", func(t *testing.T) {
 		t.Parallel()
 
 		code := jira4claude.ADFMark{Type: "code"}
 		converter := markdown.New()
-		md, _ := converter.ToMarkdown(paragraphDoc(node("a\n", code), node(" b", code)))
+		md, readIssues := converter.ToMarkdown(paragraphDoc(node("a ", code), node(" b", code)))
+		assert.Empty(t, readIssues)
 
 		result, warnings := converter.ToADF(md)
 		assert.Empty(t, warnings)
 		requireValidADF(t, result)
-		var got string
-		spans := 0
-		for _, n := range result.Content[0].Content {
-			require.Equal(t, "text", n.Type)
-			if len(n.Marks) == 1 && n.Marks[0].Type == code.Type {
-				spans++
-			}
-			got += n.Text
-		}
-		assert.Equal(t, 2, spans, "markdown was %q", md)
-		assert.Equal(t, "a\n b", got, "markdown was %q", md)
+		assert.Equal(t, paragraphDoc(node("a  b", code)), result, "markdown was %q", md)
 	})
 }
 
