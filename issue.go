@@ -108,7 +108,8 @@ type IssueFilter struct {
 	Labels        []string // Issues must have ALL specified labels
 	OrderBy       string   // e.g., "created DESC"
 	JQL           string   // Raw JQL query; overrides other fields if set
-	Limit         int      // Maximum number of issues to return
+	Limit         int      // Maximum number of issues to return (page size)
+	PageToken     string   // Cursor for a page after the first; empty for the first page
 }
 
 // IssueUpdate specifies fields to update on an issue.
@@ -156,8 +157,11 @@ type IssueService interface {
 	// Get retrieves an issue by its key.
 	Get(ctx context.Context, key string) (*Issue, error)
 
-	// List returns issues matching the filter criteria.
-	List(ctx context.Context, filter IssueFilter) ([]*Issue, error)
+	// List returns one page of issues matching the filter criteria, at most
+	// filter.Limit long. next is the cursor for the following page, to be passed
+	// back as filter.PageToken; it is empty when there are no more results, so
+	// a non-empty next means the result was truncated.
+	List(ctx context.Context, filter IssueFilter) (issues []*Issue, next string, err error)
 
 	// Update modifies an existing issue and returns the updated issue.
 	Update(ctx context.Context, key string, update IssueUpdate) (*Issue, error)

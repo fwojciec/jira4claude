@@ -1047,9 +1047,9 @@ func TestIssueReadyCmd(t *testing.T) {
 
 		var capturedFilter jira4claude.IssueFilter
 		svc := &mock.IssueService{
-			ListFn: func(ctx context.Context, filter jira4claude.IssueFilter) ([]*jira4claude.Issue, error) {
+			ListFn: func(ctx context.Context, filter jira4claude.IssueFilter) ([]*jira4claude.Issue, string, error) {
 				capturedFilter = filter
-				return []*jira4claude.Issue{}, nil
+				return []*jira4claude.Issue{}, "", nil
 			},
 		}
 
@@ -1073,9 +1073,9 @@ func TestIssueReadyCmd(t *testing.T) {
 
 		var capturedFilter jira4claude.IssueFilter
 		svc := &mock.IssueService{
-			ListFn: func(ctx context.Context, filter jira4claude.IssueFilter) ([]*jira4claude.Issue, error) {
+			ListFn: func(ctx context.Context, filter jira4claude.IssueFilter) ([]*jira4claude.Issue, string, error) {
 				capturedFilter = filter
-				return []*jira4claude.Issue{}, nil
+				return []*jira4claude.Issue{}, "", nil
 			},
 		}
 
@@ -1099,9 +1099,9 @@ func TestIssueReadyCmd(t *testing.T) {
 
 		var capturedFilter jira4claude.IssueFilter
 		svc := &mock.IssueService{
-			ListFn: func(ctx context.Context, filter jira4claude.IssueFilter) ([]*jira4claude.Issue, error) {
+			ListFn: func(ctx context.Context, filter jira4claude.IssueFilter) ([]*jira4claude.Issue, string, error) {
 				capturedFilter = filter
-				return []*jira4claude.Issue{}, nil
+				return []*jira4claude.Issue{}, "", nil
 			},
 		}
 
@@ -1123,7 +1123,7 @@ func TestIssueReadyCmd(t *testing.T) {
 		t.Parallel()
 
 		svc := &mock.IssueService{
-			ListFn: func(ctx context.Context, filter jira4claude.IssueFilter) ([]*jira4claude.Issue, error) {
+			ListFn: func(ctx context.Context, filter jira4claude.IssueFilter) ([]*jira4claude.Issue, string, error) {
 				return []*jira4claude.Issue{
 					{
 						Key:    "TEST-1",
@@ -1162,7 +1162,7 @@ func TestIssueReadyCmd(t *testing.T) {
 							},
 						},
 					},
-				}, nil
+				}, "", nil
 			},
 		}
 
@@ -1179,7 +1179,7 @@ func TestIssueReadyCmd(t *testing.T) {
 		require.NoError(t, err)
 		// Should have called Issues with 2 ready issues (TEST-1 and TEST-4)
 		require.Len(t, printer.IssuesCalls, 1)
-		views := printer.IssuesCalls[0]
+		views := printer.IssuesCalls[0].Issues
 		require.Len(t, views, 2)
 		assert.Equal(t, "TEST-1", views[0].Key)
 		assert.Equal(t, "TEST-4", views[1].Key)
@@ -1189,8 +1189,8 @@ func TestIssueReadyCmd(t *testing.T) {
 		t.Parallel()
 
 		svc := &mock.IssueService{
-			ListFn: func(ctx context.Context, filter jira4claude.IssueFilter) ([]*jira4claude.Issue, error) {
-				return []*jira4claude.Issue{}, nil
+			ListFn: func(ctx context.Context, filter jira4claude.IssueFilter) ([]*jira4claude.Issue, string, error) {
+				return []*jira4claude.Issue{}, "", nil
 			},
 		}
 
@@ -1207,14 +1207,14 @@ func TestIssueReadyCmd(t *testing.T) {
 		require.NoError(t, err)
 		// Should have called Issues with empty slice
 		require.Len(t, printer.IssuesCalls, 1)
-		assert.Empty(t, printer.IssuesCalls[0])
+		assert.Empty(t, printer.IssuesCalls[0].Issues)
 	})
 
 	t.Run("handles all issues filtered out", func(t *testing.T) {
 		t.Parallel()
 
 		svc := &mock.IssueService{
-			ListFn: func(ctx context.Context, filter jira4claude.IssueFilter) ([]*jira4claude.Issue, error) {
+			ListFn: func(ctx context.Context, filter jira4claude.IssueFilter) ([]*jira4claude.Issue, string, error) {
 				return []*jira4claude.Issue{
 					{
 						Key:    "TEST-1",
@@ -1232,7 +1232,7 @@ func TestIssueReadyCmd(t *testing.T) {
 							},
 						},
 					},
-				}, nil
+				}, "", nil
 			},
 		}
 
@@ -1249,7 +1249,7 @@ func TestIssueReadyCmd(t *testing.T) {
 		require.NoError(t, err)
 		// Should have called Issues with empty slice (all filtered out)
 		require.Len(t, printer.IssuesCalls, 1)
-		assert.Empty(t, printer.IssuesCalls[0])
+		assert.Empty(t, printer.IssuesCalls[0].Issues)
 	})
 
 	t.Run("propagates service errors", func(t *testing.T) {
@@ -1257,8 +1257,8 @@ func TestIssueReadyCmd(t *testing.T) {
 
 		expectedErr := &jira4claude.Error{Code: jira4claude.EInternal, Message: "connection failed"}
 		svc := &mock.IssueService{
-			ListFn: func(ctx context.Context, filter jira4claude.IssueFilter) ([]*jira4claude.Issue, error) {
-				return nil, expectedErr
+			ListFn: func(ctx context.Context, filter jira4claude.IssueFilter) ([]*jira4claude.Issue, string, error) {
+				return nil, "", expectedErr
 			},
 		}
 
@@ -1281,9 +1281,9 @@ func TestIssueReadyCmd(t *testing.T) {
 
 		var capturedFilter jira4claude.IssueFilter
 		svc := &mock.IssueService{
-			ListFn: func(ctx context.Context, filter jira4claude.IssueFilter) ([]*jira4claude.Issue, error) {
+			ListFn: func(ctx context.Context, filter jira4claude.IssueFilter) ([]*jira4claude.Issue, string, error) {
 				capturedFilter = filter
-				return []*jira4claude.Issue{}, nil
+				return []*jira4claude.Issue{}, "", nil
 			},
 		}
 
@@ -1306,9 +1306,9 @@ func TestIssueReadyCmd(t *testing.T) {
 
 		var capturedFilter jira4claude.IssueFilter
 		svc := &mock.IssueService{
-			ListFn: func(ctx context.Context, filter jira4claude.IssueFilter) ([]*jira4claude.Issue, error) {
+			ListFn: func(ctx context.Context, filter jira4claude.IssueFilter) ([]*jira4claude.Issue, string, error) {
 				capturedFilter = filter
-				return []*jira4claude.Issue{}, nil
+				return []*jira4claude.Issue{}, "", nil
 			},
 		}
 
@@ -1486,9 +1486,9 @@ func TestIssueListCmd(t *testing.T) {
 
 		var capturedFilter jira4claude.IssueFilter
 		svc := &mock.IssueService{
-			ListFn: func(ctx context.Context, filter jira4claude.IssueFilter) ([]*jira4claude.Issue, error) {
+			ListFn: func(ctx context.Context, filter jira4claude.IssueFilter) ([]*jira4claude.Issue, string, error) {
 				capturedFilter = filter
-				return []*jira4claude.Issue{}, nil
+				return []*jira4claude.Issue{}, "", nil
 			},
 		}
 
@@ -1511,9 +1511,9 @@ func TestIssueListCmd(t *testing.T) {
 
 		var capturedFilter jira4claude.IssueFilter
 		svc := &mock.IssueService{
-			ListFn: func(ctx context.Context, filter jira4claude.IssueFilter) ([]*jira4claude.Issue, error) {
+			ListFn: func(ctx context.Context, filter jira4claude.IssueFilter) ([]*jira4claude.Issue, string, error) {
 				capturedFilter = filter
-				return []*jira4claude.Issue{}, nil
+				return []*jira4claude.Issue{}, "", nil
 			},
 		}
 
@@ -1536,9 +1536,9 @@ func TestIssueListCmd(t *testing.T) {
 
 		var capturedFilter jira4claude.IssueFilter
 		svc := &mock.IssueService{
-			ListFn: func(ctx context.Context, filter jira4claude.IssueFilter) ([]*jira4claude.Issue, error) {
+			ListFn: func(ctx context.Context, filter jira4claude.IssueFilter) ([]*jira4claude.Issue, string, error) {
 				capturedFilter = filter
-				return []*jira4claude.Issue{}, nil
+				return []*jira4claude.Issue{}, "", nil
 			},
 		}
 
@@ -1563,9 +1563,9 @@ func TestIssueListCmd(t *testing.T) {
 
 		var capturedFilter jira4claude.IssueFilter
 		svc := &mock.IssueService{
-			ListFn: func(ctx context.Context, filter jira4claude.IssueFilter) ([]*jira4claude.Issue, error) {
+			ListFn: func(ctx context.Context, filter jira4claude.IssueFilter) ([]*jira4claude.Issue, string, error) {
 				capturedFilter = filter
-				return []*jira4claude.Issue{}, nil
+				return []*jira4claude.Issue{}, "", nil
 			},
 		}
 
@@ -1600,9 +1600,9 @@ func TestIssueListCmd(t *testing.T) {
 
 		var capturedFilter jira4claude.IssueFilter
 		svc := &mock.IssueService{
-			ListFn: func(ctx context.Context, filter jira4claude.IssueFilter) ([]*jira4claude.Issue, error) {
+			ListFn: func(ctx context.Context, filter jira4claude.IssueFilter) ([]*jira4claude.Issue, string, error) {
 				capturedFilter = filter
-				return []*jira4claude.Issue{}, nil
+				return []*jira4claude.Issue{}, "", nil
 			},
 		}
 
@@ -1628,8 +1628,8 @@ func TestIssueListCmd(t *testing.T) {
 		t.Parallel()
 
 		svc := &mock.IssueService{
-			ListFn: func(ctx context.Context, filter jira4claude.IssueFilter) ([]*jira4claude.Issue, error) {
-				return nil, &jira4claude.Error{Code: jira4claude.ENotFound, Message: "Project not found"}
+			ListFn: func(ctx context.Context, filter jira4claude.IssueFilter) ([]*jira4claude.Issue, string, error) {
+				return nil, "", &jira4claude.Error{Code: jira4claude.ENotFound, Message: "Project not found"}
 			},
 		}
 
@@ -1651,11 +1651,11 @@ func TestIssueListCmd(t *testing.T) {
 		t.Parallel()
 
 		svc := &mock.IssueService{
-			ListFn: func(ctx context.Context, filter jira4claude.IssueFilter) ([]*jira4claude.Issue, error) {
+			ListFn: func(ctx context.Context, filter jira4claude.IssueFilter) ([]*jira4claude.Issue, string, error) {
 				return []*jira4claude.Issue{
 					makeIssue("TEST-1"),
 					makeIssue("TEST-2"),
-				}, nil
+				}, "", nil
 			},
 		}
 
@@ -1671,7 +1671,7 @@ func TestIssueListCmd(t *testing.T) {
 
 		require.NoError(t, err)
 		require.Len(t, printer.IssuesCalls, 1)
-		views := printer.IssuesCalls[0]
+		views := printer.IssuesCalls[0].Issues
 		require.Len(t, views, 2)
 		assert.Equal(t, "TEST-1", views[0].Key)
 		assert.Equal(t, "TEST-2", views[1].Key)
@@ -1682,9 +1682,9 @@ func TestIssueListCmd(t *testing.T) {
 
 		var capturedFilter jira4claude.IssueFilter
 		svc := &mock.IssueService{
-			ListFn: func(ctx context.Context, filter jira4claude.IssueFilter) ([]*jira4claude.Issue, error) {
+			ListFn: func(ctx context.Context, filter jira4claude.IssueFilter) ([]*jira4claude.Issue, string, error) {
 				capturedFilter = filter
-				return []*jira4claude.Issue{}, nil
+				return []*jira4claude.Issue{}, "", nil
 			},
 		}
 
@@ -1707,9 +1707,9 @@ func TestIssueListCmd(t *testing.T) {
 
 		var capturedFilter jira4claude.IssueFilter
 		svc := &mock.IssueService{
-			ListFn: func(ctx context.Context, filter jira4claude.IssueFilter) ([]*jira4claude.Issue, error) {
+			ListFn: func(ctx context.Context, filter jira4claude.IssueFilter) ([]*jira4claude.Issue, string, error) {
 				capturedFilter = filter
-				return []*jira4claude.Issue{}, nil
+				return []*jira4claude.Issue{}, "", nil
 			},
 		}
 
@@ -1732,9 +1732,9 @@ func TestIssueListCmd(t *testing.T) {
 
 		var capturedFilter jira4claude.IssueFilter
 		svc := &mock.IssueService{
-			ListFn: func(ctx context.Context, filter jira4claude.IssueFilter) ([]*jira4claude.Issue, error) {
+			ListFn: func(ctx context.Context, filter jira4claude.IssueFilter) ([]*jira4claude.Issue, string, error) {
 				capturedFilter = filter
-				return []*jira4claude.Issue{}, nil
+				return []*jira4claude.Issue{}, "", nil
 			},
 		}
 

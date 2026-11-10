@@ -119,6 +119,13 @@ type IssueListItem struct {
 	Summary  string `json:"summary"`
 }
 
+// IssueListView is a list of issues plus whether more matching issues exist
+// beyond those shown.
+type IssueListView struct {
+	Issues    []IssueListItem `json:"issues"`
+	Truncated bool            `json:"truncated"`
+}
+
 // IssueFieldsView is a display-ready representation of issue field metadata.
 // Source describes the context (e.g., "INT / Bug" for create-mode, "INT-1118 (edit)" for edit-mode).
 // Scope records which selection produced Fields, and Omitted is the number of

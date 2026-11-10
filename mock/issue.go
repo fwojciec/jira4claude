@@ -31,7 +31,7 @@ var _ jira4claude.IssueService = (*IssueService)(nil)
 type IssueService struct {
 	CreateFn          func(ctx context.Context, issue *jira4claude.Issue) (*jira4claude.Issue, error)
 	GetFn             func(ctx context.Context, key string) (*jira4claude.Issue, error)
-	ListFn            func(ctx context.Context, filter jira4claude.IssueFilter) ([]*jira4claude.Issue, error)
+	ListFn            func(ctx context.Context, filter jira4claude.IssueFilter) ([]*jira4claude.Issue, string, error)
 	UpdateFn          func(ctx context.Context, key string, update jira4claude.IssueUpdate) (*jira4claude.Issue, error)
 	DeleteFn          func(ctx context.Context, key string, deleteSubtasks bool) error
 	AddCommentFn      func(ctx context.Context, key string, body *jira4claude.ADFNode) (*jira4claude.Comment, error)
@@ -53,7 +53,7 @@ func (s *IssueService) Get(ctx context.Context, key string) (*jira4claude.Issue,
 	return s.GetFn(ctx, key)
 }
 
-func (s *IssueService) List(ctx context.Context, filter jira4claude.IssueFilter) ([]*jira4claude.Issue, error) {
+func (s *IssueService) List(ctx context.Context, filter jira4claude.IssueFilter) ([]*jira4claude.Issue, string, error) {
 	return s.ListFn(ctx, filter)
 }
 

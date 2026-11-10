@@ -139,7 +139,8 @@ func compactJSON(raw json.RawMessage) string {
 }
 
 // Issues prints multiple issues as a markdown list.
-func (p *Printer) Issues(items []jira4claude.IssueListItem) {
+func (p *Printer) Issues(view jira4claude.IssueListView) {
+	items := view.Issues
 	if len(items) == 0 {
 		fmt.Fprintln(p.out, "[info] No issues found")
 		return

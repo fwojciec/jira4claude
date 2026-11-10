@@ -109,8 +109,18 @@ func (s *IssueService) Get(ctx context.Context, key string) (*jira4claude.Issue,
 	return issue, nil
 }
 
-// List returns issues matching the filter criteria.
-func (s *IssueService) List(ctx context.Context, filter jira4claude.IssueFilter) ([]*jira4claude.Issue, error) {
+// List returns one page of issues matching the filter criteria, plus the
+// cursor for the next page (empty when this is the last page).
+//
+// Pagination follows GET /rest/api/3/search/jql as documented in Atlassian's
+// official OpenAPI spec, https://developer.atlassian.com/cloud/jira/platform/swagger-v3.v3.json
+// (path /rest/api/3/search/jql, schema SearchAndReconcileResults), which backs
+// the "Issue search" reference page at
+// https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-group-issue-search/
+// (anchor #api-rest-api-3-search-jql-get inferred). The request takes nextPageToken and
+// maxResults; the response carries isLast and nextPageToken, and omits
+// nextPageToken on the last page. It has no total count.
+func (s *IssueService) List(ctx context.Context, filter jira4claude.IssueFilter) ([]*jira4claude.Issue, string, error) {
 	// Build JQL query
 	jql := filter.JQL
 	if jql == "" {
@@ -124,10 +134,13 @@ func (s *IssueService) List(ctx context.Context, filter jira4claude.IssueFilter)
 	if filter.Limit > 0 {
 		reqURL += "&maxResults=" + strconv.Itoa(filter.Limit)
 	}
+	if filter.PageToken != "" {
+		reqURL += "&nextPageToken=" + url.QueryEscape(filter.PageToken)
+	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
 	if err != nil {
-		return nil, &jira4claude.Error{
+		return nil, "", &jira4claude.Error{
 			Code:    jira4claude.EInternal,
 			Message: "failed to create request",
 			Inner:   err,
@@ -136,12 +149,12 @@ func (s *IssueService) List(ctx context.Context, filter jira4claude.IssueFilter)
 
 	respBody, err := s.client.DoRequest(req, http.StatusOK)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 
 	var searchResp searchResponse
 	if err := json.Unmarshal(respBody, &searchResp); err != nil {
-		return nil, &jira4claude.Error{
+		return nil, "", &jira4claude.Error{
 			Code:    jira4claude.EInternal,
 			Message: "failed to parse response",
 			Inner:   err,
@@ -152,12 +165,19 @@ func (s *IssueService) List(ctx context.Context, filter jira4claude.IssueFilter)
 	for _, raw := range searchResp.Issues {
 		issue, err := parseIssueResponse(raw)
 		if err != nil {
-			return nil, err
+			return nil, "", err
 		}
 		issues = append(issues, issue)
 	}
 
-	return issues, nil
+	// The token alone drives paging; a stale token on a page marked last is
+	// ignored so callers never loop.
+	next := searchResp.NextPageToken
+	if searchResp.IsLast {
+		next = ""
+	}
+
+	return issues, next, nil
 }
 
 // buildJQL constructs a JQL query from IssueFilter fields.
@@ -435,7 +455,9 @@ type createIssueResponse struct {
 
 // searchResponse represents the JSON structure returned by Jira API for issue search.
 type searchResponse struct {
-	Issues []json.RawMessage `json:"issues"`
+	Issues        []json.RawMessage `json:"issues"`
+	IsLast        bool              `json:"isLast"`
+	NextPageToken string            `json:"nextPageToken"`
 }
 
 // transitionsResponse represents the JSON structure returned by Jira API for transitions.

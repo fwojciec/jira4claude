@@ -122,11 +122,11 @@ j4c issue list | fzf
 j4c issue list | grep "bug"
 
 # Extract keys programmatically
-j4c issue list --json | jq -r '.[].key'
+j4c issue list --json | jq -r '.issues[].key'
 
 # Batch transition
 j4c issue list --status="In Progress" --json | \
-  jq -r '.[].key' | \
+  jq -r '.issues[].key' | \
   xargs -I{} j4c issue transition {} --status="Done"
 ```
 

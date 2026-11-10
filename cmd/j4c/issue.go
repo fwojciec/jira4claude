@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
 	"github.com/fwojciec/jira4claude"
@@ -69,12 +70,24 @@ func (c *IssueListCmd) Run(ctx *IssueContext) error {
 		filter.Project = ctx.Config.Project
 	}
 
-	issues, err := ctx.Service.List(context.Background(), filter)
+	issues, next, err := ctx.Service.List(context.Background(), filter)
 	if err != nil {
 		return err
 	}
-	items := jira4claude.ToIssueListItems(issues)
-	ctx.Printer.Issues(items)
+	truncated := next != ""
+	if truncated {
+		msg := fmt.Sprintf("showing the first %d issues; more match", len(issues))
+		// Jira may return a short page before --limit is reached; raising
+		// --limit only helps when the page was cut at the limit.
+		if c.Limit > 0 && len(issues) >= c.Limit {
+			msg += " (raise --limit to see them)"
+		}
+		ctx.Printer.Warning(msg)
+	}
+	ctx.Printer.Issues(jira4claude.IssueListView{
+		Issues:    jira4claude.ToIssueListItems(issues),
+		Truncated: truncated,
+	})
 	return nil
 }
 
@@ -100,20 +113,38 @@ func (c *IssueReadyCmd) Run(ctx *IssueContext) error {
 		Limit:         c.Limit,
 	}
 
-	issues, err := ctx.Service.List(context.Background(), filter)
-	if err != nil {
-		return err
-	}
-
-	ready := make([]*jira4claude.Issue, 0, len(issues))
-	for _, issue := range issues {
-		if jira4claude.IsReady(issue) {
-			ready = append(ready, issue)
+	// Readiness is decided client-side, so page through the search until we
+	// have Limit ready issues or the results end. Limit <= 0 means no cap.
+	var ready []*jira4claude.Issue
+	truncated := false
+	for {
+		issues, next, err := ctx.Service.List(context.Background(), filter)
+		if err != nil {
+			return err
 		}
+		for _, issue := range issues {
+			if jira4claude.IsReady(issue) {
+				ready = append(ready, issue)
+			}
+		}
+		if c.Limit > 0 && len(ready) >= c.Limit {
+			truncated = len(ready) > c.Limit || next != ""
+			ready = ready[:c.Limit]
+			break
+		}
+		if next == "" {
+			break
+		}
+		filter.PageToken = next
 	}
 
-	items := jira4claude.ToIssueListItems(ready)
-	ctx.Printer.Issues(items)
+	if truncated {
+		ctx.Printer.Warning(fmt.Sprintf("showing the first %d ready issues; more may exist (raise --limit to see them)", len(ready)))
+	}
+	ctx.Printer.Issues(jira4claude.IssueListView{
+		Issues:    jira4claude.ToIssueListItems(ready),
+		Truncated: truncated,
+	})
 	return nil
 }
 

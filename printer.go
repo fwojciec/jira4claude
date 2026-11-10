@@ -3,7 +3,7 @@ package jira4claude
 // IssuePrinter handles issue command output.
 type IssuePrinter interface {
 	Issue(view IssueView)
-	Issues(items []IssueListItem)
+	Issues(view IssueListView)
 	Comment(view CommentView)
 	Transitions(key string, ts []*Transition)
 	Fields(view IssueFieldsView)

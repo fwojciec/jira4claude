@@ -242,14 +242,37 @@ func TestPrinter_Issues(t *testing.T) {
 		{Key: "TEST-2", Summary: "Second", Status: "Done"},
 	}
 
-	p.Issues(items)
+	p.Issues(jira4claude.IssueListView{Issues: items})
 
-	var result []map[string]any
+	var result struct {
+		Issues    []map[string]any `json:"issues"`
+		Truncated *bool            `json:"truncated"`
+	}
 	err := json.Unmarshal(out.Bytes(), &result)
 	require.NoError(t, err)
-	assert.Len(t, result, 2)
-	assert.Equal(t, "TEST-1", result[0]["key"])
-	assert.Equal(t, "TEST-2", result[1]["key"])
+	assert.Len(t, result.Issues, 2)
+	assert.Equal(t, "TEST-1", result.Issues[0]["key"])
+	assert.Equal(t, "TEST-2", result.Issues[1]["key"])
+	require.NotNil(t, result.Truncated, "truncated must always be present")
+	assert.False(t, *result.Truncated)
+}
+
+func TestPrinter_Issues_Truncated(t *testing.T) {
+	t.Parallel()
+
+	var out bytes.Buffer
+	p := jsonpkg.NewPrinter(&out)
+
+	p.Issues(jira4claude.IssueListView{
+		Issues:    []jira4claude.IssueListItem{{Key: "TEST-1", Summary: "First", Status: "Open"}},
+		Truncated: true,
+	})
+
+	var result map[string]any
+	err := json.Unmarshal(out.Bytes(), &result)
+	require.NoError(t, err)
+	assert.Equal(t, true, result["truncated"])
+	assert.Len(t, result["issues"], 1)
 }
 
 func TestPrinter_Issues_Empty(t *testing.T) {
@@ -258,12 +281,13 @@ func TestPrinter_Issues_Empty(t *testing.T) {
 	var out bytes.Buffer
 	p := jsonpkg.NewPrinter(&out)
 
-	p.Issues([]jira4claude.IssueListItem{})
+	p.Issues(jira4claude.IssueListView{})
 
-	var result []map[string]any
+	var result map[string]json.RawMessage
 	err := json.Unmarshal(out.Bytes(), &result)
 	require.NoError(t, err)
-	assert.Empty(t, result)
+	assert.JSONEq(t, `[]`, string(result["issues"]), "empty list must be [] not null")
+	assert.JSONEq(t, `false`, string(result["truncated"]))
 }
 
 func TestPrinter_Transitions(t *testing.T) {

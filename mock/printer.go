@@ -11,7 +11,7 @@ var _ jira4claude.Printer = (*Printer)(nil)
 // they only record the call for assertion.
 type Printer struct {
 	IssueFn       func(view jira4claude.IssueView)
-	IssuesFn      func(items []jira4claude.IssueListItem)
+	IssuesFn      func(view jira4claude.IssueListView)
 	CommentFn     func(view jira4claude.CommentView)
 	TransitionsFn func(key string, ts []*jira4claude.Transition)
 	FieldsFn      func(view jira4claude.IssueFieldsView)
@@ -22,7 +22,7 @@ type Printer struct {
 
 	// Captured calls for assertions
 	IssueCalls       []jira4claude.IssueView
-	IssuesCalls      [][]jira4claude.IssueListItem
+	IssuesCalls      []jira4claude.IssueListView
 	CommentCalls     []jira4claude.CommentView
 	TransitionsCalls []struct {
 		Key         string
@@ -48,10 +48,10 @@ func (p *Printer) Issue(view jira4claude.IssueView) {
 	}
 }
 
-func (p *Printer) Issues(items []jira4claude.IssueListItem) {
-	p.IssuesCalls = append(p.IssuesCalls, items)
+func (p *Printer) Issues(view jira4claude.IssueListView) {
+	p.IssuesCalls = append(p.IssuesCalls, view)
 	if p.IssuesFn != nil {
-		p.IssuesFn(items)
+		p.IssuesFn(view)
 	}
 }
 

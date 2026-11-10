@@ -44,9 +44,14 @@ func (p *Printer) Issue(view jira4claude.IssueView) {
 	p.encode(view)
 }
 
-// Issues prints multiple issues as JSON array.
-func (p *Printer) Issues(items []jira4claude.IssueListItem) {
-	p.encode(items)
+// Issues prints issues as a JSON object: {issues, truncated}. truncated is
+// always present and tells a consumer that more matching issues exist beyond
+// those shown. The issues array is emitted as [] (not null) when empty.
+func (p *Printer) Issues(view jira4claude.IssueListView) {
+	if view.Issues == nil {
+		view.Issues = []jira4claude.IssueListItem{}
+	}
+	p.encode(view)
 }
 
 // Comment prints a single comment as JSON.

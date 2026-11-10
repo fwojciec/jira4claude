@@ -991,7 +991,7 @@ func TestIssueService_GetCustomFields(t *testing.T) {
 		client := newTestClient(t, server.URL, "user@example.com", "api-token")
 		svc := jirahttp.NewIssueService(client)
 
-		issues, err := svc.List(context.Background(), jira4claude.IssueFilter{Project: "TEST"})
+		issues, _, err := svc.List(context.Background(), jira4claude.IssueFilter{Project: "TEST"})
 
 		require.NoError(t, err)
 		require.Len(t, issues, 2)
@@ -1045,7 +1045,7 @@ func TestIssueService_List(t *testing.T) {
 		client := newTestClient(t, server.URL, "user@example.com", "api-token")
 		svc := jirahttp.NewIssueService(client)
 
-		issues, err := svc.List(context.Background(), jira4claude.IssueFilter{
+		issues, _, err := svc.List(context.Background(), jira4claude.IssueFilter{
 			Project: "TEST",
 			Status:  "To Do",
 		})
@@ -1072,7 +1072,7 @@ func TestIssueService_List(t *testing.T) {
 		client := newTestClient(t, server.URL, "user@example.com", "api-token")
 		svc := jirahttp.NewIssueService(client)
 
-		_, err := svc.List(context.Background(), jira4claude.IssueFilter{
+		_, _, err := svc.List(context.Background(), jira4claude.IssueFilter{
 			JQL:     "project = CUSTOM AND assignee = currentUser()",
 			Project: "IGNORED",
 		})
@@ -1095,7 +1095,7 @@ func TestIssueService_List(t *testing.T) {
 		client := newTestClient(t, server.URL, "user@example.com", "api-token")
 		svc := jirahttp.NewIssueService(client)
 
-		_, err := svc.List(context.Background(), jira4claude.IssueFilter{
+		_, _, err := svc.List(context.Background(), jira4claude.IssueFilter{
 			Project: "TEST",
 			Limit:   25,
 		})
@@ -1118,7 +1118,7 @@ func TestIssueService_List(t *testing.T) {
 		client := newTestClient(t, server.URL, "user@example.com", "api-token")
 		svc := jirahttp.NewIssueService(client)
 
-		_, err := svc.List(context.Background(), jira4claude.IssueFilter{
+		_, _, err := svc.List(context.Background(), jira4claude.IssueFilter{
 			Project: "TEST",
 			Labels:  []string{"bug", "urgent"},
 		})
@@ -1143,7 +1143,7 @@ func TestIssueService_List(t *testing.T) {
 		client := newTestClient(t, server.URL, "user@example.com", "api-token")
 		svc := jirahttp.NewIssueService(client)
 
-		_, err := svc.List(context.Background(), jira4claude.IssueFilter{
+		_, _, err := svc.List(context.Background(), jira4claude.IssueFilter{
 			Project: "TEST",
 			Parent:  "TEST-1",
 		})
@@ -1167,7 +1167,7 @@ func TestIssueService_List(t *testing.T) {
 		client := newTestClient(t, server.URL, "user@example.com", "api-token")
 		svc := jirahttp.NewIssueService(client)
 
-		_, err := svc.List(context.Background(), jira4claude.IssueFilter{
+		_, _, err := svc.List(context.Background(), jira4claude.IssueFilter{
 			Project:  "TEST",
 			Assignee: "john.doe",
 		})
@@ -1191,7 +1191,7 @@ func TestIssueService_List(t *testing.T) {
 		client := newTestClient(t, server.URL, "user@example.com", "api-token")
 		svc := jirahttp.NewIssueService(client)
 
-		_, err := svc.List(context.Background(), jira4claude.IssueFilter{
+		_, _, err := svc.List(context.Background(), jira4claude.IssueFilter{
 			Project:  "TEST",
 			Status:   "In Progress",
 			Assignee: "john.doe",
@@ -1224,7 +1224,7 @@ func TestIssueService_List(t *testing.T) {
 		client := newTestClient(t, server.URL, "user@example.com", "api-token")
 		svc := jirahttp.NewIssueService(client)
 
-		_, err := svc.List(context.Background(), jira4claude.IssueFilter{})
+		_, _, err := svc.List(context.Background(), jira4claude.IssueFilter{})
 
 		require.NoError(t, err)
 		assert.Empty(t, receivedJQL)
@@ -1244,7 +1244,7 @@ func TestIssueService_List(t *testing.T) {
 		client := newTestClient(t, server.URL, "user@example.com", "api-token")
 		svc := jirahttp.NewIssueService(client)
 
-		_, err := svc.List(context.Background(), jira4claude.IssueFilter{
+		_, _, err := svc.List(context.Background(), jira4claude.IssueFilter{
 			Project:       "TEST",
 			ExcludeStatus: "Done",
 		})
@@ -1268,7 +1268,7 @@ func TestIssueService_List(t *testing.T) {
 		client := newTestClient(t, server.URL, "user@example.com", "api-token")
 		svc := jirahttp.NewIssueService(client)
 
-		_, err := svc.List(context.Background(), jira4claude.IssueFilter{
+		_, _, err := svc.List(context.Background(), jira4claude.IssueFilter{
 			Project:       "TEST",
 			Status:        "In Progress",
 			ExcludeStatus: "Done",
@@ -1294,7 +1294,7 @@ func TestIssueService_List(t *testing.T) {
 		client := newTestClient(t, server.URL, "user@example.com", "api-token")
 		svc := jirahttp.NewIssueService(client)
 
-		_, err := svc.List(context.Background(), jira4claude.IssueFilter{
+		_, _, err := svc.List(context.Background(), jira4claude.IssueFilter{
 			Project: "TEST",
 			OrderBy: "created DESC",
 		})
@@ -1318,7 +1318,7 @@ func TestIssueService_List(t *testing.T) {
 		client := newTestClient(t, server.URL, "user@example.com", "api-token")
 		svc := jirahttp.NewIssueService(client)
 
-		_, err := svc.List(context.Background(), jira4claude.IssueFilter{
+		_, _, err := svc.List(context.Background(), jira4claude.IssueFilter{
 			Project:       "TEST",
 			Parent:        "TEST-1",
 			ExcludeStatus: "Done",
@@ -1348,7 +1348,7 @@ func TestIssueService_List(t *testing.T) {
 		client := newTestClient(t, server.URL, "user@example.com", "api-token")
 		svc := jirahttp.NewIssueService(client)
 
-		_, err := svc.List(context.Background(), jira4claude.IssueFilter{
+		_, _, err := svc.List(context.Background(), jira4claude.IssueFilter{
 			Project: "TEST",
 			Limit:   0,
 		})
@@ -1356,6 +1356,111 @@ func TestIssueService_List(t *testing.T) {
 		require.NoError(t, err)
 		assert.False(t, hasMaxResults, "maxResults should not be present when Limit is 0")
 		assert.Empty(t, receivedMaxResults)
+	})
+
+	t.Run("returns next page token when more results exist", func(t *testing.T) {
+		t.Parallel()
+
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{
+				"issues": [{"key": "TEST-1", "fields": {"project": {"key": "TEST"}, "summary": "A", "status": {"name": "To Do"}, "issuetype": {"name": "Task"}}}],
+				"isLast": false,
+				"nextPageToken": "tok-2"
+			}`))
+		}))
+		defer server.Close()
+
+		client := newTestClient(t, server.URL, "user@example.com", "api-token")
+		svc := jirahttp.NewIssueService(client)
+
+		issues, next, err := svc.List(context.Background(), jira4claude.IssueFilter{Project: "TEST", Limit: 1})
+
+		require.NoError(t, err)
+		assert.Len(t, issues, 1)
+		assert.Equal(t, "tok-2", next)
+	})
+
+	t.Run("returns empty next page token on last page", func(t *testing.T) {
+		t.Parallel()
+
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"issues": [], "isLast": true}`))
+		}))
+		defer server.Close()
+
+		client := newTestClient(t, server.URL, "user@example.com", "api-token")
+		svc := jirahttp.NewIssueService(client)
+
+		_, next, err := svc.List(context.Background(), jira4claude.IssueFilter{Project: "TEST"})
+
+		require.NoError(t, err)
+		assert.Empty(t, next)
+	})
+
+	t.Run("ignores next page token when isLast is true", func(t *testing.T) {
+		t.Parallel()
+
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"issues": [], "isLast": true, "nextPageToken": "stale"}`))
+		}))
+		defer server.Close()
+
+		client := newTestClient(t, server.URL, "user@example.com", "api-token")
+		svc := jirahttp.NewIssueService(client)
+
+		_, next, err := svc.List(context.Background(), jira4claude.IssueFilter{Project: "TEST"})
+
+		require.NoError(t, err)
+		assert.Empty(t, next)
+	})
+
+	t.Run("sends page token when filter has one", func(t *testing.T) {
+		t.Parallel()
+
+		var receivedToken string
+		var hasToken bool
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			receivedToken = r.URL.Query().Get("nextPageToken")
+			hasToken = r.URL.Query().Has("nextPageToken")
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"issues": [], "isLast": true}`))
+		}))
+		defer server.Close()
+
+		client := newTestClient(t, server.URL, "user@example.com", "api-token")
+		svc := jirahttp.NewIssueService(client)
+
+		_, _, err := svc.List(context.Background(), jira4claude.IssueFilter{
+			Project:   "TEST",
+			PageToken: "a+b/c=",
+		})
+
+		require.NoError(t, err)
+		assert.True(t, hasToken)
+		assert.Equal(t, "a+b/c=", receivedToken)
+	})
+
+	t.Run("omits page token on first page", func(t *testing.T) {
+		t.Parallel()
+
+		var hasToken bool
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			hasToken = r.URL.Query().Has("nextPageToken")
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"issues": [], "isLast": true}`))
+		}))
+		defer server.Close()
+
+		client := newTestClient(t, server.URL, "user@example.com", "api-token")
+		svc := jirahttp.NewIssueService(client)
+
+		_, _, err := svc.List(context.Background(), jira4claude.IssueFilter{Project: "TEST"})
+
+		require.NoError(t, err)
+		assert.False(t, hasToken)
 	})
 }
 

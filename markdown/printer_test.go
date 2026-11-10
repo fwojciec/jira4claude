@@ -244,7 +244,7 @@ func TestPrinter_Issues(t *testing.T) {
 			{Key: "J4C-104", Summary: "Implement new feature", Status: "In Progress", Priority: "High"},
 		}
 
-		p.Issues(views)
+		p.Issues(jira4claude.IssueListView{Issues: views})
 		result := out.String()
 
 		assert.Contains(t, result, "- **J4C-103** [Done] [P2] http package cleanup")
@@ -267,7 +267,7 @@ func TestPrinter_Issues(t *testing.T) {
 			},
 		}
 
-		p.Issues(views)
+		p.Issues(jira4claude.IssueListView{Issues: views})
 		result := out.String()
 
 		// Should truncate at 60 chars with ...
@@ -288,7 +288,7 @@ func TestPrinter_Issues(t *testing.T) {
 			{Key: "J4C-5", Summary: "Lowest priority", Status: "To Do", Priority: "Lowest"},
 		}
 
-		p.Issues(views)
+		p.Issues(jira4claude.IssueListView{Issues: views})
 		result := out.String()
 
 		assert.Contains(t, result, "- **J4C-1** [To Do] [P0] Highest priority")
@@ -303,7 +303,7 @@ func TestPrinter_Issues(t *testing.T) {
 		var out bytes.Buffer
 		p := markdown.NewPrinter(&out)
 
-		p.Issues(nil)
+		p.Issues(jira4claude.IssueListView{})
 		result := out.String()
 
 		assert.Contains(t, result, "[info] No issues found")
@@ -318,10 +318,24 @@ func TestPrinter_Issues(t *testing.T) {
 			{Key: "J4C-100", Summary: "Cancelled issue", Status: "Won't Do", Priority: "Medium"},
 		}
 
-		p.Issues(views)
+		p.Issues(jira4claude.IssueListView{Issues: views})
 		result := out.String()
 
 		assert.Contains(t, result, "- **J4C-100** [Won't Do] [P2] Cancelled issue")
+	})
+
+	t.Run("truncated list renders the same stdout as an untruncated one", func(t *testing.T) {
+		t.Parallel()
+		views := []jira4claude.IssueListItem{
+			{Key: "J4C-1", Summary: "One", Status: "To Do", Priority: "Medium"},
+		}
+
+		var plain, truncated, errOut bytes.Buffer
+		markdown.NewPrinter(&plain).Issues(jira4claude.IssueListView{Issues: views})
+		markdown.NewPrinterWithIO(&truncated, &errOut).Issues(jira4claude.IssueListView{Issues: views, Truncated: true})
+
+		assert.Equal(t, plain.String(), truncated.String())
+		assert.Empty(t, errOut.String(), "the notice comes from the command via Warning, not from Issues")
 	})
 }
 
