@@ -63,6 +63,30 @@ func (e *ReadBackError) Unwrap() error {
 	return e.Err
 }
 
+// TimeoutError marks a request that got no answer, or stopped moving, within
+// the client's timeout. Err is the error to report; ErrorCode, ErrorMessage
+// and ExitCode see through to it. A command working through several items
+// stops at a timeout: the next request would most likely wait as long.
+type TimeoutError struct {
+	Err error
+}
+
+// Error returns the error to report.
+func (e *TimeoutError) Error() string {
+	return e.Err.Error()
+}
+
+// Unwrap returns the error to report.
+func (e *TimeoutError) Unwrap() error {
+	return e.Err
+}
+
+// IsTimeout reports whether err is, or wraps, a *TimeoutError.
+func IsTimeout(err error) bool {
+	var t *TimeoutError
+	return errors.As(err, &t)
+}
+
 // ErrorCode returns the error code from err if it is a jira4claude.Error,
 // or EInternal for other errors. Returns empty string for nil errors.
 func ErrorCode(err error) string {

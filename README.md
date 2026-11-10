@@ -18,8 +18,10 @@ as Markdown; the tool converts them to and from Jira's document format.
   within `--timeout` (default `30s`). An attachment download or upload has
   no limit on its total time, only on silence: it fails when nothing arrives
   or is sent for that long, which also bounds the wait for the answer to
-  start. A request that times out is not retried, so a server that stops
-  answering ends the command after about that long, with exit 7. A write
+  start. A request that times out is not retried, and a command working
+  through several issues or files stops at the first timeout and names what
+  it did not try, so a server that stops answering ends the command after
+  about that long, with exit 7. A write
   that times out may have been applied, and its error says so. `--timeout 0`
   waits forever.
 - **stdout carries only data.** Errors, warnings and notices such as

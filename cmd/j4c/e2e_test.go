@@ -617,6 +617,25 @@ func TestE2E(t *testing.T) {
 		assert.Contains(t, r.stderr, "may have been applied")
 	})
 
+	t.Run("a timeout stops a command working through several items", func(t *testing.T) {
+		t.Parallel()
+		e := newE2EEnv(t, bin)
+		e.stub.startHanging(t)
+		require.NoError(t, os.WriteFile(filepath.Join(e.work, "a.txt"), []byte("a"), 0o600))
+		require.NoError(t, os.WriteFile(filepath.Join(e.work, "b.txt"), []byte("b"), 0o600))
+
+		r := e.run("--timeout", "300ms", "issue", "view", "PROJ-1", "PROJ-2", "PROJ-3", "--field", "status")
+		assert.Equal(t, 7, r.code)
+		assert.Empty(t, r.stdout)
+		assert.Contains(t, r.stderr, "[error] could not read 3 of 3 issues: PROJ-1; stopped after a timeout, not tried: PROJ-2, PROJ-3\n")
+		assert.Len(t, e.stub.Requests(), 1)
+
+		r = e.run("--timeout", "300ms", "attachment", "upload", "PROJ-1", "a.txt", "b.txt")
+		assert.Equal(t, 7, r.code)
+		assert.Contains(t, r.stderr, `stopped after a timeout, not tried: "b.txt"`)
+		assert.Len(t, e.stub.Requests(), 2, "one more request: the first upload")
+	})
+
 	t.Run("a download that stalls leaves no partial file", func(t *testing.T) {
 		t.Parallel()
 		e := newE2EEnv(t, bin)
@@ -633,6 +652,16 @@ func TestE2E(t *testing.T) {
 		require.NoError(t, err)
 		assert.Empty(t, entries, "no partial or temporary file is left")
 		assert.Len(t, e.stub.MediaRequests(), 1, "not retried")
+
+		// --all stops at the first stalled file.
+		r = e.run("--timeout", "300ms", "attachment", "download", "PROJ-1", "--all", "--dir", "files")
+		assert.Equal(t, 7, r.code)
+		assert.Empty(t, r.stdout)
+		assert.Contains(t, r.stderr, "stopped after a timeout, not tried: 10001")
+		assert.Len(t, e.stub.MediaRequests(), 2, "one more media request: the first file")
+		entries, err = os.ReadDir(dir)
+		require.NoError(t, err)
+		assert.Empty(t, entries)
 	})
 
 	t.Run("a --json error is one line on stderr and stdout is empty", func(t *testing.T) {

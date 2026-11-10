@@ -53,9 +53,15 @@ func (c *IssueViewCmd) Run(ctx *IssueContext) error {
 	several := len(c.Keys) > 1
 	views := make([]jira4claude.IssueView, 0, len(c.Keys))
 	selection := jira4claude.IssueSelectionView{Fields: fields, Several: several}
-	var failed []string
+	var failed, notTried []string
 	var firstErr error
+	timedOut := false
 	for _, key := range c.Keys {
+		if timedOut {
+			// Each further read would most likely wait as long.
+			notTried = append(notTried, key)
+			continue
+		}
 		issue, err := ctx.Service.Get(context.Background(), key)
 		if err != nil {
 			if len(c.Keys) == 1 {
@@ -66,6 +72,7 @@ func (c *IssueViewCmd) Run(ctx *IssueContext) error {
 			if firstErr == nil {
 				firstErr = err
 			}
+			timedOut = jira4claude.IsTimeout(err)
 			continue
 		}
 		// Warnings name the issue by the key Jira returned, as the output does.
@@ -92,11 +99,12 @@ func (c *IssueViewCmd) Run(ctx *IssueContext) error {
 	}
 
 	if len(failed) > 0 {
-		return &jira4claude.Error{
-			Code: jira4claude.ErrorCode(firstErr),
-			Message: fmt.Sprintf("could not read %d of %d issues: %s",
-				len(failed), len(c.Keys), strings.Join(failed, ", ")),
+		msg := fmt.Sprintf("could not read %d of %d issues: %s",
+			len(failed)+len(notTried), len(c.Keys), strings.Join(failed, ", "))
+		if len(notTried) > 0 {
+			msg += "; stopped after a timeout, not tried: " + strings.Join(notTried, ", ")
 		}
+		return &jira4claude.Error{Code: jira4claude.ErrorCode(firstErr), Message: msg}
 	}
 	return nil
 }

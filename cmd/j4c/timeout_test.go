@@ -62,6 +62,11 @@ func TestTimeoutFlag(t *testing.T) {
 		assert.Equal(t, 1, res.code)
 		assert.Empty(t, res.stdout)
 		assert.Contains(t, res.stderr, "--timeout")
+
+		got, res = timeoutSeen(t, "--timeout=-1s", "issue", "view", "TEST-1")
+		assert.Equal(t, time.Duration(-1), got, "no service is built")
+		assert.Equal(t, 1, res.code)
+		assert.Contains(t, res.stderr, "--timeout cannot be negative")
 	})
 
 	t.Run("a value without a unit is a usage error", func(t *testing.T) {

@@ -178,22 +178,34 @@ func (c *AttachmentDownloadCmd) Run(ctx *AttachmentContext) error {
 	msg := fmt.Sprintf("could not save %d of %d attachments: %s",
 		len(failed)+len(notTried), len(selected), strings.Join(failed, ", "))
 	if stopErr != nil {
-		msg += fmt.Sprintf("; stopped after a %s error, not tried: %s",
-			jira4claude.ErrorCode(stopErr), strings.Join(notTried, ", "))
+		msg += fmt.Sprintf("; stopped after %s, not tried: %s",
+			stopReason(stopErr), strings.Join(notTried, ", "))
 	}
 	return &jira4claude.Error{Code: jira4claude.ErrorCode(firstErr), Message: msg}
 }
 
 // stopsRun reports whether a failure to save one attachment would repeat for
 // every other one, so that --all should stop: Jira refused the credentials,
-// the permission or the request rate. Other failures (a file that exists, a
+// the permission or the request rate, or did not answer within the timeout
+// (each further file would wait as long). Other failures (a file that exists, a
 // broken connection, a size mismatch) are particular to one file.
 func stopsRun(err error) bool {
+	if jira4claude.IsTimeout(err) {
+		return true
+	}
 	switch jira4claude.ErrorCode(err) {
 	case jira4claude.EUnauthorized, jira4claude.EForbidden, jira4claude.ERateLimit:
 		return true
 	}
 	return false
+}
+
+// stopReason names the failure that stopped a run, for its summary.
+func stopReason(err error) string {
+	if jira4claude.IsTimeout(err) {
+		return "a timeout"
+	}
+	return "a " + jira4claude.ErrorCode(err) + " error"
 }
 
 // selectAttachments picks the attachments named by --id, --name or --all.
@@ -321,8 +333,8 @@ func (c *AttachmentUploadCmd) Run(ctx *AttachmentContext) error {
 	msg := fmt.Sprintf("could not upload %d of %d files: %s",
 		len(failed)+len(notTried), len(uploads.Files), strings.Join(failed, ", "))
 	if stopErr != nil {
-		msg += fmt.Sprintf("; stopped after a %s error, not tried: %s",
-			jira4claude.ErrorCode(stopErr), strings.Join(notTried, ", "))
+		msg += fmt.Sprintf("; stopped after %s, not tried: %s",
+			stopReason(stopErr), strings.Join(notTried, ", "))
 	}
 	return &jira4claude.Error{Code: jira4claude.ErrorCode(firstErr), Message: msg}
 }

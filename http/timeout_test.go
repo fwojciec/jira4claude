@@ -109,6 +109,7 @@ func TestTimeout_EveryRequestClassReturns(t *testing.T) {
 			assert.GreaterOrEqual(t, elapsed, testTimeout)
 			assert.Equal(t, jira4claude.EInternal, jira4claude.ErrorCode(err))
 			assert.Contains(t, err.Error(), "timed out")
+			assert.True(t, jira4claude.IsTimeout(err), "marked as a timeout")
 			assert.Contains(t, err.Error(), "--timeout")
 			assert.Equal(t, int32(1), count.Load(), "a timed-out request is not retried")
 			if tt.write {
@@ -152,7 +153,7 @@ func TestTimeout_Download(t *testing.T) {
 
 	t.Run("a slow download that keeps moving is not cut", func(t *testing.T) {
 		t.Parallel()
-		const chunks = 12 // about 4 x the limit in total
+		const chunks = 24 // about 4 x the limit in total
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusOK)
 			for i := 0; i < chunks; i++ {
@@ -160,7 +161,7 @@ func TestTimeout_Download(t *testing.T) {
 					return
 				}
 				w.(http.Flusher).Flush()
-				time.Sleep(testTimeout / 3)
+				time.Sleep(testTimeout / 6)
 			}
 		}))
 		defer server.Close()

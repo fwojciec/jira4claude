@@ -408,11 +408,11 @@ func (c *Client) streamAttempt(ctx context.Context, rt http.RoundTripper, start 
 	defer wd.stop()
 	n, retry, err := c.streamOnce(ctx, rt, start, w, wd.kick)
 	if err != nil && parent.Err() == nil && errors.Is(context.Cause(ctx), errStalled) {
-		return n, false, &jira4claude.Error{
+		return n, false, &jira4claude.TimeoutError{Err: &jira4claude.Error{
 			Code: jira4claude.EInternal,
 			Message: fmt.Sprintf("download timed out: nothing arrived for %s after %d bytes (--timeout sets the limit)",
 				c.timeout, n),
-		}
+		}}
 	}
 	return n, retry, err
 }
@@ -722,7 +722,7 @@ func (c *Client) timeoutError(req *http.Request, e *attemptTimeout) error {
 	if req.Method != http.MethodGet && req.Method != http.MethodHead {
 		msg += "; it was not retried and may have been applied, check before retrying"
 	}
-	return &jira4claude.Error{Code: jira4claude.EInternal, Message: msg}
+	return &jira4claude.TimeoutError{Err: &jira4claude.Error{Code: jira4claude.EInternal, Message: msg}}
 }
 
 // watchdog cancels its context when kick has not been called for d: the idle
