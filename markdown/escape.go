@@ -32,7 +32,9 @@ import (
 //   - "`" always, and "[" always (link, image, task box, alert, reference).
 //     "]" only inside link text.
 //   - "&" that starts something shaped like an entity reference
-//     ("&name;", "&#123;", "&#x1F;"), or that ends the text node.
+//     ("&name;", "&#123;", "&#x1F;"), or a prefix of one that runs to the end
+//     of the text node ("&", "&am", "&#", "&#x1f"), since the next node's
+//     text may complete it.
 //   - "<" that could open HTML (an inline tag, closing tag, comment,
 //     processing instruction, declaration or CDATA, or an HTML block) or an
 //     autolink: followed by a letter, "/", "!" or "?", by an email address
@@ -58,7 +60,10 @@ import (
 // One exception: a span that goldmark's Linkify would turn into an autolink
 // (a bare "http://", "https://", "ftp://" or "www." URL, or an email
 // address) is written verbatim, because Linkify reads it raw and a backslash
-// would end the link early. The span is measured with Linkify's own parser,
+// would end the link early. Linkify is tried at a line head, after a blank
+// or "(", and right after another inline construct such as a formatting
+// delimiter, so marked text is covered too. The span is measured with
+// Linkify's own parser,
 // so trailing punctuation is included or trimmed exactly as on write.
 
 // decodeText resolves backslash escapes and entity references in Markdown
@@ -135,13 +140,42 @@ func looksLikeEntity(s string) bool {
 	for i < len(s) && util.IsAlphaNumeric(s[i]) {
 		i++
 	}
-	return i > start && i < len(s) && s[i] == ';'
+	// Reaching the end of the text node means the next node could supply
+	// the rest of the reference, so a prefix counts as well.
+	return i == len(s) || (i > start && s[i] == ';')
+}
+
+// textContext says where a text node's Markdown lands.
+type textContext struct {
+	// lineStart: the text begins a line of Markdown.
+	lineStart bool
+	// inLink: the text becomes link text.
+	inLink bool
+	// bareStart: nothing at all precedes the text on its line, not even a
+	// mark delimiter.
+	bareStart bool
+	// linkifyAtStart: goldmark's Linkify is tried at the first character,
+	// because a line head or another inline construct (a delimiter, a tag)
+	// comes right before it.
+	linkifyAtStart bool
+}
+
+// renderedMarks are the marks applyMarks writes as Markdown or HTML syntax.
+func hasRenderedMark(marks []jira4claude.ADFMark) bool {
+	for _, m := range marks {
+		switch m.Type {
+		case "strong", "em", "strike", "code", "underline", "subsup", "link":
+			return true
+		}
+	}
+	return false
 }
 
 // escapeTextNode returns the text of an ADF text node escaped for Markdown
 // output. Code text is verbatim, and link text equal to its href is left as
-// is so that it is still read out as a bare URL.
-func escapeTextNode(node *jira4claude.ADFNode, lineStart bool) string {
+// is so that it is still read out as a bare URL. afterConstruct is true when
+// the previous inline node ends in syntax (a closing delimiter or tag).
+func escapeTextNode(node *jira4claude.ADFNode, lineStart, afterConstruct bool) string {
 	inLink := false
 	for _, mark := range node.Marks {
 		switch mark.Type {
@@ -154,7 +188,12 @@ func escapeTextNode(node *jira4claude.ADFNode, lineStart bool) string {
 			inLink = true
 		}
 	}
-	return escapeText(node.Text, lineStart, inLink, lineStart && len(node.Marks) == 0)
+	return escapeText(node.Text, textContext{
+		lineStart:      lineStart,
+		inLink:         inLink,
+		bareStart:      lineStart && len(node.Marks) == 0,
+		linkifyAtStart: lineStart || afterConstruct || hasRenderedMark(node.Marks),
+	})
 }
 
 // linkHref returns the href of a link mark, or "" if it has none.
@@ -169,13 +208,11 @@ func linkHref(mark jira4claude.ADFMark) string {
 }
 
 // escapeText escapes plain text held by Jira so that it reads back as the
-// same text. lineStart is true when the text begins a line of Markdown;
-// inLink is true when the text becomes link text; bareStart is true when
-// nothing at all precedes the text on its line, not even a mark delimiter.
-// The rule is described at the top of this file.
-func escapeText(s string, lineStart, inLink, bareStart bool) string {
+// same text; ctx says where it lands. The rule is described at the top of
+// this file.
+func escapeText(s string, ctx textContext) string {
 	var b strings.Builder
-	atLineStart := lineStart
+	atLineStart := ctx.lineStart
 	afterEncodedBlank := false
 	for i := 0; i < len(s); {
 		c := s[i]
@@ -189,13 +226,13 @@ func escapeText(s string, lineStart, inLink, bareStart bool) string {
 		// written as character references, which decodeText turns back.
 		// Marked text is left to applyMarks, which moves its blanks outside
 		// the delimiters.
-		if atLineStart && (bareStart || i > 0) && (c == ' ' || c == '\t') {
+		if atLineStart && (ctx.bareStart || i > 0) && (c == ' ' || c == '\t') {
 			b.WriteString("&#" + strconv.Itoa(int(c)) + ";")
 			i++
 			afterEncodedBlank = true
 			continue
 		}
-		if !inLink && !afterEncodedBlank && linkifyMayStart(s, i, bareStart) {
+		if !ctx.inLink && !afterEncodedBlank && linkifyMayStart(s, i, ctx.linkifyAtStart) {
 			if n := autolinkLen(s[i:]); n > 0 {
 				b.WriteString(s[i : i+n])
 				i += n
@@ -225,7 +262,7 @@ func escapeText(s string, lineStart, inLink, bareStart bool) string {
 		case '`', '[':
 			b.WriteByte('\\')
 		case ']':
-			if inLink {
+			if ctx.inLink {
 				b.WriteByte('\\')
 			}
 		case '&':
@@ -265,12 +302,13 @@ func mayOpenHTML(s string) bool {
 }
 
 // linkifyMayStart reports whether goldmark's Linkify parser is tried at s[i]
-// when the escaped text is parsed: at the head of a line, or after a blank or
+// when the escaped text is parsed: at the head of a line, right after another
+// inline construct (goldmark restarts its scan there), or after a blank or
 // "(". Its other triggers ("*", "_", "~") may be escaped, so they are left
-// out. At the start of the node only bareStart says whether it is a line head.
-func linkifyMayStart(s string, i int, bareStart bool) bool {
+// out. At the start of the node, atStart decides.
+func linkifyMayStart(s string, i int, atStart bool) bool {
 	if i == 0 {
-		return bareStart
+		return atStart
 	}
 	switch s[i-1] {
 	case ' ', '\t', '\n', '(':

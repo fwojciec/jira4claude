@@ -425,6 +425,118 @@ func TestRoundTrip_BareURLKeepsWholeAutoLink(t *testing.T) {
 	}
 }
 
+func TestRoundTrip_BareURLInMarkedText(t *testing.T) {
+	t.Parallel()
+
+	// Linkify also runs right after a formatting delimiter, so a URL at the
+	// start of marked text is linked whole on write; escaping inside it would
+	// cut the link short.
+	const url = "https://example.com/?filter[x]=1"
+	linkMark := jira4claude.ADFMark{Type: "link", Attrs: []byte(`{"href":"` + url + `"}`)}
+
+	for _, mark := range []string{"strong", "em", "strike"} {
+		t.Run(mark, func(t *testing.T) {
+			t.Parallel()
+
+			m := jira4claude.ADFMark{Type: mark}
+			converter := markdown.New()
+
+			for _, tc := range []struct {
+				name     string
+				inline   []jira4claude.ADFNode
+				expected []jira4claude.ADFNode
+			}{
+				{
+					name:     "whole node",
+					inline:   []jira4claude.ADFNode{{Type: "text", Text: url, Marks: []jira4claude.ADFMark{m}}},
+					expected: []jira4claude.ADFNode{{Type: "text", Text: url, Marks: []jira4claude.ADFMark{m, linkMark}}},
+				},
+				{
+					name: "after plain text",
+					inline: []jira4claude.ADFNode{
+						{Type: "text", Text: "see "},
+						{Type: "text", Text: url + " now", Marks: []jira4claude.ADFMark{m}},
+					},
+					expected: []jira4claude.ADFNode{
+						{Type: "text", Text: "see "},
+						{Type: "text", Text: url, Marks: []jira4claude.ADFMark{m, linkMark}},
+						{Type: "text", Text: " now", Marks: []jira4claude.ADFMark{m}},
+					},
+				},
+				{
+					name: "plain URL after marked text",
+					inline: []jira4claude.ADFNode{
+						{Type: "text", Text: "see", Marks: []jira4claude.ADFMark{m}},
+						{Type: "text", Text: url},
+					},
+					expected: []jira4claude.ADFNode{
+						{Type: "text", Text: "see", Marks: []jira4claude.ADFMark{m}},
+						{Type: "text", Text: url, Marks: []jira4claude.ADFMark{linkMark}},
+					},
+				},
+			} {
+				md, w1 := converter.ToMarkdown(paragraphDoc(tc.inline...))
+				assert.Empty(t, w1)
+
+				result, w2 := converter.ToADF(md)
+				assert.Empty(t, w2)
+				requireValidADF(t, result)
+				assert.Equal(t, paragraphDoc(tc.expected...), result, "%s: markdown was %q", tc.name, md)
+			}
+		})
+	}
+}
+
+func TestRoundTrip_EntityAcrossTextNodes(t *testing.T) {
+	t.Parallel()
+
+	// textColor is not rendered in Markdown, so the two nodes are written
+	// next to each other with nothing between them. The mark itself is a
+	// known loss; the text must survive.
+	color := []jira4claude.ADFMark{{Type: "textColor", Attrs: []byte(`{"color":"#ff0000"}`)}}
+	strong := []jira4claude.ADFMark{{Type: "strong"}}
+
+	for _, tc := range []struct{ first, second string }{
+		{"&am", "p;"},
+		{"a &", "amp;"},
+		{"&", "#35;"},
+		{"&#", "35;"},
+		{"&#3", "5;"},
+		{"&#x", "41;"},
+		{"&#x4", "1;"},
+		{"x &copy", ";"},
+	} {
+		for _, marks := range []struct {
+			name   string
+			second []jira4claude.ADFMark
+		}{{"unrendered mark", color}, {"no marks", nil}, {"strong", strong}} {
+			if marks.name == "strong" && tc.second == ";" {
+				// "**;**" right after a letter is not a valid opening
+				// delimiter: the known adjacent-marks gap, not an entity one.
+				continue
+			}
+			t.Run(tc.first+"+"+tc.second+"/"+marks.name, func(t *testing.T) {
+				t.Parallel()
+
+				original := paragraphDoc(
+					jira4claude.ADFNode{Type: "text", Text: tc.first},
+					jira4claude.ADFNode{Type: "text", Text: tc.second, Marks: marks.second},
+				)
+
+				converter := markdown.New()
+				md, _ := converter.ToMarkdown(original)
+				result, _ := converter.ToADF(md)
+
+				var text string
+				for _, n := range result.Content[0].Content {
+					text += n.Text
+				}
+				assert.Equal(t, tc.first+tc.second, text, "markdown was %q", md)
+			})
+		}
+	}
+}
+
 func TestToADF_DecodesTextAroundLiteralInlineTag(t *testing.T) {
 	t.Parallel()
 
