@@ -45,18 +45,46 @@ import (
 //     delimiter run needs punctuation there, the link is written in brackets
 //     ("[https://x.test](https://x.test)**.a**").
 //
-// Plain text ending in a URL cannot have its last character encoded either:
-// Linkify would end the link at the reference. There the text is reported as
-// degraded. As a backstop, a line of text and hard breaks that holds
-// delimited text is parsed back; if the text reads back the same but its
-// marks do not, the text is reported as degraded.
+// As a backstop, a line of text and hard breaks that holds delimited text is
+// parsed back; if the text reads back the same but its marks do not, the
+// text is reported as degraded.
+
+// Links on read (#161).
+//
+// A link is written one of two ways:
+//
+//   - Bare, as its URL verbatim, which goldmark's Linkify reads back: only
+//     when its text is its href, it has no other mark Markdown writes, and
+//     the line as written, parsed as the write side parses it, reads back
+//     with that link exactly (same text, same href, starting and ending
+//     where the node does) and with the line's text unchanged. Linkify must
+//     start there (a line head, a blank, an unescaped "*", "_", "~" or "(",
+//     or right after another inline construct), must end there (not taking
+//     in a letter, a backtick or a reference after it, nor dropping a
+//     trailing "*", "_", "~", "." or ")"), and must give the same href
+//     (a "www." URL gains "http://"; "0@0" or "A0:" is no autolink at all).
+//     renderLinks checks this by parsing the line, and brackets the links
+//     that fail; the analytic repairs in renderTextItems (autolink crossings,
+//     delimiter flanking) bracket most of them before that.
+//   - Otherwise in brackets: "[text](destination)", the text escaped as link
+//     text and the destination written by linkDestination, which every
+//     writable href has. An href holding a character Markdown cannot carry
+//     (a control character, a carriage return) is written as the write side
+//     would read it and reported as degraded.
+//
+// Text that is not a link is kept from forming one (break mode, escape.go),
+// and plain text ending in "!" before a bracketed link escapes the "!", which
+// would make the link an image. Two neighbouring links with the same written
+// marks are merged into one by emittingInline, as the write side merges
+// them (consolidateTextNodes).
 
 // textEdges says which edge characters of a text node are written as
 // character references.
 type textEdges struct {
 	first, last bool
-	// breakLinks: Linkify would run an autolink in the text on past its
-	// end, so the autolink is written as plain text (see breakAutolinks).
+	// breakLinks: for text that is not a link, keep Linkify from starting
+	// in it (see breakAutolinks); for a link whose text is its href, write
+	// it in brackets rather than bare.
 	breakLinks bool
 }
 
@@ -140,32 +168,184 @@ func delimiterNeeds(md string, atEnd bool) (punct, noTilde bool) {
 	return c == '_' || util.IsPunctRune(inside), c == '~'
 }
 
+// bareLinkRounds bounds how often renderLinks brackets the bare links that
+// do not read back and tries again; after that every bare link on the line
+// is bracketed.
+const bareLinkRounds = 3
+
+// renderLinks returns the Markdown of each text item in items, the emitting
+// inline nodes of one line, as renderTextItems does, with every link written
+// bare only where it reads back (the rule at the top of this file). Issues
+// are reported for the output returned.
+func renderLinks(items []jira4claude.ADFNode, singleLine bool, skipped *skippedCollector) []string {
+	bracket := make([]bool, len(items))
+	for round := 0; ; round++ {
+		texts, issues := renderTextItems(items, bracket)
+		misread := misreadBareLinks(items, texts, joinInline(items, texts, singleLine, nil), singleLine)
+		if len(misread) == 0 {
+			issues.report(skipped)
+			return texts
+		}
+		if round == bareLinkRounds {
+			misread = bareLinks(items, texts)
+		}
+		for _, i := range misread {
+			bracket[i] = true
+		}
+		if round == bareLinkRounds {
+			texts, issues = renderTextItems(items, bracket)
+			issues.report(skipped)
+			return texts
+		}
+	}
+}
+
+// bareLinks returns the items written as their bare URL.
+func bareLinks(items []jira4claude.ADFNode, out []string) []int {
+	var bare []int
+	for i := range items {
+		if _, ok := bareURL(&items[i]); ok && out[i] == items[i].Text {
+			bare = append(bare, i)
+		}
+	}
+	return bare
+}
+
+// misreadBareLinks parses md, the Markdown of items with their text items
+// written as out, as the write side does, and returns the items written as
+// their bare URL that do not read back as themselves: where the links read
+// back (each character's href, or none) differ from items within a bare
+// link or next to it. If the text itself reads back differently, or a
+// difference lies away from every bare link, all of them are returned.
+func misreadBareLinks(items []jira4claude.ADFNode, out []string, md string, singleLine bool) []int {
+	bare := bareLinks(items, out)
+	if len(bare) == 0 {
+		return nil
+	}
+	want, starts := linkedText(items, singleLine)
+	source := []byte(md)
+	doc := newMarkdownParser().Parse(text.NewReader(source))
+	para := doc.FirstChild()
+	if para == nil || para.NextSibling() != nil || para.Kind() != ast.KindParagraph {
+		return bare
+	}
+	got, _ := linkedText(convertInlineContent(para, source, newSkippedCollector()), false)
+	if got.text != want.text {
+		return bare
+	}
+	end := func(i int) int { return starts[i] + len(items[i].Text) }
+	var misread []int
+	k := 0 // bare[k:] are the bare links that do not end before p
+	for p := range want.hrefs {
+		if want.hrefs[p] == got.hrefs[p] {
+			continue
+		}
+		// The bare links whose text, or the character either side of it,
+		// holds the difference.
+		for k < len(bare) && end(bare[k]) < p {
+			k++
+		}
+		found := false
+		for j := k; j < len(bare) && starts[bare[j]] <= p+1; j++ {
+			misread = append(misread, bare[j])
+			found = true
+		}
+		if !found {
+			return bare
+		}
+	}
+	return slices.Compact(misread)
+}
+
+// linkText is inline content reduced to what misreadBareLinks compares: its
+// text, and per byte of it, the href of the link it is in ("\x00" for none).
+type linkText struct {
+	text  string
+	hrefs []string
+}
+
+// linkedText returns nodes as linkText: text as it reads, a hard break as a
+// line feed (a space when singleLine, nothing at the end), a protected-node
+// token as the text it parses as, an inline card as a link to its URL. It
+// also returns where each node's text starts.
+func linkedText(nodes []jira4claude.ADFNode, singleLine bool) (linkText, []int) {
+	var b strings.Builder
+	var hrefs []string
+	starts := make([]int, len(nodes))
+	add := func(s, href string) {
+		b.WriteString(s)
+		for range len(s) {
+			hrefs = append(hrefs, href)
+		}
+	}
+	for i := range nodes {
+		n := &nodes[i]
+		starts[i] = b.Len()
+		switch n.Type {
+		case "text":
+			href := "\x00"
+			for _, m := range n.Marks {
+				if m.Type == "link" {
+					href = linkHref(m)
+				}
+			}
+			add(n.Text, href)
+		case "hardBreak":
+			switch {
+			case onlyHardBreaksFrom(nodes, i):
+			case singleLine:
+				add(" ", "\x00")
+			default:
+				add("\n", "\x00")
+			}
+		case tokenItemType:
+			add(decodeText([]byte(n.Text)), "\x00")
+		case "inlineCard":
+			url, _ := writableText(inlineCardURL(n))
+			add(url, url)
+		}
+	}
+	return linkText{text: b.String(), hrefs: hrefs}, starts
+}
+
+// textIssues are the issues renderTextItems found, reported by report once
+// its output is the one used.
+type textIssues struct {
+	conflict bool
+	// unclosable: an autolink runs across a node edge and no repair
+	// removes it; it is reported with its own detail.
+	unclosable bool
+}
+
+func (t textIssues) report(skipped *skippedCollector) {
+	if skipped == nil {
+		return
+	}
+	if t.conflict {
+		skipped.degrade("text", markedTextDetail)
+	}
+	if t.unclosable {
+		skipped.degrade("text", unclosableURLDetail)
+	}
+}
+
 // renderTextItems returns the Markdown of each text item in items, the
 // emitting inline nodes of one line (see emittingInline), applying the rules
-// at the top of this file. Entries for other nodes are "".
-func renderTextItems(items []jira4claude.ADFNode, skipped *skippedCollector) []string {
+// at the top of this file. Entries for other nodes are "". bracket marks
+// links whose text is their href that must be written in brackets, not bare.
+func renderTextItems(items []jira4claude.ADFNode, bracket []bool) ([]string, textIssues) {
 	out := make([]string, len(items))
 	edges := make([]textEdges, len(items))
 	delims := make([]byte, len(items))
-	conflict := false
-	// unclosable: an autolink runs across a node edge and no repair
-	// removes it; it is reported with its own detail.
-	unclosable := false
+	var issues textIssues
 	stuck := make([]bool, len(items))
-	report := func() {
-		if skipped == nil {
-			return
-		}
-		if conflict {
-			skipped.degrade("text", markedTextDetail)
-		}
-		if unclosable {
-			skipped.degrade("text", unclosableURLDetail)
-		}
-	}
 	render := func(i int) {
-		if href, ok := bareURL(&items[i]); ok && edges[i].breakLinks {
-			out[i] = bracketedURL(href)
+		if href, ok := bareURL(&items[i]); ok {
+			if edges[i].breakLinks {
+				out[i] = bracketedURL(href)
+			} else {
+				out[i] = items[i].Text // read back by Linkify
+			}
 			return
 		}
 		out[i] = escapeTextNode(items, i, isLineStart(items, i), edges[i])
@@ -177,7 +357,7 @@ func renderTextItems(items []jira4claude.ADFNode, skipped *skippedCollector) []s
 	// Text that is not a link never forms one: Linkify is kept from starting
 	// anywhere in it.
 	for i := range items {
-		edges[i].breakLinks = items[i].Type == "text" && !hasMark(items[i].Marks, "link")
+		edges[i].breakLinks = items[i].Type == "text" && !hasMark(items[i].Marks, "link") || bracket[i]
 	}
 
 	// Marked text first: its Markdown depends only on its own text and the
@@ -217,10 +397,10 @@ func renderTextItems(items []jira4claude.ADFNode, skipped *skippedCollector) []s
 				continue
 			}
 			if punct, noTilde := delimiterNeeds(out[i], false); punct || noTilde {
-				conflict = !fitDelimiter(items, out, edges, i-1, true, punct, noTilde) || conflict
+				issues.conflict = !fitDelimiter(items, out, edges, i-1, true, punct, noTilde) || issues.conflict
 			}
 			if punct, noTilde := delimiterNeeds(out[i], true); punct || noTilde {
-				conflict = !fitDelimiter(items, out, edges, i+1, false, punct, noTilde) || conflict
+				issues.conflict = !fitDelimiter(items, out, edges, i+1, false, punct, noTilde) || issues.conflict
 			}
 		}
 		for i := range items {
@@ -232,8 +412,7 @@ func renderTextItems(items []jira4claude.ADFNode, skipped *skippedCollector) []s
 		// A crossing no repair removes is reported once and left.
 		crossings := slices.DeleteFunc(autolinkCrossings(items, out), func(i int) bool { return stuck[i] })
 		if len(crossings) == 0 && slices.Equal(before, edges) {
-			report()
-			return out
+			return out, issues
 		}
 		// Every crossing found is repaired in this pass, so a line with many
 		// takes a few passes, not one per crossing.
@@ -250,15 +429,14 @@ func renderTextItems(items []jira4claude.ADFNode, skipped *skippedCollector) []s
 				render(i)
 			default:
 				stuck[i] = true
-				unclosable = true
+				issues.unclosable = true
 			}
 		}
 	}
 	// The passes did not settle: an autolink still crosses a node edge, or
 	// delimiter fixes kept changing each other.
-	conflict = conflict || !unclosable
-	report()
-	return out
+	issues.conflict = issues.conflict || !issues.unclosable
+	return out, issues
 }
 
 // autolinkCrossings returns, in order, the text nodes, items[i], where
@@ -426,6 +604,7 @@ func fitDelimiter(items []jira4claude.ADFNode, out []string, edges []textEdges, 
 	}
 	if href, ok := bareURL(&items[j]); ok {
 		// A link written as its bare URL is written in brackets instead.
+		edges[j].breakLinks = true
 		out[j] = bracketedURL(href)
 		return true
 	}

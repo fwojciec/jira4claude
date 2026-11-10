@@ -100,7 +100,12 @@ func TestRoundTrip_LinkDestinationExhaustive(t *testing.T) {
 
 	conv := markdown.New()
 	for _, href := range hrefs {
-		for _, text := range []string{"t"} {
+		// A link whose text is its href is written bare only where it reads
+		// back as that link; otherwise in brackets, like any other.
+		for _, text := range []string{"t", href} {
+			if text == "" {
+				continue
+			}
 			doc := paragraphDoc(txt("see "), hrefLink(text, href), txt(" after"))
 			md, readIssues := conv.ToMarkdown(doc)
 			back, writeIssues := conv.ToADF(md)
@@ -177,6 +182,101 @@ func TestToMarkdown_OrdinaryLinkForms(t *testing.T) {
 			assert.Empty(t, writeIssues)
 			assert.Equal(t, paragraphDoc(tt.inline...), back)
 		})
+	}
+}
+
+// A link whose text is its href is written bare only where Linkify reads it
+// back as exactly that link: the same text and href, starting and ending
+// where the node does. Anywhere else it is written in brackets (#161).
+func TestRoundTrip_LinkWhoseTextIsItsHref(t *testing.T) {
+	t.Parallel()
+
+	self := func(href string) jira4claude.ADFNode { return hrefLink(href, href) }
+	tests := []struct {
+		name   string
+		inline []jira4claude.ADFNode
+		bare   bool // the link is written as its bare URL
+	}{
+		{"URL in a sentence", []jira4claude.ADFNode{txt("see "), self("https://x.test/a"), txt(" now")}, true},
+		{"email in a sentence", []jira4claude.ADFNode{txt("mail "), self("a@b.co"), txt(" now")}, true},
+		{"non-URL href", []jira4claude.ADFNode{txt("a "), self("0")}, false},
+		{"scheme only", []jira4claude.ADFNode{self("A0:")}, false},
+		{"email without a dot", []jira4claude.ADFNode{self("0@0")}, false},
+		{"www without a scheme", []jira4claude.ADFNode{self("www.x.test")}, false},
+		{"after an escaped delimiter", []jira4claude.ADFNode{txt("*"), self("https://0.a")}, false},
+		{"after a literal tag", []jira4claude.ADFNode{txt("<A0>"), self("https://0.a")}, false},
+		{"letter before", []jira4claude.ADFNode{txt("a"), self("https://x.test")}, false},
+		{"letter after", []jira4claude.ADFNode{self("https://x.test"), txt("a")}, false},
+		{"trailing asterisk", []jira4claude.ADFNode{self("https://x.test/*")}, false},
+		{"trailing underscore", []jira4claude.ADFNode{self("https://x.test/_")}, false},
+		{"trailing tilde", []jira4claude.ADFNode{self("https://x.test/~")}, false},
+		{"trailing full stop", []jira4claude.ADFNode{self("https://x.test/.")}, false},
+		{"unbalanced parenthesis", []jira4claude.ADFNode{self("https://x.test/a)")}, false},
+		{"balanced parentheses", []jira4claude.ADFNode{txt("see "), self("https://x.test/a(b)"), txt(" now")}, true},
+		{"email before code", []jira4claude.ADFNode{self("a@b.co"), textNode("x", "code")}, false},
+		{"URL before code", []jira4claude.ADFNode{self("https://x.co"), textNode("x", "code")}, false},
+		{"URL after code", []jira4claude.ADFNode{textNode("x", "code"), self("https://x.co")}, true},
+		{"URL holding a backtick before code", []jira4claude.ADFNode{
+			txt("see "), self("https://x.co/a`b"), txt(" and "), textNode("c", "code"),
+		}, true},
+		{"after a blank that follows a backslash", []jira4claude.ADFNode{txt(`\ `), self("http://x.co/a"), txt("<a")}, false},
+		{"exclamation mark before", []jira4claude.ADFNode{txt("a!"), self("https://x.test")}, false},
+		{"two URLs after each other", []jira4claude.ADFNode{self("https://x.test"), self("https://y.test")}, false},
+		{"after strong text", []jira4claude.ADFNode{textNode("a", "strong"), self("https://x.test")}, true},
+		{"before strong text", []jira4claude.ADFNode{self("https://x.test"), textNode("a", "strong")}, false},
+		{"after a hard break", []jira4claude.ADFNode{txt("a"), hardBreak(), self("https://x.test")}, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			doc := paragraphDoc(tt.inline...)
+			roundTripsExactly(t, doc)
+			md, _ := markdown.New().ToMarkdown(doc)
+			if tt.bare {
+				assert.NotContains(t, md, "](", "read as %q", md)
+			}
+		})
+	}
+}
+
+// Many short links and neighbours, combined: each link reads back exactly,
+// whichever form it is written in.
+func TestRoundTrip_LinkNeighbours(t *testing.T) {
+	t.Parallel()
+
+	befores := []jira4claude.ADFNode{
+		txt("a"), txt(" "), txt("*"), txt("("), txt(`\ `), txt("<A0>"), txt("x."), txt("!"), txt("~"), txt("_"),
+		textNode("c", "code"), textNode("s", "strong"), textNode("e", "em"), textNode("u", "underline"),
+		hrefLink("l", "https://l.test"),
+	}
+	links := []jira4claude.ADFNode{
+		hrefLink("https://x.test", "https://x.test"), hrefLink("a@b.co", "a@b.co"), hrefLink("www.x.test", "www.x.test"),
+		hrefLink("http://www.x.test", "http://www.x.test"), hrefLink("https://x.test/*", "https://x.test/*"),
+		hrefLink("t", "https://x.test"), hrefLink("x", "x"),
+	}
+	afters := []jira4claude.ADFNode{
+		txt("a"), txt(" "), txt("."), txt(")"), txt("*"), txt("\n"), txt("<"), txt("_a"), txt("&amp;"), txt(`\`),
+		textNode("c", "code"), textNode("s", "strong"), textNode("e", "em"), hrefLink("l", "https://l.test"),
+	}
+	conv := markdown.New()
+	for _, before := range befores {
+		for _, link := range links {
+			for _, after := range afters {
+				for _, inline := range [][]jira4claude.ADFNode{
+					{before, link}, {link, after}, {before, link, after},
+				} {
+					doc := paragraphDoc(inline...)
+					md, readIssues := conv.ToMarkdown(doc)
+					back, writeIssues := conv.ToADF(md)
+					if !assert.Empty(t, readIssues, "read as %q", md) ||
+						!assert.Empty(t, writeIssues, "read as %q", md) ||
+						!assert.Equal(t, mustJSON(doc), mustJSON(back), "read as %q", md) {
+						return
+					}
+				}
+			}
+		}
 	}
 }
 

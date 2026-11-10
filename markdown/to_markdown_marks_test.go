@@ -2,6 +2,7 @@ package markdown_test
 
 import (
 	"encoding/json"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -308,6 +309,13 @@ func TestToMarkdown_ManyMarkedNodes(t *testing.T) {
 		// URLs each closed in angle brackets before the reference that
 		// writes the backslash before a hard break (#162).
 		"URLs before hard breaks": "see https://x.test/a\\",
+		// Links whose text is their href (#161): bare between blanks, bare
+		// emails, links that run into each other and are bracketed, and
+		// links Linkify would cut short, bracketed after a parse.
+		"bare links":      "https://x.test/",
+		"bare emails":     "a@b.co",
+		"adjacent links":  "https://x.test/",
+		"links cut short": "https://x.test/*",
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
@@ -315,6 +323,14 @@ func TestToMarkdown_ManyMarkedNodes(t *testing.T) {
 			inline := make([]jira4claude.ADFNode, 3000)
 			for i := range inline {
 				switch {
+				case name == "adjacent links":
+					href := text + strconv.Itoa(i%2)
+					inline[i] = hrefLink(href, href)
+				case strings.HasPrefix(name, "bare ") || name == "links cut short":
+					inline[i] = hrefLink(text, text)
+					if i%2 == 1 {
+						inline[i] = textNode(" ")
+					}
 				case name == "plain URLs" && i%2 == 0:
 					inline[i] = textNode(text)
 				case name == "plain URLs":
@@ -357,6 +373,13 @@ func TestToMarkdown_LongToken(t *testing.T) {
 		// Each URL is closed in angle brackets before the reference written
 		// for the line feed after it (#162).
 		"URLs before line feeds": strings.Repeat("https://x.test/a\n", 4000),
+		// Repeated URL starts, each after a character Linkify may start
+		// after, in text that is not a link (#161).
+		"repeated http starts":    strings.Repeat("http://", 16000),
+		"repeated bracketed URLs": strings.Repeat("(http://a", 16000),
+		"repeated emails":         strings.Repeat("_a@b.co", 16000),
+		"repeated URLs":           strings.Repeat("(http://a.co", 16000),
+		"repeated www starts":     strings.Repeat("(www.a", 16000),
 	}
 	for name, token := range tokens {
 		for _, mark := range []string{"", "strong", "strike"} {

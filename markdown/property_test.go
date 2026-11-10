@@ -194,6 +194,22 @@ var propertySeeds = []string{
 	"0\\!@0.0",
 	"\\(https://0.a",
 	"0@0\\.0",
+	"a [0](0)",
+	"<0@0>",
+	"<A0:>",
+	"[www.x.com](www.x.com)",
+	"*https://0.a",
+	"<A0>https://0.a",
+	"a<https://x.test>",
+	"<https://x.test>a",
+	"<https://x.test/*>",
+	"a\\![b](c)",
+	"[a](x)[b](x)",
+	"<https://x.co>`a`",
+	"<a@b.co>`a`",
+	"<https://x.co/a`b> `c`",
+	"_a@b.co x_",
+	"\\\\ http://x.co/a<a",
 }
 
 // addPropertySeeds adds propertySeeds and the Markdown fixtures in testdata
@@ -429,18 +445,13 @@ func FuzzReattachProtectedNodes(f *testing.F) {
 func TestPropertyKnownFailures(t *testing.T) {
 	t.Parallel()
 
-	const (
-		// Found by fuzzing in #147.
-		gapLinkTextIsHref = "a link whose text equals its href is read as bare text, which only autolinks for real URLs (read)"
-	)
-
+	// Every gap found so far is fixed; add new ones here, each named for its
+	// cause.
 	tests := []struct {
 		name  string
 		gap   string
 		input string
-	}{
-		{"link text equal to a non-URL href", gapLinkTextIsHref, "a [0](0)"},
-	}
+	}{}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

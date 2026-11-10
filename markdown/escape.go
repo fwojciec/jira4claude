@@ -208,6 +208,9 @@ type textContext struct {
 	// text. Used where a span would run on into a character reference or a
 	// delimiter written after it (see inline_marks.go).
 	breakAutolinks bool
+	// linkAfter: a link or inline card may be written right after the text
+	// in brackets, so a "!" that ends it would make the link an image.
+	linkAfter bool
 }
 
 // tildeEdge reports whether nodes[k] is a text node whose Markdown starts
@@ -253,8 +256,7 @@ func hasRenderedMark(marks []jira4claude.ADFMark) bool {
 }
 
 // escapeTextNode returns the text of an ADF text node escaped for Markdown
-// output. Code text is verbatim, and link text equal to its href is left as
-// is so that it is still read out as a bare URL. The node is siblings[i],
+// output. Code text is verbatim. The node is siblings[i],
 // where siblings holds only nodes that emit output (see emittingInline), so
 // its neighbours there are the ones that meet its edges in the Markdown.
 func escapeTextNode(siblings []jira4claude.ADFNode, i int, lineStart bool, edges textEdges) string {
@@ -267,11 +269,9 @@ func escapeTextNode(siblings []jira4claude.ADFNode, i int, lineStart bool, edges
 		case "code":
 			return node.Text
 		case "link":
-			if _, bare := bareURL(node); bare {
-				return node.Text // written as the bare URL, which Linkify reads
-			}
-			// Any other link is written in brackets, so its label is
-			// escaped, even when it is the href.
+			// A link written as its bare URL never gets here (see
+			// renderTextItems); any other is written in brackets, so its
+			// label is escaped, even when it is the href.
 			inLink = true
 		}
 	}
@@ -288,6 +288,8 @@ func escapeTextNode(siblings []jira4claude.ADFNode, i int, lineStart bool, edges
 		encodeLast:     edges.last,
 
 		breakAutolinks: edges.breakLinks,
+		linkAfter: i+1 < len(siblings) && (siblings[i+1].Type == "inlineCard" ||
+			siblings[i+1].Type == "text" && hasMark(siblings[i+1].Marks, "link")),
 	})
 }
 
@@ -342,7 +344,7 @@ func escapeTextEncodingEdges(s string, ctx textContext) string {
 		mid.lineStart, mid.bareStart, mid.linkifyAtStart, mid.tildeBefore = false, false, false, false
 	}
 	if tail != "" {
-		mid.lineEnd, mid.breakAfter, mid.tildeAfter = false, false, false
+		mid.lineEnd, mid.breakAfter, mid.tildeAfter, mid.linkAfter = false, false, false, false
 	}
 	return head + escapeText(s, mid) + tail
 }
@@ -395,8 +397,27 @@ type autolinkScanner struct {
 	local                    [256]int8 // per byte: 1 an email local-part byte, -1 not, 0 unknown
 }
 
+// urlDecidedWithin bounds how much of a word after a URL start Linkify's URL
+// patterns need to decide whether a URL starts there: a scheme or "www.",
+// at most 256 host characters, a dot and a letter. Where the URL ends can
+// take the whole word.
+const urlDecidedWithin = 512
+
 // lenAt returns autolinkLen(s[p:]); p must not be less than in the last call.
 func (a *autolinkScanner) lenAt(p int) int {
+	return a.scan(p, true)
+}
+
+// startsAt reports whether lenAt(p) > 0, without measuring a URL to its end:
+// break mode asks at every position Linkify may start, and a word full of
+// URL starts would otherwise be parsed to its end at each.
+func (a *autolinkScanner) startsAt(p int) bool {
+	return a.scan(p, false) > 0
+}
+
+// scan is lenAt; without full, a URL is parsed only as far as decides
+// whether it starts, and its length is not exact.
+func (a *autolinkScanner) scan(p int, full bool) int {
 	if !a.started || p > a.wordEnd {
 		a.started = true
 		a.wordEnd = len(a.s)
@@ -411,9 +432,25 @@ func (a *autolinkScanner) lenAt(p int) int {
 	}
 	if strings.HasPrefix(word, "http://") || strings.HasPrefix(word, "https://") ||
 		strings.HasPrefix(word, "ftp://") || strings.HasPrefix(word, "www.") {
-		// Linkify's URL patterns need "://" after the scheme. A parse here
-		// costs the rest of the word, but only where a URL starts.
-		return autolinkLen(word)
+		// Linkify's URL patterns need "://" after the scheme. Whether a URL
+		// starts is decided within urlDecidedWithin; only a URL that does is
+		// parsed to its end, and only when its length is asked for, so a
+		// word full of URL starts is not parsed again at each.
+		if len(word) <= urlDecidedWithin {
+			return autolinkLen(word)
+		}
+		if n := autolinkLen(word[:urlDecidedWithin]); n > 0 {
+			if full {
+				return autolinkLen(word)
+			}
+			return n
+		}
+		// No URL starts here. Linkify tries an email address next, which a
+		// word starting with a scheme cannot be (no local part takes ":"),
+		// but a "www." word can: that is the email scan below.
+		if !strings.HasPrefix(word, "www.") {
+			return 0
+		}
 	}
 	if a.at < p {
 		a.at = a.wordEnd
@@ -479,7 +516,7 @@ func escapeTextWith(s string, ctx textContext) string {
 	breaksAt := func(p int) bool {
 		return ctx.breakAutolinks && !ctx.inLink && p < len(s) &&
 			(p == 0 && ctx.linkifyAtStart || p > 0 && strings.IndexByte(linkifyTriggers, s[p-1]) >= 0) &&
-			links.lenAt(p) > 0
+			links.startsAt(p)
 	}
 	for i := 0; i < len(s); {
 		c := s[i]
@@ -546,6 +583,10 @@ func escapeTextWith(s string, ctx textContext) string {
 			// character references, which start with "&".
 			if i+1 == len(s) || s[i+1] == '\n' || util.IsPunct(s[i+1]) ||
 				ctx.lineEnd && strings.Trim(s[i+1:], " \t") == "" {
+				b.WriteByte('\\')
+			}
+		case '!':
+			if i+1 == len(s) && ctx.linkAfter {
 				b.WriteByte('\\')
 			}
 		case '`', '[':

@@ -813,8 +813,16 @@ func adfInlineLineToGFM(node *jira4claude.ADFNode, skipped *skippedCollector, si
 			}
 		}
 	}
-	texts := renderTextItems(items, skipped)
+	texts := renderLinks(items, singleLine, skipped)
+	md := joinInline(items, texts, singleLine, skipped)
+	checkMarksReadBack(items, md, singleLine, skipped)
+	return md
+}
 
+// joinInline joins the Markdown of items, the emitting inline nodes of one
+// line, whose text items are written as texts. With skipped, what has no
+// Markdown form is reported.
+func joinInline(items []jira4claude.ADFNode, texts []string, singleLine bool, skipped *skippedCollector) string {
 	var result strings.Builder
 	for i := range items {
 		child := &items[i]
@@ -846,8 +854,6 @@ func adfInlineLineToGFM(node *jira4claude.ADFNode, skipped *skippedCollector, si
 			result.WriteString(adfInlineCardToGFM(child, skipped))
 		}
 	}
-
-	checkMarksReadBack(items, result.String(), singleLine, skipped)
 	return result.String()
 }
 
@@ -931,6 +937,8 @@ func onlyHardBreaksFrom(nodes []jira4claude.ADFNode, i int) bool {
 // text is already escaped, with any edge blank or tilde that would stop a
 // delimiter run from opening or closing encoded (see inline_marks.go); it is
 // wrapped as is. delim is the emphasis character, '*' or '_' (0 means '*').
+// A link is written in brackets; a link written as its bare URL is not
+// passed here (see renderTextItems).
 func applyMarks(text string, marks []jira4claude.ADFMark, delim byte) string {
 	var hasStrong, hasEm, hasCode, hasStrike, hasUnderline, hasLink bool
 	var href string
@@ -994,7 +1002,7 @@ func applyMarks(text string, marks []jira4claude.ADFMark, delim byte) string {
 	case "sup":
 		result = "<sup>" + result + "</sup>"
 	}
-	if hasLink && result != href {
+	if hasLink {
 		result = "[" + result + "](" + linkDestination(href) + ")"
 	}
 
