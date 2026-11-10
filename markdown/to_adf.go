@@ -855,6 +855,16 @@ func consolidateTextNodes(nodes []jira4claude.ADFNode) []jira4claude.ADFNode {
 	}
 
 	var result []jira4claude.ADFNode
+	// The merged text of the last node, built up in one buffer: goldmark
+	// splits text at every delimiter character, and joining the pieces one
+	// by one would copy the text again for each.
+	var merged strings.Builder
+	flush := func() {
+		if merged.Len() > 0 {
+			result[len(result)-1].Text = merged.String()
+			merged.Reset()
+		}
+	}
 	for _, node := range nodes {
 		if len(result) == 0 {
 			result = append(result, node)
@@ -863,21 +873,20 @@ func consolidateTextNodes(nodes []jira4claude.ADFNode) []jira4claude.ADFNode {
 
 		last := &result[len(result)-1]
 
-		// Both must be text nodes
-		if last.Type != "text" || node.Type != "text" {
-			result = append(result, node)
-			continue
-		}
-
-		// Compare marks
-		if !marksEqual(last.Marks, node.Marks) {
+		// Both must be text nodes with the same marks
+		if last.Type != "text" || node.Type != "text" || !marksEqual(last.Marks, node.Marks) {
+			flush()
 			result = append(result, node)
 			continue
 		}
 
 		// Merge the text
-		last.Text += node.Text
+		if merged.Len() == 0 {
+			merged.WriteString(last.Text)
+		}
+		merged.WriteString(node.Text)
 	}
+	flush()
 
 	return result
 }

@@ -367,8 +367,12 @@ func linkifyCrosses(md string, boundary int, atStart bool) bool {
 // md that starts within scan (a prefix of md), in order. Linkify is tried at
 // the start of md when atStart is set, after linkifyTriggers, right after
 // another autolink, and only where canStart, if not nil, allows.
+//
+// Like Linkify, it does not look for another autolink inside one it has
+// read; with autolinkScanner, the work is linear in len(md).
 func linkifySpans(scan, md string, atStart bool, canStart func(p int) bool) [][2]int {
 	var spans [][2]int
+	links := autolinkScanner{s: md}
 	afterLink := -1 // Linkify is tried again right after an autolink
 	for p := 0; p < len(scan); p++ {
 		if p != afterLink && (p == 0 && !atStart || p > 0 && strings.IndexByte(linkifyTriggers, md[p-1]) < 0) {
@@ -377,12 +381,92 @@ func linkifySpans(scan, md string, atStart bool, canStart func(p int) bool) [][2
 		if canStart != nil && !canStart(p) {
 			continue
 		}
-		if n := autolinkLen(md[p:]); n > 0 {
+		if n := links.lenAt(p); n > 0 {
 			spans = append(spans, [2]int{p, p + n})
 			afterLink = p + n
+			p = afterLink - 1
 		}
 	}
 	return spans
+}
+
+// autolinkScanner is autolinkLen over positions of one string, asked in
+// increasing order, without a parse per position: a word's end is found
+// once, and an email is parsed once per "@" (where it ends does not depend
+// on where in its local part Linkify starts).
+type autolinkScanner struct {
+	s       string
+	started bool
+	wordEnd int // the end of the word holding the last position asked
+	// at is the next "@" in the word, or wordEnd if there is none;
+	// localStart, the first position the local part before it can start
+	// at; emailEnd, where an email through it ends (0: not parsed yet,
+	// -1: none).
+	at, localStart, emailEnd int
+	local                    [256]int8 // per byte: 1 an email local-part byte, -1 not, 0 unknown
+}
+
+// lenAt returns autolinkLen(s[p:]); p must not be less than in the last call.
+func (a *autolinkScanner) lenAt(p int) int {
+	if !a.started || p > a.wordEnd {
+		a.started = true
+		a.wordEnd = len(a.s)
+		if sp := strings.IndexAny(a.s[p:], " \t\n"); sp >= 0 {
+			a.wordEnd = p + sp
+		}
+		a.at = -1
+	}
+	word := a.s[p:a.wordEnd]
+	if word == "" || strings.IndexByte(" *_~(", word[0]) >= 0 {
+		return 0
+	}
+	if strings.HasPrefix(word, "http://") || strings.HasPrefix(word, "https://") ||
+		strings.HasPrefix(word, "ftp://") || strings.HasPrefix(word, "www.") {
+		// Linkify's URL patterns need "://" after the scheme. A parse here
+		// costs the rest of the word, but only where a URL starts.
+		return autolinkLen(word)
+	}
+	if a.at < p {
+		a.at = a.wordEnd
+		if k := strings.IndexByte(word, '@'); k >= 0 {
+			a.at = p + k
+		}
+		a.localStart = a.at
+		for a.localStart > 0 && a.isLocal(a.s[a.localStart-1]) {
+			a.localStart--
+		}
+		a.emailEnd = 0
+	}
+	if a.at == a.wordEnd || p < a.localStart || util.IsPunct(word[0]) {
+		return 0
+	}
+	if a.emailEnd == 0 {
+		a.emailEnd = -1
+		// The email cannot run past the next "@", so only up to there is
+		// parsed.
+		email := word
+		if k := strings.IndexByte(a.s[a.at+1:a.wordEnd], '@'); k >= 0 {
+			email = a.s[p : a.at+1+k]
+		}
+		if n := autolinkLen(email); n > 0 {
+			a.emailEnd = p + n
+		}
+	}
+	if a.emailEnd < 0 {
+		return 0
+	}
+	return a.emailEnd - p
+}
+
+// isLocal reports whether Linkify takes c into an email's local part.
+func (a *autolinkScanner) isLocal(c byte) bool {
+	if a.local[c] == 0 {
+		a.local[c] = -1
+		if c != '@' && util.FindEmailIndex([]byte{c, '@', 'a', '.', 'c', 'o'}) == 6 {
+			a.local[c] = 1
+		}
+	}
+	return a.local[c] == 1
 }
 
 // charRef returns the decimal numeric character reference for r.
@@ -429,6 +513,7 @@ func readsBackAs(md, want string) bool {
 func escapeTextWith(s string, ctx textContext, keepAutolinks bool) (string, bool) {
 	kept := false
 	var b strings.Builder
+	links := autolinkScanner{s: s}
 	atLineStart := ctx.lineStart
 	afterEncodedBlank := false
 	for i := 0; i < len(s); {
@@ -470,7 +555,7 @@ func escapeTextWith(s string, ctx textContext, keepAutolinks bool) (string, bool
 		// after counts, escaped or not.
 		if ctx.breakAutolinks && !ctx.inLink && !afterEncodedBlank &&
 			(i == 0 && ctx.linkifyAtStart || i > 0 && strings.IndexByte(linkifyTriggers, s[i-1]) >= 0) &&
-			autolinkLen(s[i:]) > 0 {
+			links.lenAt(i) > 0 {
 			r, n := utf8.DecodeRuneInString(s[i:])
 			b.WriteString(charRef(r))
 			i += n
@@ -480,7 +565,7 @@ func escapeTextWith(s string, ctx textContext, keepAutolinks bool) (string, bool
 		if keepAutolinks && !ctx.inLink && !afterEncodedBlank && linkifyMayStart(s, i, ctx.linkifyAtStart) {
 			// A span that reaches the end of the node could run on into
 			// the next node's text, which this check cannot see.
-			if n := autolinkLen(s[i:]); n > 0 && (i+n < len(s) || !ctx.textAfter) {
+			if n := links.lenAt(i); n > 0 && (i+n < len(s) || !ctx.textAfter) {
 				kept = true
 				b.WriteString(s[i : i+n])
 				i += n

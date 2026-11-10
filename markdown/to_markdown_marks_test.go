@@ -2,6 +2,7 @@ package markdown_test
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
@@ -327,6 +328,37 @@ func TestToMarkdown_ManyMarkedNodes(t *testing.T) {
 			assert.Empty(t, readIssues)
 			assert.Less(t, elapsed, 4*time.Second, "markdown was %d bytes", len(md))
 		})
+	}
+}
+
+// TestToMarkdown_LongToken bounds the work for one long word full of the
+// characters Linkify may start after, with an email or URL at its end: the
+// autolink scan must not parse the word again at each of them (#159).
+func TestToMarkdown_LongToken(t *testing.T) {
+	t.Parallel()
+
+	tokens := map[string]string{
+		"stars then email":        strings.Repeat("a*", 16000) + "a@b.co",
+		"triggers then URL":       strings.Repeat("a_b~c.d:", 4000) + "x://https://x.test/www.x.test",
+		"triggers then www":       strings.Repeat("_~.:", 8000) + "www.x.test",
+		"emails in a word":        strings.Repeat("a*a@b.co*", 4000),
+		"underscores then email":  strings.Repeat("a_", 16000) + "a@b.co",
+		"schemes without slashes": strings.Repeat("_https:", 8000) + "https://x.test",
+	}
+	for name, token := range tokens {
+		for _, mark := range []string{"", "strong", "strike"} {
+			t.Run(name+" "+mark, func(t *testing.T) {
+				t.Parallel()
+
+				node := textNode(token)
+				if mark != "" {
+					node = textNode(token, mark)
+				}
+				start := time.Now()
+				md, _ := markdown.New().ToMarkdown(paragraphDoc(textNode("see "), node))
+				assert.Less(t, time.Since(start), 4*time.Second, "markdown was %d bytes", len(md))
+			})
+		}
 	}
 }
 
