@@ -153,8 +153,9 @@ func convertNode(node ast.Node, source []byte, skipped *skippedCollector) []jira
 				}
 				if closed {
 					attrs, _ := json.Marshal(map[string]any{"title": opener.title})
-					if bodyContent == nil {
-						bodyContent = []jira4claude.ADFNode{}
+					if len(bodyContent) == 0 {
+						// ADF requires expand content; an empty body holds an empty paragraph.
+						bodyContent = []jira4claude.ADFNode{{Type: "paragraph"}}
 					}
 					content = append(content, jira4claude.ADFNode{
 						Type:    "expand",
@@ -269,14 +270,9 @@ func convertFencedCodeBlock(node *ast.FencedCodeBlock, source []byte) jira4claud
 		codeText = codeText[:len(codeText)-1]
 	}
 
-	result := jira4claude.ADFNode{
-		Type: "codeBlock",
-		Content: []jira4claude.ADFNode{
-			{
-				Type: "text",
-				Text: codeText,
-			},
-		},
+	result := jira4claude.ADFNode{Type: "codeBlock"}
+	if codeText != "" { // ADF rejects an empty text node
+		result.Content = []jira4claude.ADFNode{{Type: "text", Text: codeText}}
 	}
 
 	lang := string(node.Language(source))
@@ -341,6 +337,11 @@ func convertList(node *ast.List, source []byte, skipped *skippedCollector) jira4
 func convertListItem(node *ast.ListItem, source []byte, skipped *skippedCollector) jira4claude.ADFNode {
 	content := convertNode(node, source, skipped)
 	content = constrainChildren(content, "listItem", isListItemAllowedChild, skipped)
+	if len(content) == 0 || content[0].Type == "bulletList" || content[0].Type == "orderedList" {
+		// ADF requires a listItem to open with a paragraph (or code or media),
+		// so an empty item, or one that opens with a list, gets an empty one.
+		content = append([]jira4claude.ADFNode{{Type: "paragraph"}}, content...)
+	}
 	return jira4claude.ADFNode{
 		Type:    "listItem",
 		Content: content,
@@ -371,6 +372,10 @@ func alertNameToPanelType(name string) (string, bool) {
 func convertBlockquote(node *ast.Blockquote, source []byte, skipped *skippedCollector) jira4claude.ADFNode {
 	if panelType, ok := detectAlertPrefix(node, source); ok {
 		content := convertPanelContent(node, source, skipped)
+		if len(content) == 0 {
+			// ADF requires panel content; an empty panel holds an empty paragraph.
+			content = []jira4claude.ADFNode{{Type: "paragraph"}}
+		}
 		attrs, _ := json.Marshal(map[string]any{"panelType": panelType})
 		return jira4claude.ADFNode{
 			Type:    "panel",
@@ -497,7 +502,9 @@ func constrainChildrenAt(children []jira4claude.ADFNode, container string, allow
 			continue
 		}
 		// Extract content from disallowed containers (blockquote, panel, etc.)
-		if len(child.Content) > 0 {
+		// A container holding only its empty placeholder paragraph counts as
+		// empty.
+		if len(child.Content) > 1 || (len(child.Content) == 1 && !isEmptyParagraph(child.Content[0])) {
 			detail := child.Type + " is not allowed inside " + container + "; unwrapped into its content"
 			if child.Type == "expand" {
 				detail += ", its title kept as a paragraph"
@@ -514,6 +521,12 @@ func constrainChildrenAt(children []jira4claude.ADFNode, container string, allow
 		skipped.add(child.Type)
 	}
 	return result
+}
+
+// isEmptyParagraph reports whether node is a paragraph with no content, the
+// placeholder an empty table cell, panel, expand or list item holds.
+func isEmptyParagraph(node jira4claude.ADFNode) bool {
+	return node.Type == "paragraph" && len(node.Content) == 0
 }
 
 // expandTitle returns the trimmed title attribute of an expand node, or ""
@@ -1157,19 +1170,11 @@ func convertTableRow(node ast.Node, source []byte, isHeader bool, skipped *skipp
 			if isHeader {
 				cellType = "tableHeader"
 			}
+			// ADF requires cell content, so an empty cell holds an empty paragraph.
 			content := convertInlineContent(cell, source, skipped)
-			var cellContent []jira4claude.ADFNode
-			if len(content) > 0 {
-				cellContent = []jira4claude.ADFNode{
-					{
-						Type:    "paragraph",
-						Content: content,
-					},
-				}
-			}
 			cells = append(cells, jira4claude.ADFNode{
 				Type:    cellType,
-				Content: cellContent,
+				Content: []jira4claude.ADFNode{{Type: "paragraph", Content: content}},
 			})
 		}
 	}
