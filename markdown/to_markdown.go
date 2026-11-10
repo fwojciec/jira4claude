@@ -554,10 +554,20 @@ func adfInlineLineToGFM(node *jira4claude.ADFNode, skipped *skippedCollector, si
 // that are not supported are recorded as dropped.
 func emittingInline(content []jira4claude.ADFNode, skipped *skippedCollector) []jira4claude.ADFNode {
 	items := make([]jira4claude.ADFNode, 0, len(content))
+	// label appends text, merging it into the previous item when that is
+	// text with the same marks: written separately, the two would get
+	// delimiters between them ("**a\***" + "**b**") that do not read back.
+	// Label nodes merge too: they are written as plain text with no syntax
+	// of their own, so merging changes nothing but the delimiters.
 	label := func(text string, marks []jira4claude.ADFMark) {
-		if text != "" {
-			items = append(items, jira4claude.ADFNode{Type: "text", Text: text, Marks: marks})
+		if text == "" {
+			return
 		}
+		if last := len(items) - 1; last >= 0 && items[last].Type == "text" && marksEqual(items[last].Marks, marks) {
+			items[last].Text += text
+			return
+		}
+		items = append(items, jira4claude.ADFNode{Type: "text", Text: text, Marks: marks})
 	}
 	for i := range content {
 		child := &content[i]

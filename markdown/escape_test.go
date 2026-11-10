@@ -820,6 +820,62 @@ func TestRoundTrip_InlineNodeLabels(t *testing.T) {
 	})
 }
 
+func TestRoundTrip_AdjacentTextNodesWithSameMarks(t *testing.T) {
+	t.Parallel()
+
+	strong := jira4claude.ADFMark{Type: "strong"}
+	em := jira4claude.ADFMark{Type: "em"}
+	strike := jira4claude.ADFMark{Type: "strike"}
+	node := func(s string, marks ...jira4claude.ADFMark) jira4claude.ADFNode {
+		return jira4claude.ADFNode{Type: "text", Text: s, Marks: marks}
+	}
+	const url = "https://example.com/?x=[1]"
+	link := jira4claude.ADFMark{Type: "link", Attrs: []byte(`{"href":"` + url + `"}`)}
+
+	tests := []struct {
+		name     string
+		inline   []jira4claude.ADFNode
+		expected []jira4claude.ADFNode
+	}{
+		{"strong", []jira4claude.ADFNode{node("a*", strong), node("b", strong)}, []jira4claude.ADFNode{node("a*b", strong)}},
+		{"em", []jira4claude.ADFNode{node("a*", em), node("b", em)}, []jira4claude.ADFNode{node("a*b", em)}},
+		{"strike", []jira4claude.ADFNode{node("a~", strike), node("b", strike)}, []jira4claude.ADFNode{node("a~b", strike)}},
+		// "***x***" parses as em around strong, so the marks come back in that
+		// order whatever order they were read in.
+		{"strong and em", []jira4claude.ADFNode{node("a*", em, strong), node("_b", em, strong)}, []jira4claude.ADFNode{node("a*_b", em, strong)}},
+		{"three in a row", []jira4claude.ADFNode{node("a*", strong), node("_b_", strong), node("c~", strong)}, []jira4claude.ADFNode{node("a*_b_c~", strong)}},
+		{"unmarked split entity", []jira4claude.ADFNode{node("&am"), node("p;")}, []jira4claude.ADFNode{node("&amp;")}},
+		{"unmarked split tildes", []jira4claude.ADFNode{node("a~"), node("~b")}, []jira4claude.ADFNode{node("a~~b")}},
+		{"unmarked split URL", []jira4claude.ADFNode{node("https://example.com/?x="), node("[1]")}, []jira4claude.ADFNode{node(url, link)}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			converter := markdown.New()
+			md, w1 := converter.ToMarkdown(paragraphDoc(tt.inline...))
+			assert.Empty(t, w1)
+
+			result, w2 := converter.ToADF(md)
+			assert.Empty(t, w2)
+			requireValidADF(t, result)
+			assert.Equal(t, paragraphDoc(tt.expected...), result, "markdown was %q", md)
+		})
+	}
+
+	t.Run("different marks are not merged", func(t *testing.T) {
+		t.Parallel()
+
+		converter := markdown.New()
+		md, _ := converter.ToMarkdown(paragraphDoc(node("a", strong), node(" b", em)))
+		assert.Equal(t, "**a** *b*", md)
+
+		md, _ = converter.ToMarkdown(paragraphDoc(node("a", strong), node(" b", strong, em)))
+		assert.Equal(t, "**a** ***b***", md)
+	})
+}
+
 func TestToADF_DecodesTextAroundLiteralInlineTag(t *testing.T) {
 	t.Parallel()
 
