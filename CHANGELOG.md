@@ -274,8 +274,8 @@ Jira; to keep an inline comment, leave its paragraph unchanged.
   argument.
 - Unknown priorities were shown as `P2` in lists; the priority is now printed
   as Jira names it, and an empty one as `-`.
-- JSON on stdout wrote `&`, `<` and `>` inside strings as `&`, `<`
-  and `>`; it now keeps them as they are, as the stderr lines always
+- JSON on stdout wrote `&`, `<` and `>` inside strings as `\u0026`,
+  `\u003c` and `\u003e`; it now keeps them as they are, as the stderr lines always
   did. A JSON parser reads both forms the same; a `grep` for `<` now matches.
 - Rewriting a description lost, without a word: placeholders; layouts
   (flattened); decision lists (turned into bullet lists); nested expands;
