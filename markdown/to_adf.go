@@ -176,7 +176,11 @@ func nodeToADF(node ast.Node, source []byte, skipped *skippedCollector) (jira4cl
 	case *ast.List:
 		return convertList(n, source, skipped), true
 	case *ast.Blockquote:
-		return convertBlockquote(n, source, skipped), true
+		// A blockquote whose children were all dropped would be emitted
+		// empty, which the ADF schema rejects; the drops are already
+		// reported, so the empty container is left out.
+		quote := convertBlockquote(n, source, skipped)
+		return quote, quote.Type != "blockquote" || len(quote.Content) > 0
 	case *ast.ThematicBreak:
 		return jira4claude.ADFNode{Type: "rule"}, true
 	case *extast.Table:

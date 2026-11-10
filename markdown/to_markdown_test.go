@@ -2588,7 +2588,8 @@ func TestConverter_ToMarkdown(t *testing.T) {
 		result, warnings := converter.ToMarkdown(adfDoc)
 
 		assert.Empty(t, warnings)
-		assert.Equal(t, "- Parent\n  - Child", result)
+		// A blank line separates the item's blocks, so each stays its own block.
+		assert.Equal(t, "- Parent\n\n  - Child", result)
 	})
 
 	t.Run("renders code block inside list item with proper indentation", func(t *testing.T) {
@@ -2623,7 +2624,7 @@ func TestConverter_ToMarkdown(t *testing.T) {
 		result, warnings := converter.ToMarkdown(adfDoc)
 
 		assert.Empty(t, warnings)
-		expected := "- Code example\n  ```\n  fmt.Println()\n  ```"
+		expected := "- Code example\n\n  ```\n  fmt.Println()\n  ```"
 		assert.Equal(t, expected, result)
 	})
 

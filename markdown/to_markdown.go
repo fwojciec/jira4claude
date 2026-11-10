@@ -133,8 +133,7 @@ func adfBulletListToGFM(node *jira4claude.ADFNode, skipped *skippedCollector) st
 		if child.Type != "listItem" {
 			continue
 		}
-		itemText := adfListItemToGFM(child, skipped)
-		items = append(items, "- "+itemText)
+		items = append(items, "- "+adfListItemToGFM(child, skipped, len("- ")))
 	}
 
 	return strings.Join(items, "\n")
@@ -160,62 +159,95 @@ func adfOrderedListToGFM(node *jira4claude.ADFNode, skipped *skippedCollector) s
 			continue
 		}
 		num++
-		itemText := adfListItemToGFM(child, skipped)
-		items = append(items, fmt.Sprintf("%d. %s", num, itemText))
+		marker := strconv.Itoa(num) + ". "
+		items = append(items, marker+adfListItemToGFM(child, skipped, len(marker)))
 	}
 
 	return strings.Join(items, "\n")
 }
 
-// adfListItemToGFM extracts the text content from a list item.
-// The first child (typically a paragraph) goes on the same line as the list marker.
-// Subsequent children (nested lists, code blocks) are placed on new lines with
-// 2-space indentation to align under the list marker text.
-func adfListItemToGFM(node *jira4claude.ADFNode, skipped *skippedCollector) string {
-	if len(node.Content) == 0 {
-		return ""
-	}
-
-	firstPart := adfNodeToGFM(&node.Content[0], skipped)
-	if len(node.Content) == 1 {
-		return firstPart
-	}
-
-	var result strings.Builder
-	result.WriteString(firstPart)
-
-	for i := 1; i < len(node.Content); i++ {
-		child := &node.Content[i]
-		part := adfNodeToGFM(child, skipped)
-		if part == "" {
-			continue
-		}
-		result.WriteString("\n")
-		for j, line := range strings.Split(part, "\n") {
-			if j > 0 {
-				result.WriteString("\n")
-			}
-			result.WriteString("  ")
-			result.WriteString(line)
-		}
-	}
-
-	return result.String()
+// adfListItemToGFM renders the content of a list item that follows a list
+// marker width characters wide. The first block goes on the marker line; any
+// further blocks follow after a blank line, so each stays its own block.
+// Every line after the first is indented by the marker width, so all of the
+// item's content, including lines after a line break inside a paragraph,
+// stays inside the item. An item with a single block renders with no blank
+// line.
+func adfListItemToGFM(node *jira4claude.ADFNode, skipped *skippedCollector, width int) string {
+	parts := adfBlocksToGFM(node.Content, skipped)
+	return indentContinuation(strings.Join(parts, "\n\n"), strings.Repeat(" ", width))
 }
 
-// adfBlockquoteToGFM converts an ADF blockquote to markdown.
-func adfBlockquoteToGFM(node *jira4claude.ADFNode, skipped *skippedCollector) string {
-	var lines []string
-	for i := range node.Content {
-		child := &node.Content[i]
-		text := adfNodeToGFM(child, skipped)
-		// Prefix each line with >
-		for _, line := range strings.Split(text, "\n") {
-			lines = append(lines, "> "+line)
+// adfBlocksToGFM renders a container's children, one string per block,
+// leaving out blocks that render empty. Consecutive inline nodes (which Jira
+// sometimes places directly in a container) render together as one block.
+func adfBlocksToGFM(children []jira4claude.ADFNode, skipped *skippedCollector) []string {
+	var parts []string
+	for i := 0; i < len(children); {
+		var part string
+		if isInlineNode(children[i].Type) {
+			run := jira4claude.ADFNode{}
+			for ; i < len(children) && isInlineNode(children[i].Type); i++ {
+				run.Content = append(run.Content, children[i])
+			}
+			part = adfInlineToGFM(&run, skipped)
+		} else {
+			part = adfNodeToGFM(&children[i], skipped)
+			i++
+		}
+		if part != "" {
+			parts = append(parts, part)
 		}
 	}
+	return parts
+}
 
+// isInlineNode reports whether an ADF node type is inline content.
+func isInlineNode(nodeType string) bool {
+	switch nodeType {
+	case "text", "hardBreak", "mention", "emoji", "inlineCard", "status", "date",
+		"mediaInline", "placeholder", "inlineExtension":
+		return true
+	default:
+		return false
+	}
+}
+
+// indentContinuation prefixes every line of text after the first with
+// indent. Blank lines stay empty: they do not end a container.
+func indentContinuation(text, indent string) string {
+	lines := strings.Split(text, "\n")
+	for i := 1; i < len(lines); i++ {
+		if lines[i] != "" {
+			lines[i] = indent + lines[i]
+		}
+	}
 	return strings.Join(lines, "\n")
+}
+
+// quoteLines prefixes every line of text with "> ", or a bare ">" for a
+// blank line.
+func quoteLines(text string) string {
+	lines := strings.Split(text, "\n")
+	for i, line := range lines {
+		if line == "" {
+			lines[i] = ">"
+		} else {
+			lines[i] = "> " + line
+		}
+	}
+	return strings.Join(lines, "\n")
+}
+
+// adfBlockquoteToGFM converts an ADF blockquote to markdown. Children are
+// separated by a blank quoted line so each stays its own block, and every
+// line carries the quote prefix.
+func adfBlockquoteToGFM(node *jira4claude.ADFNode, skipped *skippedCollector) string {
+	parts := adfBlocksToGFM(node.Content, skipped)
+	if len(parts) == 0 {
+		return ""
+	}
+	return quoteLines(strings.Join(parts, "\n\n"))
 }
 
 // panelTypeToAlert maps ADF panel types to GitHub alert names.
@@ -248,22 +280,13 @@ func adfPanelToGFM(node *jira4claude.ADFNode, skipped *skippedCollector) string 
 		}
 	}
 
-	alert := panelTypeToAlert(panelType)
-	var lines []string
-	lines = append(lines, "> [!"+alert+"]")
-
-	for i := range node.Content {
-		text := adfNodeToGFM(&node.Content[i], skipped)
-		if i > 0 {
-			// Blank blockquote line to separate paragraphs
-			lines = append(lines, ">")
-		}
-		for _, line := range strings.Split(text, "\n") {
-			lines = append(lines, "> "+line)
-		}
+	header := "> [!" + panelTypeToAlert(panelType) + "]"
+	parts := adfBlocksToGFM(node.Content, skipped)
+	if len(parts) == 0 {
+		return header
 	}
-
-	return strings.Join(lines, "\n")
+	// Children are separated by a blank quoted line, as in a blockquote.
+	return header + "\n" + quoteLines(strings.Join(parts, "\n\n"))
 }
 
 // adfExpandToGFM converts an ADF expand or nestedExpand to an HTML details block.
@@ -370,10 +393,28 @@ func adfTableCellToGFM(node *jira4claude.ADFNode, skipped *skippedCollector) str
 }
 
 // adfTaskListToGFM converts an ADF taskList to GFM task list items.
+// A taskList nested in the list (ADF places it after the item it belongs to)
+// is rendered indented under the preceding item, so it reads back nested.
+// Continuation lines of an item's text are indented so they stay in the item.
 func adfTaskListToGFM(node *jira4claude.ADFNode, skipped *skippedCollector) string {
 	var items []string
 	for i := range node.Content {
 		taskItem := &node.Content[i]
+		if taskItem.Type == "taskList" {
+			nested := adfTaskListToGFM(taskItem, skipped)
+			if nested == "" {
+				continue
+			}
+			if len(items) == 0 {
+				// Not valid ADF: no item to nest under, so the list is
+				// rendered at its parent's level.
+				skipped.degrade("taskList", "taskList nested before any taskItem; rendered at its parent's level")
+				items = append(items, nested)
+				continue
+			}
+			items[len(items)-1] += indentContinuation("\n"+nested, "  ")
+			continue
+		}
 		if taskItem.Type != "taskItem" {
 			continue
 		}
@@ -388,26 +429,14 @@ func adfTaskListToGFM(node *jira4claude.ADFNode, skipped *skippedCollector) stri
 			}
 		}
 
-		text := adfTaskItemContentToGFM(taskItem, skipped)
+		// A taskItem holds inline content (schema-compliant) or, in legacy
+		// ADF from Jira, paragraph-wrapped blocks; both render as list item
+		// content under the "- " marker.
+		text := adfListItemToGFM(taskItem, skipped, len("- "))
 		items = append(items, "- "+checkbox+" "+text)
 	}
 
 	return strings.Join(items, "\n")
-}
-
-// adfTaskItemContentToGFM extracts text from a taskItem node.
-// Handles both inline content (schema-compliant) and paragraph-wrapped content
-// (legacy format that may appear in ADF from Jira).
-func adfTaskItemContentToGFM(node *jira4claude.ADFNode, skipped *skippedCollector) string {
-	if len(node.Content) == 0 {
-		return ""
-	}
-	// Check if content is block nodes (paragraph) or inline nodes (text, etc.)
-	if node.Content[0].Type == "paragraph" || node.Content[0].Type == "bulletList" ||
-		node.Content[0].Type == "orderedList" || node.Content[0].Type == "codeBlock" {
-		return adfListItemToGFM(node, skipped)
-	}
-	return adfInlineToGFM(node, skipped)
 }
 
 // adfFlattenToGFM flattens a container node's content sequentially, ignoring
@@ -431,7 +460,7 @@ func adfDecisionListToGFM(node *jira4claude.ADFNode, skipped *skippedCollector) 
 		if child.Type != "decisionItem" {
 			continue
 		}
-		text := adfListItemToGFM(child, skipped)
+		text := adfListItemToGFM(child, skipped, len("- "))
 		if text != "" {
 			items = append(items, "- "+text)
 		}
