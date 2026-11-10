@@ -56,6 +56,35 @@ func TestDroppedContentError(t *testing.T) {
 		assert.NotContains(t, msg, "emoji")
 		assert.Contains(t, msg, "--force")
 	})
+
+	t.Run("protected-node tokens say to put the token back", func(t *testing.T) {
+		t.Parallel()
+		issues := []jira4claude.ConversionIssue{
+			{Kind: jira4claude.ConversionDropped, Node: "{{mention:2 Jane Doe}}"},
+			{Kind: jira4claude.ConversionDropped, Node: "Image"},
+		}
+
+		msg := jira4claude.ErrorMessage(jira4claude.DroppedContentError("description", issues))
+
+		assert.Contains(t, msg, "{{mention:2 Jane Doe}}")
+		assert.Contains(t, msg, "put each token back")
+		assert.Contains(t, msg, "Image")
+		assert.Contains(t, msg, "--force")
+	})
+
+	t.Run("only tokens: no advice to remove content", func(t *testing.T) {
+		t.Parallel()
+		issues := []jira4claude.ConversionIssue{
+			{Kind: jira4claude.ConversionDropped, Node: "{{mediaSingle:1 shot.png}}"},
+		}
+
+		msg := jira4claude.ErrorMessage(jira4claude.DroppedContentError("description", issues))
+
+		assert.Contains(t, msg, "{{mediaSingle:1 shot.png}}")
+		assert.Contains(t, msg, "put each token back")
+		assert.Contains(t, msg, "--force")
+		assert.NotContains(t, msg, "Remove it")
+	})
 }
 
 func TestDroppedIssues(t *testing.T) {

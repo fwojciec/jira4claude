@@ -50,15 +50,35 @@ func DroppedContentError(field string, issues []ConversionIssue) error {
 	if len(dropped) == 0 {
 		return nil
 	}
-	nodes := make([]string, len(dropped))
-	for i, d := range dropped {
-		nodes[i] = d.Node
+	var nodes, tokens []string
+	for _, d := range dropped {
+		if IsProtectedToken(d.Node) {
+			tokens = append(tokens, d.Node)
+		} else {
+			nodes = append(nodes, d.Node)
+		}
+	}
+	var parts []string
+	if len(nodes) > 0 {
+		parts = append(parts, field+" would drop unsupported content ("+strings.Join(nodes, ", ")+
+			"); remove it")
+	}
+	if len(tokens) > 0 {
+		parts = append(parts, field+" would lose existing content ("+strings.Join(tokens, ", ")+
+			"); put each token back, unchanged and on a line of its own for a block, where the content belongs")
 	}
 	return &Error{
 		Code: EValidation,
-		Message: field + " would drop unsupported content (" + strings.Join(nodes, ", ") +
-			"); nothing was written. Remove it, or pass --force to write without it",
+		Message: strings.Join(parts, "; ") +
+			". Nothing was written. Pass --force to write anyway, without that content",
 	}
+}
+
+// IsProtectedToken reports whether node, the Node of a ConversionIssue,
+// is a protected-node token (see Converter.ToMarkdown) rather than a node
+// type: such an issue is about existing content of the document.
+func IsProtectedToken(node string) bool {
+	return strings.HasPrefix(node, "{{") && strings.HasSuffix(node, "}}")
 }
 
 // Converter handles conversion between GitHub Flavored Markdown (GFM) and
@@ -88,14 +108,16 @@ type Converter interface {
 	// Reattach puts protected nodes back into an edited document. original
 	// is the document ToMarkdown read; edited is what ToADF produced from the
 	// edited Markdown. Each token of original still present in edited is
-	// replaced by the original node, unchanged. Only the token's number is
-	// trusted.
+	// replaced by the original node, unchanged. The token's number and kind
+	// are checked; its label is not trusted.
 	//
 	// Every node that would be lost is reported as ConversionDropped, with
-	// the token in Node: a token missing from edited, a token used more than
-	// once (only the first is restored), a token whose number original does
-	// not have, and a block token placed where its node is not allowed. Such
-	// tokens other than the missing ones stay in the result as text.
+	// the token in Node (see IsProtectedToken): a token missing from edited,
+	// a token used more than once (only the first is restored), a token whose
+	// number original does not have or names another kind of node (original
+	// changed since it was read), and a block token placed where its node is
+	// not allowed. Such tokens other than the missing ones stay in the result
+	// as text.
 	//
 	// edited is not modified. A nil document counts as an empty one. Always
 	// returns a non-nil *ADFNode.

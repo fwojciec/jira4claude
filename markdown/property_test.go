@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"slices"
 	"testing"
 
 	jira4claude "github.com/fwojciec/jira4claude"
@@ -293,21 +292,14 @@ func checkReattach(data []byte) string {
 		data, md, issueStrings(issues), want, have)
 }
 
-// hasUnreadStructure reports whether doc holds structure the reader skips
-// without a word, so a protected node inside it is never read: a child a
-// list, table, row, task list or decision list does not expect, or children
-// of a leaf node or code block. Known gap of the container renderers, not of
-// the tokens (#149); P3 excuses such documents so fuzzing can go past them.
+// hasUnreadStructure reports whether doc holds content the reader never
+// looks at, so a protected node inside it is lost without a word: children
+// of a leaf node (text, hardBreak, emoji, status, date, inlineCard,
+// placeholder, rule), or anything but text in a code block. No valid ADF has
+// either, and neither has a Markdown form; P3 excuses such documents so
+// fuzzing can go past them. Misplaced children of lists, tables, rows and
+// decision lists are tokens, and those of task lists are reported (#149).
 func hasUnreadStructure(doc *jira4claude.ADFNode) bool {
-	expected := map[string][]string{
-		"bulletList":   {"listItem"},
-		"orderedList":  {"listItem"},
-		"table":        {"tableRow"},
-		"tableRow":     {"tableCell", "tableHeader"},
-		"taskList":     {"taskItem", "taskList"},
-		"decisionList": {"decisionItem"},
-		"codeBlock":    {"text"},
-	}
 	leaves := map[string]bool{
 		"text": true, "hardBreak": true, "emoji": true, "status": true, "date": true,
 		"inlineCard": true, "placeholder": true, "rule": true,
@@ -319,7 +311,7 @@ func hasUnreadStructure(doc *jira4claude.ADFNode) bool {
 		}
 		for i := range n.Content {
 			c := &n.Content[i]
-			if want, ok := expected[n.Type]; ok && !slices.Contains(want, c.Type) {
+			if n.Type == "codeBlock" && c.Type != "text" {
 				return true
 			}
 			if walk(c) {

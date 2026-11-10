@@ -287,6 +287,7 @@ func adfBulletListMarkerToGFM(node *jira4claude.ADFNode, skipped *skippedCollect
 	for i := range node.Content {
 		child := &node.Content[i]
 		if child.Type != "listItem" {
+			items = append(items, listItemLine(marker, skipped.protectMisplaced(child, node.Type)))
 			continue
 		}
 		items = append(items, listItemLine(marker, adfListItemToGFM(child, skipped, marker, len(marker)+1)))
@@ -326,11 +327,12 @@ func adfOrderedListMarkerToGFM(node *jira4claude.ADFNode, skipped *skippedCollec
 	num := startNum - 1
 	for i := range node.Content {
 		child := &node.Content[i]
-		if child.Type != "listItem" {
-			continue
-		}
 		num++
 		marker := strconv.Itoa(num) + delimiter
+		if child.Type != "listItem" {
+			items = append(items, listItemLine(marker, skipped.protectMisplaced(child, node.Type)))
+			continue
+		}
 		items = append(items, listItemLine(marker, adfListItemToGFM(child, skipped, marker, len(marker)+1)))
 	}
 
@@ -578,6 +580,11 @@ func adfTableToGFM(node *jira4claude.ADFNode, skipped *skippedCollector) string 
 	for i := range node.Content {
 		rowNode := &node.Content[i]
 		if rowNode.Type != "tableRow" {
+			// Kept as a row of one cell holding its token.
+			token := strings.ReplaceAll(skipped.protectMisplaced(rowNode, node.Type), "|", "\\|")
+			firstRendered = false
+			maxCols = max(maxCols, 1)
+			lines = append(lines, "| "+token+" |")
 			continue
 		}
 
@@ -627,6 +634,10 @@ func adfTableToGFM(node *jira4claude.ADFNode, skipped *skippedCollector) string 
 
 // adfTableCellToGFM extracts text from a table cell (tableHeader or tableCell).
 func adfTableCellToGFM(node *jira4claude.ADFNode, skipped *skippedCollector) string {
+	if node.Type != "tableCell" && node.Type != "tableHeader" {
+		// Kept as a cell holding its token.
+		return strings.ReplaceAll(skipped.protectMisplaced(node, "tableRow"), "|", "\\|")
+	}
 	var parts []string
 	for i := range node.Content {
 		child := &node.Content[i]
@@ -684,6 +695,9 @@ func adfTaskListMarkerToGFM(node *jira4claude.ADFNode, skipped *skippedCollector
 			continue
 		}
 		if taskItem.Type != "taskItem" {
+			// An item without a checkbox would not read back as part of
+			// the task list.
+			skipped.dropMisplaced(taskItem, node.Type)
 			continue
 		}
 
@@ -734,10 +748,12 @@ func adfDecisionListMarkerToGFM(node *jira4claude.ADFNode, skipped *skippedColle
 	var items []string
 	for i := range node.Content {
 		child := &node.Content[i]
-		if child.Type != "decisionItem" {
-			continue
+		var text string
+		if child.Type == "decisionItem" {
+			text = adfListItemToGFM(child, skipped, marker, len(marker)+1)
+		} else {
+			text = skipped.protectMisplaced(child, node.Type)
 		}
-		text := adfListItemToGFM(child, skipped, marker, len(marker)+1)
 		if text != "" {
 			items = append(items, marker+" "+text)
 		}

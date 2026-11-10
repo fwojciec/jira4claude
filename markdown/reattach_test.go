@@ -343,15 +343,132 @@ func TestReattach_TokenProblems(t *testing.T) {
 		assert.Equal(t, " and {{mention:1 Ann}}", got.Content[0].Content[2].Text, "the second is left as text")
 	})
 
-	t.Run("the label is not trusted, only the number", func(t *testing.T) {
+	t.Run("the label is not trusted, only the kind and number", func(t *testing.T) {
 		t.Parallel()
 		_, got, issues := readEditWrite(t, doc, func(md string) string {
-			md = strings.Replace(md, "{{mention:1 Ann}}", "{{media:1 someone else}}", 1)
+			md = strings.Replace(md, "{{mention:1 Ann}}", "{{mention:1 someone else}}", 1)
 			return strings.Replace(md, "{{mediaSingle:2 pic}}", "{{mediaSingle:2}}", 1)
 		})
 		assert.Empty(t, issues)
 		assert.Equal(t, jsonOf(t, doc), jsonOf(t, got))
 	})
+
+	t.Run("a token whose kind does not match its number", func(t *testing.T) {
+		t.Parallel()
+		_, got, issues := readEditWrite(t, doc, func(md string) string {
+			return strings.Replace(md, "{{mention:1 Ann}}", "{{mediaInline:1 Ann}}", 1)
+		})
+		require.Len(t, issues, 2)
+		assert.Equal(t, "{{mediaInline:1 Ann}}", issues[0].Node)
+		assert.Contains(t, issues[0].Detail, "mention")
+		assert.Equal(t, "{{mention:1 Ann}}", issues[1].Node, "the node is also missing")
+		assert.Equal(t, "hi {{mediaInline:1 Ann}}", got.Content[0].Content[0].Text, "left as text")
+	})
+}
+
+func TestReattach_OriginalChangedSinceRead(t *testing.T) {
+	t.Parallel()
+
+	// The description was read with a mention as node 1; before the write,
+	// someone replaced it with an inline attachment, so number 1 is now a
+	// different node type. The stale token must not re-attach.
+	read := docOf(paraOf(plainText("hi "), mention("u1", "Ann")))
+	current := docOf(paraOf(plainText("hi "), rawNode(t,
+		`{"type":"mediaInline","attrs":{"id":"m","type":"file","collection":"c","__fileName":"a.pdf"}}`)))
+
+	conv := markdown.New()
+	md, _ := conv.ToMarkdown(read)
+	require.Equal(t, "hi {{mention:1 Ann}}", md)
+	written, _ := conv.ToADF(md + " edited")
+	got, issues := conv.Reattach(current, written)
+
+	require.Len(t, issues, 2)
+	assert.Equal(t, jira4claude.ConversionDropped, issues[0].Kind)
+	assert.Equal(t, "{{mention:1 Ann}}", issues[0].Node)
+	assert.Contains(t, issues[0].Detail, "mediaInline")
+	assert.Equal(t, "{{mediaInline:1 a.pdf}}", issues[1].Node)
+	assert.Empty(t, protectedNodes(got))
+}
+
+func TestReattach_MisplacedChildren(t *testing.T) {
+	t.Parallel()
+
+	single := `{"type":"mediaSingle","attrs":{"layout":"center"},"content":[{"type":"media","attrs":{"id":"m","type":"file","collection":"c","alt":"pic"}}]}`
+	blockCard := `{"type":"blockCard","attrs":{"url":"https://example.com/x"}}`
+	item := func(blocks ...jira4claude.ADFNode) jira4claude.ADFNode {
+		return jira4claude.ADFNode{Type: "listItem", Content: blocks}
+	}
+	cell := func(blocks ...jira4claude.ADFNode) jira4claude.ADFNode {
+		return jira4claude.ADFNode{Type: "tableCell", Content: blocks}
+	}
+	row := func(cells ...jira4claude.ADFNode) jira4claude.ADFNode {
+		return jira4claude.ADFNode{Type: "tableRow", Content: cells}
+	}
+
+	// Children a container does not expect are protected as a whole: they
+	// read as a token in an item or cell of their own and are restored there.
+	restored := []struct {
+		name string
+		doc  *jira4claude.ADFNode
+	}{
+		{"media directly in a bullet list", docOf(jira4claude.ADFNode{Type: "bulletList", Content: []jira4claude.ADFNode{
+			item(paraOf(plainText("a"))), rawNode(t, single), item(paraOf(plainText("b"))),
+		}})},
+		{"paragraph with a mention directly in an ordered list", docOf(jira4claude.ADFNode{Type: "orderedList", Content: []jira4claude.ADFNode{
+			item(paraOf(plainText("a"))), paraOf(plainText("x "), mention("u1", "Ann")),
+		}})},
+		{"media directly in a table", docOf(jira4claude.ADFNode{Type: "table", Content: []jira4claude.ADFNode{
+			row(cell(paraOf(plainText("a")))), rawNode(t, single),
+		}})},
+		{"media directly in a table row", docOf(jira4claude.ADFNode{Type: "table", Content: []jira4claude.ADFNode{
+			row(cell(paraOf(plainText("a"))), rawNode(t, single)),
+		}})},
+		{"media directly in a decision list", docOf(jira4claude.ADFNode{Type: "decisionList", Content: []jira4claude.ADFNode{
+			{Type: "decisionItem", Content: []jira4claude.ADFNode{plainText("a")}},
+			rawNode(t, single),
+		}})},
+		{"unknown block in a decision item", docOf(jira4claude.ADFNode{Type: "decisionList", Content: []jira4claude.ADFNode{
+			{Type: "decisionItem", Content: []jira4claude.ADFNode{plainText("x "), mention("u1", "Ann")}},
+			{Type: "decisionItem", Content: []jira4claude.ADFNode{rawNode(t, blockCard)}},
+		}})},
+	}
+	for _, tt := range restored {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			md, readIssues := markdown.New().ToMarkdown(tt.doc)
+			assert.Empty(t, jira4claude.DroppedIssues(readIssues), "markdown was %q", md)
+			_, got, issues := readEditWrite(t, tt.doc, nil)
+			assert.Empty(t, issues, "markdown was %q", md)
+			assert.NotEmpty(t, protectedNodes(tt.doc))
+			assert.Equal(t, jsonOf(t, protectedNodes(tt.doc)), jsonOf(t, protectedNodes(got)), "markdown was %q", md)
+		})
+	}
+
+	// In a task or decision list a misplaced child has no Markdown form that
+	// keeps the list what it is, so the read reports it.
+	reported := []struct {
+		name string
+		doc  *jira4claude.ADFNode
+		node string
+	}{
+		{"paragraph directly in a task list", docOf(jira4claude.ADFNode{Type: "taskList", Content: []jira4claude.ADFNode{
+			{Type: "taskItem", Attrs: json.RawMessage(`{"localId":"i","state":"TODO"}`), Content: []jira4claude.ADFNode{plainText("a")}},
+			paraOf(mention("u1", "Ann")),
+		}}), "paragraph"},
+		{"media nested in a task list", docOf(jira4claude.ADFNode{Type: "taskList", Content: []jira4claude.ADFNode{
+			{Type: "taskItem", Attrs: json.RawMessage(`{"localId":"i","state":"TODO"}`), Content: []jira4claude.ADFNode{plainText("a")}},
+			{Type: "taskList", Content: []jira4claude.ADFNode{rawNode(t, single)}},
+		}}), "mediaSingle"},
+	}
+	for _, tt := range reported {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			md, issues := markdown.New().ToMarkdown(tt.doc)
+			dropped := jira4claude.DroppedIssues(issues)
+			require.Len(t, dropped, 1, "markdown was %q", md)
+			assert.Equal(t, tt.node, dropped[0].Node)
+		})
+	}
 }
 
 func TestReattach_MovedTokens(t *testing.T) {
@@ -466,6 +583,19 @@ func TestReattach_ContainersRoundTrip(t *testing.T) {
 		{"layout, which the reader flattens into the document", docOf(jira4claude.ADFNode{Type: "layoutSection", Content: []jira4claude.ADFNode{
 			{Type: "layoutColumn", Content: []jira4claude.ADFNode{paraOf(plainText("x")), rawNode(t, blockCard), rawNode(t, single)}},
 		}}), true},
+		{"list items after an empty item, with a mention and an image", docOf(jira4claude.ADFNode{Type: "bulletList", Content: []jira4claude.ADFNode{
+			{Type: "listItem", Content: []jira4claude.ADFNode{{Type: "paragraph", Content: []jira4claude.ADFNode{}}}},
+			{Type: "listItem", Content: []jira4claude.ADFNode{paraOf(plainText("by "), mention("u1", "Ann")), rawNode(t, single)}},
+			{Type: "listItem", Content: []jira4claude.ADFNode{rawNode(t, single)}},
+		}}), false},
+		{"image with a pipe in its alt text in a table cell", docOf(jira4claude.ADFNode{Type: "table", Content: []jira4claude.ADFNode{
+			row(header(paraOf(plainText("h")))),
+			row(cell(paraOf(plainText("x")), rawNode(t,
+				`{"type":"mediaSingle","attrs":{"layout":"center"},"content":[{"type":"media","attrs":{"id":"m","type":"file","collection":"c","alt":"a | b \\| c"}}]}`))),
+		}}), false},
+		{"image directly under a panel header", docOf(jira4claude.ADFNode{Type: "panel", Attrs: json.RawMessage(`{"panelType":"info"}`), Content: []jira4claude.ADFNode{
+			rawNode(t, single), paraOf(plainText("after")),
+		}}), false},
 		{"mention with a pipe in a table cell", docOf(jira4claude.ADFNode{Type: "table", Content: []jira4claude.ADFNode{
 			row(header(paraOf(plainText("h")))),
 			row(cell(paraOf(jira4claude.ADFNode{Type: "mention", Attrs: json.RawMessage(`{"id":"u1","text":"@A | B \\| C"}`)}))),

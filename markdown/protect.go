@@ -58,6 +58,9 @@ type protectedNode struct {
 	parent string
 	// token is the token as text, which is what ToADF reads it back as.
 	token string
+	// kind is the word before the token's colon. Reattach checks it, so a
+	// stale token whose number now names another kind of node is caught.
+	kind string
 }
 
 // tokenRegistry collects the tokens of one read. It rides on the read
@@ -84,18 +87,55 @@ func (s *skippedCollector) leaveBlock() {
 }
 
 // blockContainer returns the container class of the block about to be
-// rendered: the innermost block being rendered, or "doc".
+// rendered: the innermost block being rendered, or "doc". A layout is
+// flattened into its parent on read, so it is skipped: its content is
+// written back in the parent.
 func (s *skippedCollector) blockContainer() string {
-	if s == nil || s.tokens == nil || len(s.tokens.blocks) == 0 {
+	if s == nil || s.tokens == nil {
 		return "doc"
 	}
-	return containerClass(s.tokens.blocks[len(s.tokens.blocks)-1])
+	for i := len(s.tokens.blocks) - 1; i >= 0; i-- {
+		switch t := s.tokens.blocks[i]; t {
+		case "layoutSection", "layoutColumn":
+		default:
+			return containerClass(t)
+		}
+	}
+	return "doc"
 }
 
 // protectBlock records node as a block protected node found in the given
 // container class and returns its token's Markdown.
 func (s *skippedCollector) protectBlock(node *jira4claude.ADFNode, container string) string {
 	return s.protect(node, true, container)
+}
+
+// protectMisplaced writes a child its container (of type parent) does not
+// expect, such as a mediaSingle directly in a bulletList, as a block token,
+// so the node is kept. The token goes in an item or cell of its own, where
+// Reattach restores the node, so the change of structure is reported as
+// degraded.
+func (s *skippedCollector) protectMisplaced(node *jira4claude.ADFNode, parent string) string {
+	if s != nil {
+		s.degrade(nodeName(node.Type), fmt.Sprintf("a %s directly inside a %s is kept, but in an item or cell of its own",
+			nodeName(node.Type), parent))
+	}
+	return s.protectBlock(node, s.blockContainer())
+}
+
+// dropMisplaced reports a child its container (of type parent) does not
+// expect and that has no Markdown form there, such as a paragraph directly in
+// a taskList, as dropped.
+func (s *skippedCollector) dropMisplaced(node *jira4claude.ADFNode, parent string) {
+	if s == nil {
+		return
+	}
+	s.record(jira4claude.ConversionIssue{
+		Kind: jira4claude.ConversionDropped,
+		Node: nodeName(node.Type),
+		Detail: fmt.Sprintf("a %s directly inside a %s has no Markdown form and is left out",
+			nodeName(node.Type), parent),
+	})
 }
 
 // protectInline records node as an inline protected node and returns the
@@ -122,6 +162,7 @@ func (s *skippedCollector) protect(node *jira4claude.ADFNode, block bool, contai
 		block:  block,
 		parent: container,
 		token:  tokenText(reg.salt, kind, n, label),
+		kind:   kind,
 	})
 	return tokenMarkdown(reg.salt, kind, n, label)
 }
@@ -281,7 +322,9 @@ func containerClass(nodeType string) string {
 	case "taskList", "taskItem", "blockTaskItem":
 		return "taskItem"
 	case "decisionList", "decisionItem":
-		return "decisionItem"
+		// A decision list reads as a bullet list, and is written back as
+		// one, so its items are list items to the writer.
+		return "listItem"
 	case "layoutSection", "layoutColumn":
 		return "layoutColumn"
 	}
@@ -680,7 +723,7 @@ func (r *reattacher) run(nodes []jira4claude.ADFNode, container string, mode blo
 	}
 	pos := 0
 	for _, m := range matches {
-		node, block, ok := r.resolve(s[m[0]:m[1]], s[m[4]:m[5]], container, mode)
+		node, block, ok := r.resolve(s[m[0]:m[1]], s[m[2]:m[3]], s[m[4]:m[5]], container, mode)
 		if !ok {
 			continue
 		}
@@ -698,13 +741,22 @@ func (r *reattacher) run(nodes []jira4claude.ADFNode, container string, mode blo
 
 // resolve returns the original node for a token found in the edited text,
 // or reports why it stays text.
-func (r *reattacher) resolve(token, number, container string, mode blockMode) (jira4claude.ADFNode, bool, bool) {
+func (r *reattacher) resolve(token, kind, number, container string, mode blockMode) (jira4claude.ADFNode, bool, bool) {
 	n, err := strconv.Atoi(number)
 	if err != nil || n < 1 || n > len(r.nodes) {
 		r.drop(token, "the token names no protected node of the original document, so it is left as text")
 		return jira4claude.ADFNode{}, false, false
 	}
 	p := r.nodes[n-1]
+	if kind != p.kind {
+		// The number names another kind of node than when the text was
+		// read: the document changed in between, so the numbers may have
+		// shifted. The label is not trusted, but the kind is.
+		r.drop(token, fmt.Sprintf("node %d of the current document is a %s, not a %s; "+
+			"the document may have changed since it was read, so the token is left as text",
+			n, nodeName(p.node.Type), kind))
+		return jira4claude.ADFNode{}, false, false
+	}
 	if r.seen[n-1] {
 		r.drop(token, fmt.Sprintf("the token appears more than once; only the first is restored as the original %s, "+
 			"and this one is left as text", nodeName(p.node.Type)))
