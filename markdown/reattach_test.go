@@ -452,6 +452,9 @@ func TestReattach_MisplacedChildren(t *testing.T) {
 			assert.Empty(t, issues, "markdown was %q", md)
 			assert.NotEmpty(t, protectedNodes(tt.doc))
 			assert.Equal(t, jsonOf(t, protectedNodes(tt.doc)), jsonOf(t, protectedNodes(got)), "markdown was %q", md)
+			if validateADF(tt.doc) == nil {
+				requireValidADF(t, got)
+			}
 		})
 	}
 
@@ -522,6 +525,93 @@ func TestReattach_BlockTaskItem(t *testing.T) {
 
 	assert.Empty(t, issues)
 	assert.Equal(t, jsonOf(t, protectedNodes(doc)), jsonOf(t, protectedNodes(got)))
+	requireValidADF(t, doc)
+	requireValidADF(t, got)
+}
+
+// assertTaskAttrs checks that a task item written back keeps the attrs of the
+// item ToADF made: the state of its checkbox and a localId. (Markdown carries
+// no localId, so it is a new one, as for every task item written.)
+func assertTaskAttrs(t *testing.T, state string, item jira4claude.ADFNode) {
+	t.Helper()
+	var attrs map[string]string
+	require.NoError(t, json.Unmarshal(item.Attrs, &attrs))
+	assert.Equal(t, state, attrs["state"])
+	assert.NotEmpty(t, attrs["localId"])
+	assert.Len(t, attrs, 2)
+}
+
+func TestReattach_BlockInTaskItem(t *testing.T) {
+	t.Parallel()
+
+	const ext = `{"type":"extension","attrs":{"extensionType":"com.atlassian.macro","extensionKey":"toc"}}`
+	single := `{"type":"mediaSingle","attrs":{"layout":"center"},"content":[{"type":"media","attrs":{"id":"m","type":"file","collection":"c","alt":"pic"}}]}`
+	taskList := func(items ...jira4claude.ADFNode) *jira4claude.ADFNode {
+		return docOf(jira4claude.ADFNode{Type: "taskList", Attrs: json.RawMessage(`{"localId":"l"}`), Content: items})
+	}
+	blockItem := func(blocks ...jira4claude.ADFNode) jira4claude.ADFNode {
+		return jira4claude.ADFNode{Type: "blockTaskItem", Attrs: json.RawMessage(`{"localId":"b","state":"DONE"}`), Content: blocks}
+	}
+	plainItem := func(inline ...jira4claude.ADFNode) jira4claude.ADFNode {
+		return jira4claude.ADFNode{Type: "taskItem", Attrs: json.RawMessage(`{"localId":"a","state":"TODO"}`), Content: inline}
+	}
+
+	// A task item holds inline content only: an extension restored in it
+	// makes it a blockTaskItem, its text going into paragraphs.
+	for _, tt := range []struct {
+		name string
+		doc  *jira4claude.ADFNode
+	}{
+		{"an extension after a paragraph", taskList(blockItem(paraOf(plainText("intro")), rawNode(t, ext)))},
+		{"an extension alone", taskList(blockItem(rawNode(t, ext)))},
+		{"an extension between paragraphs, after a plain item", taskList(
+			plainItem(plainText("first")),
+			blockItem(paraOf(plainText("a")), rawNode(t, ext), paraOf(plainText("b"))),
+		)},
+	} {
+		t.Run(tt.name+" comes back schema-valid", func(t *testing.T) {
+			t.Parallel()
+			requireValidADF(t, tt.doc)
+			md, got, issues := readEditWrite(t, tt.doc, nil)
+			assert.Empty(t, issues, "markdown was %q", md)
+			requireValidADF(t, got)
+			assert.Equal(t, jsonOf(t, protectedNodes(tt.doc)), jsonOf(t, protectedNodes(got)), "markdown was %q", md)
+			items := got.Content[0].Content
+			last := items[len(items)-1]
+			assert.Equal(t, "blockTaskItem", last.Type)
+			assertTaskAttrs(t, "DONE", last)
+		})
+	}
+
+	t.Run("a block token typed into a plain task item", func(t *testing.T) {
+		t.Parallel()
+		doc := taskList(plainItem(plainText("first")), blockItem(rawNode(t, ext)))
+		md, got, issues := readEditWrite(t, doc, func(md string) string {
+			token := tokenRE().FindString(md)
+			require.NotEmpty(t, token, "markdown was %q", md)
+			return "- [ ] first " + token + " and more"
+		})
+		assert.Empty(t, issues, "markdown was %q", md)
+		requireValidADF(t, got)
+		item := got.Content[0].Content[0]
+		assert.Equal(t, "blockTaskItem", item.Type)
+		assertTaskAttrs(t, "TODO", item)
+		want := []jira4claude.ADFNode{paraOf(plainText("first")), rawNode(t, ext), paraOf(plainText("and more"))}
+		assert.Equal(t, jsonOf(t, want), jsonOf(t, item.Content))
+	})
+
+	t.Run("a node a blockTaskItem does not allow is reported and left as text", func(t *testing.T) {
+		t.Parallel()
+		// Legacy ADF: a task item holding paragraph-wrapped blocks.
+		doc := taskList(plainItem(paraOf(plainText("x")), rawNode(t, single)))
+		md, got, issues := readEditWrite(t, doc, nil)
+		require.Len(t, issues, 1, "markdown was %q", md)
+		assert.Equal(t, jira4claude.ConversionDropped, issues[0].Kind)
+		assert.Contains(t, issues[0].Node, "mediaSingle:1")
+		assert.Contains(t, issues[0].Detail, "task item")
+		requireValidADF(t, got)
+		assert.Contains(t, jsonOf(t, got), "{{mediaSingle:1")
+	})
 }
 
 func TestReattach_TokensNextToEmphasis(t *testing.T) {

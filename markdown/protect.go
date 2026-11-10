@@ -605,6 +605,8 @@ func (r *reattacher) content(parent string, children []jira4claude.ADFNode) []ji
 		switch c.Type {
 		case "paragraph":
 			out = append(out, r.paragraph(c, parent)...)
+		case "taskItem":
+			out = append(out, r.taskItem(c))
 		case "codeBlock":
 			out = append(out, c)
 		default:
@@ -670,6 +672,94 @@ func (r *reattacher) paragraph(p jira4claude.ADFNode, parent string) []jira4clau
 	}
 	flush(true, false)
 	return out
+}
+
+// taskItem rewrites a task item. A taskItem holds inline content only, so a
+// block node restored in it (resolve allows only what a blockTaskItem
+// holds) makes it a blockTaskItem with the same attrs: the inline content
+// around the block goes into paragraphs, without the blanks and line breaks
+// next to it, and a part left empty is left out.
+func (r *reattacher) taskItem(item jira4claude.ADFNode) jira4claude.ADFNode {
+	var pieces []piece
+	for i := 0; i < len(item.Content); {
+		c := item.Content[i]
+		if isTokenText(&c) {
+			j := tokenRunEnd(item.Content, i)
+			pieces = append(pieces, r.run(item.Content[i:j], item.Type, blockSplit)...)
+			i = j
+			continue
+		}
+		i++
+		if c.Type == "paragraph" {
+			for _, n := range r.paragraph(c, item.Type) {
+				pieces = append(pieces, piece{node: n, block: true})
+			}
+			continue
+		}
+		if c.Content != nil {
+			c.Content = r.content(c.Type, c.Content)
+		}
+		pieces = append(pieces, piece{node: c})
+	}
+
+	hasBlock := false
+	for _, pc := range pieces {
+		hasBlock = hasBlock || pc.block
+	}
+	if !hasBlock {
+		if item.Content == nil {
+			return item
+		}
+		nodes := make([]jira4claude.ADFNode, 0, len(pieces))
+		for _, pc := range pieces {
+			nodes = append(nodes, pc.node)
+		}
+		item.Content = nodes
+		return item
+	}
+
+	var content, cur []jira4claude.ADFNode
+	flush := func() {
+		cur = trimInline(cur, true, true)
+		if len(cur) > 0 {
+			content = append(content, jira4claude.ADFNode{Type: "paragraph", Content: cur})
+		}
+		cur = nil
+	}
+	for _, pc := range pieces {
+		if pc.block {
+			flush()
+			content = append(content, pc.node)
+			continue
+		}
+		cur = append(cur, pc.node)
+	}
+	flush()
+	item.Type = "blockTaskItem"
+	item.Content = content
+	return item
+}
+
+// knownBlockType reports whether nodeType is a block node type of the ADF
+// schema.
+func knownBlockType(nodeType string) bool {
+	switch nodeType {
+	case "paragraph", "heading", "blockquote", "codeBlock", "rule", "panel",
+		"bulletList", "orderedList", "listItem", "taskList", "taskItem", "blockTaskItem",
+		"decisionList", "decisionItem", "table", "tableRow", "tableCell", "tableHeader",
+		"expand", "nestedExpand", "layoutSection", "layoutColumn",
+		"mediaSingle", "mediaGroup", "media", "extension", "bodiedExtension",
+		"blockCard", "embedCard", "multiBodiedExtension", "extensionFrame", "syncBlock", "bodiedSyncBlock":
+		return true
+	}
+	return false
+}
+
+// blockAllowedInTaskItem reports whether a block node of type nodeType can
+// stand in a task item, which must then be a blockTaskItem: the schema
+// allows paragraphs and extensions there.
+func blockAllowedInTaskItem(nodeType string) bool {
+	return nodeType == "extension"
 }
 
 // trimInline removes blanks and hardBreaks from the start and/or end of
@@ -794,16 +884,27 @@ func (r *reattacher) resolve(token, kind, number, container string, mode blockMo
 	if p.block {
 		class := containerClass(container)
 		var placeable bool
-		switch mode {
-		case blockSplit:
+		switch {
+		case class == "taskItem" && !knownBlockType(p.node.Type) && p.parent == "taskItem":
+			// A node of a type the reader does not know, read from a task
+			// item: whether it is block-level is unknown, so it goes back
+			// into the task item's content, as it was read.
+			return cloneNode(p.node), false, true
+		case class == "taskItem":
+			// Whatever the reader found it in: a task item holds what a
+			// blockTaskItem allows, or nothing block-level at all.
+			placeable = mode != blockNever && blockAllowedInTaskItem(p.node.Type)
+		case mode == blockSplit:
 			placeable = class == p.parent || blockAllowedIn(p.node.Type, class)
-		case blockWhole:
+		case mode == blockWhole:
 			placeable = class == p.parent
-		case blockNever:
 		}
 		if !placeable {
 			where := container
-			if mode == blockSplit {
+			switch {
+			case class == "taskItem":
+				where = "task item"
+			case mode == blockSplit:
 				where = "paragraph in a " + container
 			}
 			r.drop(p.token, fmt.Sprintf("a %s cannot stand in a %s, so the token is left as text; "+

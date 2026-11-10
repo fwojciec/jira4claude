@@ -280,7 +280,21 @@ func checkReattach(data []byte) string {
 	adf, _ := conv.ToADF(md)
 	got, issues := conv.Reattach(&doc, adf)
 
+	valid := validateADF(&doc) == nil
+	if valid {
+		// What a guarded update sends must be what Jira accepts.
+		if err := validateADF(got); err != nil {
+			return fmt.Sprintf("Reattach of a schema-valid document is not schema-valid\n"+
+				"input: %s\nread:  %q\ngot:   %s\n%s", data, md, mustJSON(got), truncate(err.Error(), 400))
+		}
+	}
 	if len(jira4claude.DroppedIssues(readIssues)) > 0 || hasUnreadStructure(&doc) {
+		return ""
+	}
+	if !valid && len(jira4claude.DroppedIssues(issues)) > 0 {
+		// Invalid ADF (a block in a legacy task item, say) may hold a node
+		// that has no valid place in the document written back. Reattach
+		// reports it, so the loss is not silent.
 		return ""
 	}
 	want, have := mustJSON(protectedNodes(&doc)), mustJSON(protectedNodes(got))
