@@ -2,9 +2,9 @@ package jira4claude
 
 // InitResult contains the result of the Init operation.
 type InitResult struct {
-	ConfigCreated   bool
-	GitignoreAdded  bool
-	GitignoreExists bool
+	ConfigCreated   bool `json:"configCreated"`
+	GitignoreAdded  bool `json:"gitignoreAdded"`
+	GitignoreExists bool `json:"gitignoreExists"`
 }
 
 // ConfigService defines operations for managing configuration.

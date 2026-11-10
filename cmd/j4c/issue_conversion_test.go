@@ -78,7 +78,7 @@ func TestIssueCreateCmd_DroppedContent(t *testing.T) {
 
 		assertDroppedImageRefusal(t, err)
 		assert.False(t, called, "Create must not be called")
-		assert.Empty(t, printer.SuccessCalls)
+		assert.Empty(t, printer.MutationCalls)
 	})
 
 	t.Run("--force creates the issue and warns about the dropped image", func(t *testing.T) {
@@ -155,7 +155,7 @@ func TestIssueUpdateCmd_DroppedContent(t *testing.T) {
 		err := cmd.Run(ctx)
 
 		assertDroppedImageRefusal(t, err)
-		assert.Empty(t, printer.SuccessCalls)
+		assert.Empty(t, printer.MutationCalls)
 	})
 
 	t.Run("refuses a description that drops an image and makes no service call", func(t *testing.T) {
@@ -163,6 +163,7 @@ func TestIssueUpdateCmd_DroppedContent(t *testing.T) {
 
 		called := false
 		svc := &mock.IssueService{
+			GetFn: readsKey,
 			UpdateFn: func(ctx context.Context, key string, update jira4claude.IssueUpdate) (*jira4claude.Issue, error) {
 				called = true
 				return &jira4claude.Issue{Key: key}, nil
@@ -192,7 +193,7 @@ func TestIssueUpdateCmd_DroppedContent(t *testing.T) {
 		assertDroppedImageRefusal(t, err)
 		assert.False(t, called, "Update must not be called")
 		assert.False(t, userCalled, "assignee must not be resolved before the refusal")
-		assert.Empty(t, printer.SuccessCalls)
+		assert.Empty(t, printer.MutationCalls)
 	})
 
 	t.Run("--force updates the issue and warns about the dropped image", func(t *testing.T) {
@@ -291,7 +292,7 @@ func TestIssueCommentCmd_DroppedContent(t *testing.T) {
 
 		assertDroppedImageRefusal(t, err)
 		assert.False(t, called, "AddComment must not be called")
-		assert.Empty(t, printer.SuccessCalls)
+		assert.Empty(t, printer.MutationCalls)
 	})
 
 	t.Run("--force adds the comment and warns about the dropped image", func(t *testing.T) {

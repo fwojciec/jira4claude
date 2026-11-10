@@ -101,10 +101,8 @@ func TestInitCmd_CreatesConfigAndUpdatesGitignore(t *testing.T) {
 		require.NoError(t, err)
 		assert.Contains(t, string(content), ".jira4claude.yaml")
 
-		// Verify success messages were printed
-		require.Len(t, printer.SuccessCalls, 2)
-		assert.Equal(t, "Created .jira4claude.yaml", printer.SuccessCalls[0].Msg)
-		assert.Equal(t, "Added .jira4claude.yaml to .gitignore", printer.SuccessCalls[1].Msg)
+		// Verify the result was printed
+		assert.Equal(t, []jira4claude.InitResult{{ConfigCreated: true, GitignoreAdded: true}}, printer.InitializedCalls)
 	})
 }
 
@@ -314,7 +312,7 @@ func TestRun_IssueCreateAssigneeFallbackAssignFails(t *testing.T) {
 		res := runCLI(t, testDeps(issueSvc, userSvc), "issue", "create", "-s", "Test issue", "-A", "me")
 
 		assert.Equal(t, 3, res.code)
-		assert.Equal(t, "[ok] Created: TEST-7\nhttps://test.atlassian.net/browse/TEST-7\n", res.stdout)
+		assert.Equal(t, "TEST-7: created\nhttps://test.atlassian.net/browse/TEST-7\n", res.stdout)
 		lines := strings.Split(strings.TrimSuffix(res.stderr, "\n"), "\n")
 		require.Len(t, lines, 2, "stderr: %q", res.stderr)
 		assert.True(t, strings.HasPrefix(lines[0], "[warn] Jira rejected the assignee on create"), "stderr: %q", res.stderr)
@@ -330,13 +328,13 @@ func TestRun_IssueCreateAssigneeFallbackAssignFails(t *testing.T) {
 		res := runCLI(t, testDeps(issueSvc, userSvc), "--json", "issue", "create", "-s", "Test issue", "-A", "me")
 
 		assert.Equal(t, 3, res.code)
-		var success struct {
-			Success bool     `json:"success"`
-			Keys    []string `json:"keys"`
+		var created struct {
+			Key    string `json:"key"`
+			Action string `json:"action"`
 		}
-		require.NoError(t, json.Unmarshal([]byte(res.stdout), &success), "stdout must be one JSON value: %q", res.stdout)
-		assert.True(t, success.Success)
-		assert.Equal(t, []string{"TEST-7"}, success.Keys)
+		require.NoError(t, json.Unmarshal([]byte(res.stdout), &created), "stdout must be one JSON value: %q", res.stdout)
+		assert.Equal(t, jira4claude.ActionCreated, created.Action)
+		assert.Equal(t, "TEST-7", created.Key)
 		lines := strings.Split(strings.TrimSuffix(res.stderr, "\n"), "\n")
 		require.Len(t, lines, 2, "stderr: %q", res.stderr)
 		var warning, failure map[string]any

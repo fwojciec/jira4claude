@@ -226,7 +226,9 @@ func TestReplaceDescription(t *testing.T) {
 	current := &jira4claude.ADFNode{Type: "doc", Version: 1, Content: []jira4claude.ADFNode{paragraph("old")}}
 	edited := &jira4claude.ADFNode{Type: "doc", Version: 1, Content: []jira4claude.ADFNode{paragraph("new")}}
 	reattached := &jira4claude.ADFNode{Type: "doc", Version: 1, Content: []jira4claude.ADFNode{paragraph("new"), paragraph("kept")}}
-	lost := jira4claude.ConversionIssue{Kind: jira4claude.ConversionDropped, Node: "{{media:1 shot.png}}", Detail: "missing"}
+	lost := jira4claude.ConversionIssue{
+		Kind: jira4claude.ConversionDropped, Node: "{{media:1 shot.png}}", Token: "{{media:1 shot.png}}", Detail: "missing", Existing: true,
+	}
 	changed := jira4claude.ConversionIssue{Kind: jira4claude.ConversionDegraded, Node: "emoji", Detail: "as text"}
 
 	t.Run("returns the re-attached document", func(t *testing.T) {
@@ -289,6 +291,7 @@ func TestLiteralTokens(t *testing.T) {
 		require.Len(t, issues, 2)
 		assert.Equal(t, jira4claude.ConversionDegraded, issues[0].Kind)
 		assert.Equal(t, "{{media:1 shot.png}}", issues[0].Node)
+		assert.Equal(t, "{{media:1 shot.png}}", issues[0].Token)
 		assert.Contains(t, issues[0].Detail, "plain text")
 		assert.Equal(t, "{{!mention:2 Ann}}", issues[1].Node)
 	})
@@ -305,9 +308,11 @@ func TestCheckClearDescription(t *testing.T) {
 
 	current := &jira4claude.ADFNode{Type: "doc", Version: 1, Content: []jira4claude.ADFNode{paragraph("old")}}
 	lost := jira4claude.ConversionIssue{
-		Kind:   jira4claude.ConversionDropped,
-		Node:   "{{mention:1 Jane Doe}}",
-		Detail: "the token is not in the new text, so the mention would be removed",
+		Kind:     jira4claude.ConversionDropped,
+		Node:     "{{mention:1 Jane Doe}}",
+		Token:    "{{mention:1 Jane Doe}}",
+		Detail:   "the token is not in the new text, so the mention would be removed",
+		Existing: true,
 	}
 
 	t.Run("a description without protected nodes clears", func(t *testing.T) {
@@ -357,5 +362,8 @@ func TestCheckClearDescription(t *testing.T) {
 		assert.Equal(t, jira4claude.ConversionDropped, issues[0].Kind)
 		assert.Equal(t, "{{mention:1 Jane Doe}}", issues[0].Node)
 		assert.Contains(t, issues[0].Detail, "cleared")
+		assert.True(t, issues[0].Existing, "the node is existing content, removed by the clear")
+		assert.Equal(t, "{{mention:1 Jane Doe}}", issues[0].Token)
+		assert.Equal(t, []string{"{{mention:1 Jane Doe}}"}, jira4claude.RemovedNodes(issues))
 	})
 }

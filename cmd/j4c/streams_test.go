@@ -57,7 +57,7 @@ func everyCommand() []commandCase {
 			}}
 		})},
 		{"issue update", []string{"issue", "update", "TEST-1", "--summary=New"}, failing(func(err error) *mock.IssueService {
-			return &mock.IssueService{UpdateFn: func(context.Context, string, jira4claude.IssueUpdate) (*jira4claude.Issue, error) {
+			return &mock.IssueService{GetFn: readsKey, UpdateFn: func(context.Context, string, jira4claude.IssueUpdate) (*jira4claude.Issue, error) {
 				return nil, err
 			}}
 		})},
@@ -81,6 +81,7 @@ func everyCommand() []commandCase {
 		})},
 		{"issue transition", []string{"issue", "transition", "TEST-1", "--id=31"}, failing(func(err error) *mock.IssueService {
 			return &mock.IssueService{
+				GetFn: readsKey,
 				TransitionsFn: func(context.Context, string) ([]*jira4claude.Transition, error) {
 					return []*jira4claude.Transition{{ID: "31", Name: "Done"}}, nil
 				},
@@ -261,7 +262,7 @@ func warningCases() []warningCase {
 			args:        []string{"issue", "create", "-s", "New", "--description=" + degradedMarkdown},
 			services:    createSvc,
 			textWarning: "[warn] degraded heading",
-			textStdout:  "[ok] Created: TEST-1\n",
+			textStdout:  "TEST-1: created\n",
 			jsonWarning: degraded("heading"),
 		},
 		{
@@ -278,7 +279,7 @@ func warningCases() []warningCase {
 				}, &mock.UserService{}
 			},
 			textWarning: "[warn] degraded heading",
-			textStdout:  "[ok] Updated: TEST-1\n",
+			textStdout:  "TEST-1: updated\n",
 			jsonWarning: degraded("heading"),
 		},
 		{
@@ -290,7 +291,7 @@ func warningCases() []warningCase {
 				}}, &mock.UserService{}
 			},
 			textWarning: "[warn] degraded heading",
-			textStdout:  "[ok] Added comment 10001 to TEST-1\n",
+			textStdout:  "TEST-1: added comment 10001\n",
 			jsonWarning: degraded("heading"),
 		},
 		{
@@ -298,7 +299,7 @@ func warningCases() []warningCase {
 			args:        []string{"issue", "create", "-s", "New", "-d", imageMarkdown, "--force"},
 			services:    createSvc,
 			textWarning: "[warn] dropped Image",
-			textStdout:  "[ok] Created: TEST-1\n",
+			textStdout:  "TEST-1: created\n",
 			jsonWarning: map[string]any{"level": "warning", "kind": jira4claude.ConversionDropped, "node": "Image"},
 		},
 		{

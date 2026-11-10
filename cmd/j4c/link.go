@@ -26,7 +26,9 @@ func (c *LinkCreateCmd) Run(ctx *LinkContext) error {
 		return err
 	}
 
-	ctx.Printer.Success("Linked "+c.InwardKey+" "+c.LinkType, c.OutwardKey)
+	result := newResult(ctx.Config, c.InwardKey, jira4claude.ActionLinked)
+	result.Link = &jira4claude.LinkEnds{Type: c.LinkType, Source: c.InwardKey, Target: c.OutwardKey}
+	ctx.Printer.Mutation(result)
 	return nil
 }
 
@@ -42,7 +44,9 @@ func (c *LinkDeleteCmd) Run(ctx *LinkContext) error {
 		return err
 	}
 
-	ctx.Printer.Success("Unlinked "+c.Key1+" and", c.Key2)
+	result := newResult(ctx.Config, c.Key1, jira4claude.ActionUnlinked)
+	result.Link = &jira4claude.LinkEnds{Source: c.Key1, Target: c.Key2}
+	ctx.Printer.Mutation(result)
 	return nil
 }
 

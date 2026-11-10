@@ -60,7 +60,7 @@ func TestDroppedContentError(t *testing.T) {
 	t.Run("protected-node tokens say to put the token back", func(t *testing.T) {
 		t.Parallel()
 		issues := []jira4claude.ConversionIssue{
-			{Kind: jira4claude.ConversionDropped, Node: "{{mention:2 Jane Doe}}"},
+			{Kind: jira4claude.ConversionDropped, Node: "{{mention:2 Jane Doe}}", Token: "{{mention:2 Jane Doe}}"},
 			{Kind: jira4claude.ConversionDropped, Node: "Image"},
 		}
 
@@ -75,7 +75,7 @@ func TestDroppedContentError(t *testing.T) {
 	t.Run("only tokens: no advice to remove content", func(t *testing.T) {
 		t.Parallel()
 		issues := []jira4claude.ConversionIssue{
-			{Kind: jira4claude.ConversionDropped, Node: "{{mediaSingle:1 shot.png}}"},
+			{Kind: jira4claude.ConversionDropped, Node: "{{mediaSingle:1 shot.png}}", Token: "{{mediaSingle:1 shot.png}}", Existing: true},
 		}
 
 		msg := jira4claude.ErrorMessage(jira4claude.DroppedContentError("description", issues))
@@ -84,6 +84,18 @@ func TestDroppedContentError(t *testing.T) {
 		assert.Contains(t, msg, "put each token back")
 		assert.Contains(t, msg, "--force")
 		assert.NotContains(t, msg, "Remove it")
+	})
+
+	t.Run("a token is told by its Token field, not by how the node looks", func(t *testing.T) {
+		t.Parallel()
+		issues := []jira4claude.ConversionIssue{
+			{Kind: jira4claude.ConversionDropped, Node: "{{odd}}"},
+		}
+
+		msg := jira4claude.ErrorMessage(jira4claude.DroppedContentError("description", issues))
+
+		assert.Contains(t, msg, "{{odd}}")
+		assert.NotContains(t, msg, "put each token back")
 	})
 
 	t.Run("existing content without a Markdown form points to append", func(t *testing.T) {

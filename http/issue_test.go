@@ -2402,6 +2402,31 @@ func TestIssueService_Transitions(t *testing.T) {
 		assert.Equal(t, "Done", transitions[2].Name)
 	})
 
+	t.Run("reads the status each transition leads to", func(t *testing.T) {
+		t.Parallel()
+
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{
+				"transitions": [
+					{"id": "31", "name": "Finish", "to": {"id": "10002", "name": "Done", "statusCategory": {"key": "done"}}},
+					{"id": "41", "name": "Odd"}
+				]
+			}`))
+		}))
+		defer server.Close()
+
+		client := newTestClient(t, server.URL, "user@example.com", "api-token")
+		svc := jirahttp.NewIssueService(client)
+
+		transitions, err := svc.Transitions(context.Background(), "TEST-1")
+
+		require.NoError(t, err)
+		require.Len(t, transitions, 2)
+		assert.Equal(t, jira4claude.Transition{ID: "31", Name: "Finish", To: "Done"}, *transitions[0])
+		assert.Empty(t, transitions[1].To, "a transition without a target has none")
+	})
+
 	t.Run("returns error when issue not found", func(t *testing.T) {
 		t.Parallel()
 

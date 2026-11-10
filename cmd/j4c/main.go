@@ -60,7 +60,7 @@ type MessageContext struct {
 // ConfigContext provides dependencies for config commands.
 type ConfigContext struct {
 	Service jira4claude.ConfigService
-	Printer jira4claude.MessagePrinter
+	Printer jira4claude.Printer
 }
 
 // Deps are the external dependencies of Run. main wires the real
@@ -111,16 +111,11 @@ func Run(args []string, _ io.Reader, stdout, stderr io.Writer, deps Deps) int {
 		return code
 	}
 
-	// Build printer (ServerURL set later after config is loaded)
 	var printer jira4claude.Printer
-	var jsonPrinter *json.Printer
-	var mdPrinter *markdown.Printer
 	if cli.JSON {
-		jsonPrinter = json.NewPrinterWithIO(stdout, stderr)
-		printer = jsonPrinter
+		printer = json.NewPrinterWithIO(stdout, stderr)
 	} else {
-		mdPrinter = markdown.NewPrinterWithIO(stdout, stderr)
-		printer = mdPrinter
+		printer = markdown.NewPrinterWithIO(stdout, stderr)
 	}
 
 	// Init command doesn't need config
@@ -141,14 +136,6 @@ func Run(args []string, _ io.Reader, stdout, stderr io.Writer, deps Deps) int {
 	if err != nil {
 		printer.Error(err)
 		return jira4claude.ExitCode(err)
-	}
-
-	// Set server URL on printers for URL output
-	if jsonPrinter != nil {
-		jsonPrinter.SetServerURL(cfg.Server)
-	}
-	if mdPrinter != nil {
-		mdPrinter.SetServerURL(cfg.Server)
 	}
 
 	if strings.HasPrefix(ctx.Command(), "attachment ") {

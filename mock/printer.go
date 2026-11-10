@@ -19,7 +19,8 @@ type Printer struct {
 	FieldsFn          func(view jira4claude.IssueFieldsView)
 	LinksFn           func(key string, links []jira4claude.RelatedIssueView)
 	AttachmentsFn     func(key string, attachments []jira4claude.AttachmentView)
-	SuccessFn         func(msg string, keys ...string)
+	MutationFn        func(result jira4claude.MutationResult)
+	InitializedFn     func(result jira4claude.InitResult)
 	WarningFn         func(msg string)
 	ConversionIssueFn func(issue jira4claude.ConversionIssue)
 	ErrorFn           func(err error)
@@ -45,10 +46,8 @@ type Printer struct {
 		Key         string
 		Attachments []jira4claude.AttachmentView
 	}
-	SuccessCalls []struct {
-		Msg  string
-		Keys []string
-	}
+	MutationCalls        []jira4claude.MutationResult
+	InitializedCalls     []jira4claude.InitResult
 	WarningCalls         []string
 	ConversionIssueCalls []jira4claude.ConversionIssue
 	ErrorCalls           []error
@@ -135,13 +134,17 @@ func (p *Printer) Attachments(key string, attachments []jira4claude.AttachmentVi
 	}
 }
 
-func (p *Printer) Success(msg string, keys ...string) {
-	p.SuccessCalls = append(p.SuccessCalls, struct {
-		Msg  string
-		Keys []string
-	}{msg, keys})
-	if p.SuccessFn != nil {
-		p.SuccessFn(msg, keys...)
+func (p *Printer) Mutation(result jira4claude.MutationResult) {
+	p.MutationCalls = append(p.MutationCalls, result)
+	if p.MutationFn != nil {
+		p.MutationFn(result)
+	}
+}
+
+func (p *Printer) Initialized(result jira4claude.InitResult) {
+	p.InitializedCalls = append(p.InitializedCalls, result)
+	if p.InitializedFn != nil {
+		p.InitializedFn(result)
 	}
 }
 

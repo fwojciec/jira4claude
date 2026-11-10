@@ -2,6 +2,7 @@ package markdown_test
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -481,54 +482,139 @@ func TestPrinter_Links(t *testing.T) {
 	})
 }
 
-func TestPrinter_Success(t *testing.T) {
+func TestPrinter_Mutation(t *testing.T) {
 	t.Parallel()
 
-	t.Run("renders success message without keys", func(t *testing.T) {
-		t.Parallel()
-		var out bytes.Buffer
-		p := markdown.NewPrinter(&out)
+	const url = "https://x.atlassian.net/browse/TEST-1"
+	tests := []struct {
+		name   string
+		result jira4claude.MutationResult
+		want   string
+	}{
+		{
+			name:   "created",
+			result: jira4claude.MutationResult{Key: "TEST-1", URL: url, Action: jira4claude.ActionCreated},
+			want:   "TEST-1: created\n" + url + "\n",
+		},
+		{
+			name: "updated, with every kind of value, sorted by field",
+			result: jira4claude.MutationResult{
+				Key: "TEST-1", URL: url, Action: jira4claude.ActionUpdated,
+				Changes: map[string]jira4claude.Change{
+					"summary":       {From: "Old", To: "New"},
+					"assignee":      {From: nil, To: "Jane Doe"},
+					"labels":        {From: []string{}, To: []string{"a", "b"}},
+					"description":   {Edit: jira4claude.EditSet},
+					"customfield_1": {From: json.RawMessage(`{"value": "Low"}`), To: json.RawMessage(`{"value":"High"}`)},
+				},
+				Removed: []string{"{{mediaSingle:1 shot.png}}", "inlineCard"},
+				Updated: "2026-11-09T10:15:30.123Z",
+			},
+			want: "TEST-1: updated\n" +
+				"  assignee: (none) → Jane Doe\n" +
+				`  customfield_1: {"value":"Low"} → {"value":"High"}` + "\n" +
+				"  description: set\n" +
+				"  labels: (none) → a, b\n" +
+				"  summary: Old → New\n" +
+				"  removed: {{mediaSingle:1 shot.png}}, inlineCard\n" +
+				"  updated: 2026-11-09T10:15:30.123Z\n" +
+				url + "\n",
+		},
+		{
+			name: "transitioned prints the status move on the key line",
+			result: jira4claude.MutationResult{
+				Key: "TEST-1", URL: url, Action: jira4claude.ActionTransitioned,
+				Changes: map[string]jira4claude.Change{"status": {From: "Backlog", To: "Done"}},
+			},
+			want: "TEST-1: Backlog → Done\n" + url + "\n",
+		},
+		{
+			name: "assigned",
+			result: jira4claude.MutationResult{
+				Key: "TEST-1", URL: url, Action: jira4claude.ActionAssigned,
+				Changes: map[string]jira4claude.Change{"assignee": {From: "Jane Doe", To: "John Roe"}},
+			},
+			want: "TEST-1: assigned\n  assignee: Jane Doe → John Roe\n" + url + "\n",
+		},
+		{
+			name: "unassigned",
+			result: jira4claude.MutationResult{
+				Key: "TEST-1", URL: url, Action: jira4claude.ActionUnassigned,
+				Changes: map[string]jira4claude.Change{"assignee": {From: "Jane Doe", To: nil}},
+			},
+			want: "TEST-1: unassigned\n  assignee: Jane Doe → (none)\n" + url + "\n",
+		},
+		{
+			name:   "deleted has no URL",
+			result: jira4claude.MutationResult{Key: "TEST-1", Action: jira4claude.ActionDeleted},
+			want:   "TEST-1: deleted\n",
+		},
+		{
+			name:   "comment added",
+			result: jira4claude.MutationResult{Key: "TEST-1", URL: url, Action: jira4claude.ActionCommentAdded, CommentID: "10001"},
+			want:   "TEST-1: added comment 10001\n" + url + "\n",
+		},
+		{
+			name:   "comment deleted",
+			result: jira4claude.MutationResult{Key: "TEST-1", URL: url, Action: jira4claude.ActionCommentDeleted, CommentID: "10001"},
+			want:   "TEST-1: deleted comment 10001\n" + url + "\n",
+		},
+		{
+			name: "linked",
+			result: jira4claude.MutationResult{
+				Key: "TEST-1", URL: url, Action: jira4claude.ActionLinked,
+				Link: &jira4claude.LinkEnds{Type: "Blocks", Source: "TEST-1", Target: "TEST-2"},
+			},
+			want: "TEST-1: linked, TEST-1 Blocks TEST-2\n" + url + "\n",
+		},
+		{
+			name: "unlinked",
+			result: jira4claude.MutationResult{
+				Key: "TEST-1", URL: url, Action: jira4claude.ActionUnlinked,
+				Link: &jira4claude.LinkEnds{Source: "TEST-1", Target: "TEST-2"},
+			},
+			want: "TEST-1: unlinked from TEST-2\n" + url + "\n",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			var out, errOut bytes.Buffer
+			p := markdown.NewPrinterWithIO(&out, &errOut)
 
-		p.Success("Operation completed")
-		result := out.String()
+			p.Mutation(tc.result)
 
-		assert.Equal(t, "[ok] Operation completed\n", result)
-	})
+			assert.Equal(t, tc.want, out.String())
+			assert.Empty(t, errOut.String())
+		})
+	}
+}
 
-	t.Run("renders success message with keys", func(t *testing.T) {
-		t.Parallel()
-		var out bytes.Buffer
-		p := markdown.NewPrinter(&out)
+func TestPrinter_Initialized(t *testing.T) {
+	t.Parallel()
 
-		p.Success("Issue created", "J4C-105")
-		result := out.String()
+	tests := []struct {
+		name   string
+		result jira4claude.InitResult
+		want   string
+	}{
+		{"config and gitignore entry", jira4claude.InitResult{ConfigCreated: true, GitignoreAdded: true},
+			"Created .jira4claude.yaml\nAdded .jira4claude.yaml to .gitignore\n"},
+		{"gitignore entry already there", jira4claude.InitResult{ConfigCreated: true, GitignoreExists: true},
+			"Created .jira4claude.yaml\n.jira4claude.yaml already in .gitignore\n"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			var out, errOut bytes.Buffer
+			p := markdown.NewPrinterWithIO(&out, &errOut)
 
-		assert.Contains(t, result, "[ok] Issue created J4C-105")
-	})
+			p.Initialized(tc.result)
 
-	t.Run("renders success message with multiple keys", func(t *testing.T) {
-		t.Parallel()
-		var out bytes.Buffer
-		p := markdown.NewPrinter(&out)
-
-		p.Success("Issues created", "J4C-105", "J4C-106")
-		result := out.String()
-
-		assert.Contains(t, result, "[ok] Issues created J4C-105, J4C-106")
-	})
-
-	t.Run("includes URLs when server URL is set", func(t *testing.T) {
-		t.Parallel()
-		var out bytes.Buffer
-		p := markdown.NewPrinter(&out)
-		p.SetServerURL("https://fwojciec.atlassian.net")
-
-		p.Success("Issue created", "J4C-105")
-		result := out.String()
-
-		assert.Contains(t, result, "[ok] Issue created J4C-105")
-		assert.Contains(t, result, "https://fwojciec.atlassian.net/browse/J4C-105")
-	})
+			assert.Equal(t, tc.want, out.String())
+			assert.Empty(t, errOut.String())
+		})
+	}
 }
 
 func TestPrinter_Warning(t *testing.T) {

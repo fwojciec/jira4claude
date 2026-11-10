@@ -430,8 +430,9 @@ func reportUnreadTokens(skipped *skippedCollector, found []string) {
 			continue
 		}
 		skipped.record(jira4claude.ConversionIssue{
-			Kind: jira4claude.ConversionDropped,
-			Node: p.token,
+			Kind:  jira4claude.ConversionDropped,
+			Node:  p.token,
+			Token: p.token,
 			Detail: fmt.Sprintf("the token for this %s does not read back as written, "+
 				"so writing this text back would lose the node", nodeName(p.node.Type)),
 		})
@@ -536,7 +537,7 @@ func reattach(original, edited *jira4claude.ADFNode) (*jira4claude.ADFNode, []ji
 	out.Content = r.content(edited.Type, edited.Content)
 	for i, p := range r.nodes {
 		if !r.seen[i] {
-			r.drop(p.token, fmt.Sprintf("the token is not in the new text, so the %s would be removed", nodeName(p.node.Type)))
+			r.lose(p.token, fmt.Sprintf("the token is not in the new text, so the %s would be removed", nodeName(p.node.Type)))
 		}
 	}
 	// Content the read left out has no token: no edit of the Markdown can
@@ -544,7 +545,7 @@ func reattach(original, edited *jira4claude.ADFNode) (*jira4claude.ADFNode, []ji
 	// do not read back are reported above, as missing. Degraded content was
 	// read in another form, which the Markdown keeps, so it is no loss here.
 	for _, d := range jira4claude.DroppedIssues(skipped.issues()) {
-		if jira4claude.IsProtectedToken(d.Node) {
+		if d.Token != "" {
 			continue
 		}
 		r.issues = append(r.issues, jira4claude.ConversionIssue{
@@ -572,11 +573,26 @@ type piece struct {
 	block bool
 }
 
+// drop reports a token of the new text that is left as text, while the node
+// it names, if any, is restored or reported on its own.
 func (r *reattacher) drop(node, detail string) {
 	r.issues = append(r.issues, jira4claude.ConversionIssue{
 		Kind:   jira4claude.ConversionDropped,
 		Node:   node,
+		Token:  node,
 		Detail: detail,
+	})
+}
+
+// lose reports a node of the original document that the result does not hold:
+// the write removes existing content.
+func (r *reattacher) lose(node, detail string) {
+	r.issues = append(r.issues, jira4claude.ConversionIssue{
+		Kind:     jira4claude.ConversionDropped,
+		Node:     node,
+		Token:    node,
+		Detail:   detail,
+		Existing: true,
 	})
 }
 
@@ -907,7 +923,7 @@ func (r *reattacher) resolve(token, kind, number, container string, mode blockMo
 			case mode == blockSplit:
 				where = "paragraph in a " + container
 			}
-			r.drop(p.token, fmt.Sprintf("a %s cannot stand in a %s, so the token is left as text; "+
+			r.lose(p.token, fmt.Sprintf("a %s cannot stand in a %s, so the token is left as text; "+
 				"put it on a line of its own where the node is allowed", nodeName(p.node.Type), where))
 			return jira4claude.ADFNode{}, false, false
 		}

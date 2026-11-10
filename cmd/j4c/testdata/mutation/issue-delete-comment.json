@@ -1,0 +1,7 @@
+{
+  "key": "TEST-1",
+  "url": "https://test.atlassian.net/browse/TEST-1",
+  "action": "comment_deleted",
+  "changes": {},
+  "commentId": "10001"
+}

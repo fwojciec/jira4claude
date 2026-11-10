@@ -238,6 +238,10 @@ func TestReattach_MissingTokenIsDropped(t *testing.T) {
 	assert.Contains(t, issues[0].Detail, "mediaGroup")
 	assert.Equal(t, "{{mediaInline:3 report.pdf}}", issues[1].Node)
 	assert.Equal(t, "mediaSingle", got.Content[1].Type, "the remaining token is restored")
+	for _, i := range issues {
+		assert.True(t, i.Existing, "a missing token removes existing content: %s", i.Node)
+		assert.Equal(t, i.Node, i.Token, "an issue about a token carries it in Token")
+	}
 
 	err := jira4claude.DroppedContentError("description", issues)
 	require.Error(t, err)
@@ -337,6 +341,8 @@ func TestReattach_TokenProblems(t *testing.T) {
 		require.Len(t, issues, 1)
 		assert.Equal(t, jira4claude.ConversionDropped, issues[0].Kind)
 		assert.Equal(t, "{{mention:7 Zed}}", issues[0].Node)
+		assert.False(t, issues[0].Existing, "the token is new text; nothing existing is removed")
+		assert.Equal(t, "{{mention:7 Zed}}", issues[0].Token)
 		assert.Equal(t, "and {{mention:7 Zed}}", got.Content[2].Content[0].Text, "left as text")
 	})
 
@@ -349,6 +355,8 @@ func TestReattach_TokenProblems(t *testing.T) {
 		assert.Equal(t, jira4claude.ConversionDropped, issues[0].Kind)
 		assert.Equal(t, "{{mention:1 Ann}}", issues[0].Node)
 		assert.Contains(t, issues[0].Detail, "more than once")
+		assert.False(t, issues[0].Existing, "the node is restored once; nothing existing is removed")
+		assert.Equal(t, "{{mention:1 Ann}}", issues[0].Token)
 		require.Len(t, got.Content[0].Content, 3)
 		assert.Equal(t, "mention", got.Content[0].Content[1].Type, "the first one is restored")
 		assert.Equal(t, " and {{mention:1 Ann}}", got.Content[0].Content[2].Text, "the second is left as text")
@@ -373,6 +381,8 @@ func TestReattach_TokenProblems(t *testing.T) {
 		assert.Equal(t, "{{mediaInline:1 Ann}}", issues[0].Node)
 		assert.Contains(t, issues[0].Detail, "mention")
 		assert.Equal(t, "{{mention:1 Ann}}", issues[1].Node, "the node is also missing")
+		assert.False(t, issues[0].Existing, "the mismatched token is new text")
+		assert.True(t, issues[1].Existing, "the missing node is removed")
 		assert.Equal(t, "hi {{mediaInline:1 Ann}}", got.Content[0].Content[0].Text, "left as text")
 	})
 }
@@ -398,6 +408,8 @@ func TestReattach_OriginalChangedSinceRead(t *testing.T) {
 	assert.Equal(t, "{{mention:1 Ann}}", issues[0].Node)
 	assert.Contains(t, issues[0].Detail, "mediaInline")
 	assert.Equal(t, "{{mediaInline:1 a.pdf}}", issues[1].Node)
+	assert.False(t, issues[0].Existing)
+	assert.True(t, issues[1].Existing, "the current node is removed")
 	assert.Empty(t, protectedNodes(got))
 }
 
@@ -703,6 +715,8 @@ func TestReattach_MovedTokens(t *testing.T) {
 		assert.Contains(t, issues[0].Detail, "heading")
 		assert.Equal(t, "{{mediaGroup:3 a.log}}", issues[1].Node)
 		assert.Contains(t, issues[1].Detail, "listItem")
+		assert.True(t, issues[0].Existing, "a misplaced block token is left as text, so its node is removed")
+		assert.True(t, issues[1].Existing)
 		assert.Equal(t, "head {{mediaSingle:2 pic}}", got.Content[0].Content[0].Text)
 	})
 

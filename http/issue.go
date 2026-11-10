@@ -467,6 +467,9 @@ type userResponse struct {
 type transitionResponse struct {
 	ID   string `json:"id"`
 	Name string `json:"name"`
+	To   struct {
+		Name string `json:"name"`
+	} `json:"to"`
 }
 
 // createIssueResponse represents the JSON structure returned by Jira API when creating an issue.
@@ -673,6 +676,7 @@ func mapTransitions(transitions []transitionResponse) []*jira4claude.Transition 
 		result[i] = &jira4claude.Transition{
 			ID:   t.ID,
 			Name: t.Name,
+			To:   t.To.Name,
 		}
 	}
 	return result

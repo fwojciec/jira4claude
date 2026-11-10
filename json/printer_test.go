@@ -368,43 +368,6 @@ func TestPrinter_Links_WithInwardIssue(t *testing.T) {
 	assert.Equal(t, "In Progress", link["status"])
 }
 
-func TestPrinter_Success(t *testing.T) {
-	t.Parallel()
-
-	var out bytes.Buffer
-	p := jsonpkg.NewPrinter(&out)
-
-	p.Success("Created issue", "TEST-123")
-
-	var result map[string]any
-	err := json.Unmarshal(out.Bytes(), &result)
-	require.NoError(t, err)
-	assert.Equal(t, true, result["success"])
-	assert.Equal(t, "Created issue", result["message"])
-	keys, ok := result["keys"].([]any)
-	require.True(t, ok)
-	assert.Contains(t, keys, "TEST-123")
-}
-
-func TestPrinter_Success_NoKeys(t *testing.T) {
-	t.Parallel()
-
-	var out bytes.Buffer
-	p := jsonpkg.NewPrinter(&out)
-
-	p.Success("Operation complete")
-
-	var result map[string]any
-	err := json.Unmarshal(out.Bytes(), &result)
-	require.NoError(t, err)
-	assert.Equal(t, true, result["success"])
-	assert.Equal(t, "Operation complete", result["message"])
-	_, hasKeys := result["keys"]
-	assert.False(t, hasKeys, "keys should not be present when no keys provided")
-}
-
-// assertJSONLines checks that got is exactly one compact JSON object per line,
-// each newline-terminated, equal in order to want.
 func assertJSONLines(t *testing.T, got string, want ...string) {
 	t.Helper()
 	require.True(t, strings.HasSuffix(got, "\n"), "output must end in a newline: %q", got)
@@ -531,61 +494,6 @@ func TestPrinter_Issue_NoURLWhenEmpty(t *testing.T) {
 	assert.False(t, hasURL, "url should not be present when empty")
 }
 
-func TestPrinter_Success_WithServerURL(t *testing.T) {
-	t.Parallel()
-
-	var out bytes.Buffer
-	p := jsonpkg.NewPrinter(&out)
-	p.SetServerURL("https://example.atlassian.net")
-
-	p.Success("Created:", "TEST-123")
-
-	var result map[string]any
-	err := json.Unmarshal(out.Bytes(), &result)
-	require.NoError(t, err)
-	assert.Equal(t, true, result["success"])
-	assert.Equal(t, "Created:", result["message"])
-	urls, ok := result["urls"].([]any)
-	require.True(t, ok, "urls should be an array")
-	assert.Contains(t, urls, "https://example.atlassian.net/browse/TEST-123")
-}
-
-func TestPrinter_Success_NoURLsWhenNoKeys(t *testing.T) {
-	t.Parallel()
-
-	var out bytes.Buffer
-	p := jsonpkg.NewPrinter(&out)
-	p.SetServerURL("https://example.atlassian.net")
-
-	p.Success("Operation complete")
-
-	var result map[string]any
-	err := json.Unmarshal(out.Bytes(), &result)
-	require.NoError(t, err)
-	_, hasURLs := result["urls"]
-	assert.False(t, hasURLs, "urls should not be present when no keys provided")
-}
-
-func TestPrinter_Success_ShowsMultipleURLsForMultipleKeys(t *testing.T) {
-	t.Parallel()
-
-	var out bytes.Buffer
-	p := jsonpkg.NewPrinter(&out)
-	p.SetServerURL("https://example.atlassian.net")
-
-	p.Success("Created:", "TEST-1", "TEST-2", "TEST-3")
-
-	var result map[string]any
-	err := json.Unmarshal(out.Bytes(), &result)
-	require.NoError(t, err)
-	urls, ok := result["urls"].([]any)
-	require.True(t, ok, "urls should be an array")
-	require.Len(t, urls, 3)
-	assert.Equal(t, "https://example.atlassian.net/browse/TEST-1", urls[0])
-	assert.Equal(t, "https://example.atlassian.net/browse/TEST-2", urls[1])
-	assert.Equal(t, "https://example.atlassian.net/browse/TEST-3", urls[2])
-}
-
 func TestPrinter_Comment(t *testing.T) {
 	t.Parallel()
 
@@ -683,6 +591,26 @@ func TestPrinter_ConversionIssue(t *testing.T) {
 		assertJSONLines(t, errOut.String(),
 			`{"level":"warning","message":"dropped Image: skipped unsupported node type 'Image'",`+
 				`"kind":"dropped","node":"Image","detail":"skipped unsupported node type 'Image'"}`)
+	})
+
+	t.Run("a token issue also carries the token", func(t *testing.T) {
+		t.Parallel()
+
+		var out, errOut bytes.Buffer
+		p := jsonpkg.NewPrinterWithIO(&out, &errOut)
+
+		p.ConversionIssue(jira4claude.ConversionIssue{
+			Kind:     jira4claude.ConversionDropped,
+			Node:     "{{mention:2 Jane Doe}}",
+			Token:    "{{mention:2 Jane Doe}}",
+			Detail:   "the token is not in the new text",
+			Existing: true,
+		})
+
+		assertJSONLines(t, errOut.String(),
+			`{"level":"warning","message":"dropped {{mention:2 Jane Doe}}: the token is not in the new text",`+
+				`"kind":"dropped","node":"{{mention:2 Jane Doe}}","token":"{{mention:2 Jane Doe}}",`+
+				`"detail":"the token is not in the new text","existing":true}`)
 	})
 
 	t.Run("writes degraded issues", func(t *testing.T) {
@@ -971,4 +899,63 @@ func TestPrinter_Attachments(t *testing.T) {
 		assert.JSONEq(t, `[]`, out.String())
 		assert.Empty(t, errOut.String())
 	})
+}
+
+func TestPrinter_Mutation(t *testing.T) {
+	t.Parallel()
+
+	t.Run("prints the result as one JSON object on stdout", func(t *testing.T) {
+		t.Parallel()
+		var out, errOut bytes.Buffer
+		p := jsonpkg.NewPrinterWithIO(&out, &errOut)
+
+		p.Mutation(jira4claude.MutationResult{
+			Key:    "TEST-1",
+			URL:    "https://x.atlassian.net/browse/TEST-1",
+			Action: jira4claude.ActionUpdated,
+			Changes: map[string]jira4claude.Change{
+				"summary":     {From: "Old", To: "New"},
+				"assignee":    {From: nil, To: "Jane Doe"},
+				"description": {Edit: jira4claude.EditAppended},
+			},
+			Removed: []string{"{{mention:1 Ann}}"},
+			Updated: "2026-11-09T10:15:30.123Z",
+		})
+
+		assert.JSONEq(t, `{
+			"key": "TEST-1",
+			"url": "https://x.atlassian.net/browse/TEST-1",
+			"action": "updated",
+			"changes": {
+				"summary": {"from": "Old", "to": "New"},
+				"assignee": {"from": null, "to": "Jane Doe"},
+				"description": {"edit": "appended"}
+			},
+			"removed": ["{{mention:1 Ann}}"],
+			"updated": "2026-11-09T10:15:30.123Z"
+		}`, out.String())
+		assert.Empty(t, errOut.String())
+	})
+
+	t.Run("changes is an empty object, never null", func(t *testing.T) {
+		t.Parallel()
+		var out bytes.Buffer
+		p := jsonpkg.NewPrinter(&out)
+
+		p.Mutation(jira4claude.MutationResult{Key: "TEST-1", Action: jira4claude.ActionDeleted})
+
+		assert.JSONEq(t, `{"key":"TEST-1","action":"deleted","changes":{}}`, out.String())
+	})
+}
+
+func TestPrinter_Initialized(t *testing.T) {
+	t.Parallel()
+
+	var out, errOut bytes.Buffer
+	p := jsonpkg.NewPrinterWithIO(&out, &errOut)
+
+	p.Initialized(jira4claude.InitResult{ConfigCreated: true, GitignoreAdded: true})
+
+	assert.JSONEq(t, `{"configCreated":true,"gitignoreAdded":true,"gitignoreExists":false}`, out.String())
+	assert.Empty(t, errOut.String())
 }

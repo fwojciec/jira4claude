@@ -28,13 +28,6 @@ func (c *InitCmd) Run(ctx *ConfigContext) error {
 		return err
 	}
 
-	if result.ConfigCreated {
-		ctx.Printer.Success("Created .jira4claude.yaml")
-	}
-	if result.GitignoreAdded {
-		ctx.Printer.Success("Added .jira4claude.yaml to .gitignore")
-	} else if result.GitignoreExists {
-		ctx.Printer.Success(".jira4claude.yaml already in .gitignore")
-	}
+	ctx.Printer.Initialized(*result)
 	return nil
 }

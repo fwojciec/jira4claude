@@ -57,8 +57,7 @@ func TestInitCmd(t *testing.T) {
 		err := cmd.Run(ctx)
 
 		require.NoError(t, err)
-		require.Len(t, printer.SuccessCalls, 1)
-		assert.Equal(t, "Created .jira4claude.yaml", printer.SuccessCalls[0].Msg)
+		assert.Equal(t, []jira4claude.InitResult{{ConfigCreated: true}}, printer.InitializedCalls)
 	})
 
 	t.Run("prints success when gitignore entry added", func(t *testing.T) {
@@ -80,9 +79,7 @@ func TestInitCmd(t *testing.T) {
 		err := cmd.Run(ctx)
 
 		require.NoError(t, err)
-		require.Len(t, printer.SuccessCalls, 2)
-		assert.Equal(t, "Created .jira4claude.yaml", printer.SuccessCalls[0].Msg)
-		assert.Equal(t, "Added .jira4claude.yaml to .gitignore", printer.SuccessCalls[1].Msg)
+		assert.Equal(t, []jira4claude.InitResult{{ConfigCreated: true, GitignoreAdded: true}}, printer.InitializedCalls)
 	})
 
 	t.Run("prints success when gitignore entry already exists", func(t *testing.T) {
@@ -104,9 +101,7 @@ func TestInitCmd(t *testing.T) {
 		err := cmd.Run(ctx)
 
 		require.NoError(t, err)
-		require.Len(t, printer.SuccessCalls, 2)
-		assert.Equal(t, "Created .jira4claude.yaml", printer.SuccessCalls[0].Msg)
-		assert.Equal(t, ".jira4claude.yaml already in .gitignore", printer.SuccessCalls[1].Msg)
+		assert.Equal(t, []jira4claude.InitResult{{ConfigCreated: true, GitignoreExists: true}}, printer.InitializedCalls)
 	})
 
 	t.Run("returns error when config already exists", func(t *testing.T) {

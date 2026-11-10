@@ -29,12 +29,18 @@ type AttachmentPrinter interface {
 	Attachments(key string, attachments []AttachmentView)
 }
 
-// MessagePrinter handles success/error/warning output. Success is written
-// with the data, to stdout. Warning, ConversionIssue and Error are diagnostics:
-// an implementation writes them to stderr, never stdout, so that stdout holds
-// only data.
+// MutationPrinter reports what a command that writes did. It writes to stdout,
+// as data.
+type MutationPrinter interface {
+	// Mutation reports a write to Jira.
+	Mutation(result MutationResult)
+	// Initialized reports what init wrote.
+	Initialized(result InitResult)
+}
+
+// MessagePrinter handles diagnostics. Warning, ConversionIssue and Error are
+// written to stderr, never stdout, so that stdout holds only data.
 type MessagePrinter interface {
-	Success(msg string, keys ...string)
 	Warning(msg string)
 	// ConversionIssue reports content that a Markdown/ADF conversion dropped
 	// or degraded. It is a warning: it never changes the exit code.
@@ -47,5 +53,6 @@ type Printer interface {
 	IssuePrinter
 	LinkPrinter
 	AttachmentPrinter
+	MutationPrinter
 	MessagePrinter
 }

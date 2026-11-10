@@ -1,0 +1,15 @@
+{
+  "key": "TEST-1",
+  "url": "https://test.atlassian.net/browse/TEST-1",
+  "action": "updated",
+  "changes": {
+    "description": {
+      "edit": "cleared"
+    }
+  },
+  "removed": [
+    "{{mediaSingle:1 shot.png}}",
+    "{{mention:2 Jane Doe}}"
+  ],
+  "updated": "2026-11-10T09:00:00.456Z"
+}

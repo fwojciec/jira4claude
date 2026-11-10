@@ -272,7 +272,7 @@ func (c *IssueCreateCmd) Run(ctx *IssueContext) error {
 
 	created, err := ctx.Service.Create(context.Background(), issue)
 	if err == nil {
-		ctx.Printer.Success("Created:", created.Key)
+		ctx.Printer.Mutation(newResult(ctx.Config, created.Key, jira4claude.ActionCreated))
 		return nil
 	}
 	if assignee == nil || !rejectsAssigneeField(err) {
@@ -289,7 +289,7 @@ func (c *IssueCreateCmd) Run(ctx *IssueContext) error {
 	if err != nil {
 		return err
 	}
-	ctx.Printer.Success("Created:", created.Key)
+	ctx.Printer.Mutation(newResult(ctx.Config, created.Key, jira4claude.ActionCreated))
 
 	if err := ctx.Service.Assign(context.Background(), created.Key, assignee.AccountID); err != nil {
 		return &jira4claude.Error{
@@ -338,10 +338,12 @@ type IssueUpdateCmd struct {
 	Force             bool     `help:"Write even if content would be lost: new Markdown that does not convert (e.g. images), existing nodes whose tokens were left out, or a cleared description that holds them; what is lost is reported as a warning"`
 }
 
-// Run executes the update command. Anything that touches the description, and
-// --if-updated, reads the issue first: the read is the base for re-attaching
-// protected nodes, appending and the --if-updated check, and comes as late as
-// possible to keep the window before the write short.
+// Run executes the update command. Every update reads the issue first: the
+// read gives the "from" value of each change reported, and is the base for
+// re-attaching protected nodes, appending and the --if-updated check. It comes
+// as late as possible to keep the window before the write short. The issue
+// Update returns, read back after the write, gives the "to" values and the
+// resulting updated time.
 func (c *IssueUpdateCmd) Run(ctx *IssueContext) error {
 	// Validate and convert the new Markdown first, so a refusal that does not
 	// depend on the current issue happens before any service call, including
@@ -398,38 +400,40 @@ func (c *IssueUpdateCmd) Run(ctx *IssueContext) error {
 		return err
 	}
 
+	current, err := ctx.Service.Get(context.Background(), c.Key)
+	if err != nil {
+		return err
+	}
+	if ifUpdated != nil {
+		if err := jira4claude.CheckUpdated(current, *ifUpdated); err != nil {
+			return err
+		}
+	}
 	var description jira4claude.DescriptionUpdate
-	if edited != nil || addition != nil || c.ClearDescription || ifUpdated != nil {
-		current, err := ctx.Service.Get(context.Background(), c.Key)
+	// rewrite holds the issues of re-attaching or clearing, which name the
+	// existing content the write removes under --force.
+	var rewrite []jira4claude.ConversionIssue
+	switch {
+	case edited != nil:
+		doc, issues, err := jira4claude.ReplaceDescription(ctx.Converter, current.Description, edited, c.Force)
 		if err != nil {
 			return err
 		}
-		if ifUpdated != nil {
-			if err := jira4claude.CheckUpdated(current, *ifUpdated); err != nil {
-				return err
-			}
+		description = jira4claude.SetDescription(doc)
+		rewrite = issues
+	case addition != nil:
+		// Append at the ADF level: the current nodes are sent back as
+		// read, never through Markdown.
+		description = jira4claude.AppendDescription(current.Description, addition)
+	case c.ClearDescription:
+		issues, err := jira4claude.CheckClearDescription(ctx.Converter, current.Description, c.Force)
+		if err != nil {
+			return err
 		}
-		switch {
-		case edited != nil:
-			doc, issues, err := jira4claude.ReplaceDescription(ctx.Converter, current.Description, edited, c.Force)
-			if err != nil {
-				return err
-			}
-			description = jira4claude.SetDescription(doc)
-			warnings = append(warnings, issues...)
-		case addition != nil:
-			// Append at the ADF level: the current nodes are sent back as
-			// read, never through Markdown.
-			description = jira4claude.AppendDescription(current.Description, addition)
-		case c.ClearDescription:
-			issues, err := jira4claude.CheckClearDescription(ctx.Converter, current.Description, c.Force)
-			if err != nil {
-				return err
-			}
-			description = jira4claude.ClearDescription()
-			warnings = append(warnings, issues...)
-		}
+		description = jira4claude.ClearDescription()
+		rewrite = issues
 	}
+	warnings = append(warnings, rewrite...)
 	for _, w := range warnings {
 		ctx.Printer.ConversionIssue(w)
 	}
@@ -461,7 +465,11 @@ func (c *IssueUpdateCmd) Run(ctx *IssueContext) error {
 		return err
 	}
 
-	ctx.Printer.Success("Updated:", updated.Key)
+	result := newResult(ctx.Config, c.Key, jira4claude.ActionUpdated)
+	result.Changes = jira4claude.UpdateChanges(current, updated, update)
+	result.Removed = jira4claude.RemovedNodes(rewrite)
+	result.Updated = jira4claude.UpdatedTimestamp(updated)
+	ctx.Printer.Mutation(result)
 	return nil
 }
 
@@ -549,7 +557,7 @@ func (c *IssueTransitionsCmd) Run(ctx *IssueContext) error {
 // IssueTransitionCmd transitions an issue.
 type IssueTransitionCmd struct {
 	Key    string `arg:"" help:"Issue key"`
-	Status string `help:"Target status name" short:"s" xor:"target"`
+	Status string `help:"Target status, or failing that the transition's name (case-insensitive); more than one match is refused, use --id then" short:"s" xor:"target"`
 	ID     string `help:"Transition ID" short:"i" xor:"target"`
 }
 
@@ -567,33 +575,29 @@ func (c *IssueTransitionCmd) Run(ctx *IssueContext) error {
 		return err
 	}
 
-	var transitionID string
+	var transition *jira4claude.Transition
 	if c.ID != "" {
-		transitionID = c.ID
+		transition, err = jira4claude.TransitionByID(transitions, c.ID)
 	} else {
-		for _, t := range transitions {
-			if strings.EqualFold(t.Name, c.Status) {
-				transitionID = t.ID
-				break
-			}
-		}
-		if transitionID == "" {
-			available := make([]string, len(transitions))
-			for i, t := range transitions {
-				available[i] = `"` + t.Name + `"`
-			}
-			return &jira4claude.Error{
-				Code:    jira4claude.EValidation,
-				Message: `status "` + c.Status + `" not found; available: ` + strings.Join(available, ", "),
-			}
-		}
+		transition, err = jira4claude.SelectTransition(transitions, c.Status)
 	}
-
-	if err := ctx.Service.Transition(context.Background(), c.Key, transitionID); err != nil {
+	if err != nil {
 		return err
 	}
 
-	ctx.Printer.Success("Transitioned:", c.Key)
+	// Read the status the issue leaves.
+	current, err := ctx.Service.Get(context.Background(), c.Key)
+	if err != nil {
+		return err
+	}
+
+	if err := ctx.Service.Transition(context.Background(), c.Key, transition.ID); err != nil {
+		return err
+	}
+
+	result := newResult(ctx.Config, c.Key, jira4claude.ActionTransitioned)
+	result.Changes = map[string]jira4claude.Change{"status": jira4claude.StatusChange(current, transition)}
+	ctx.Printer.Mutation(result)
 	return nil
 }
 
@@ -610,15 +614,33 @@ func (c *IssueAssignCmd) Run(ctx *IssueContext) error {
 		return err
 	}
 
+	before, err := ctx.Service.Get(context.Background(), c.Key)
+	if err != nil {
+		return err
+	}
+
 	if err := ctx.Service.Assign(context.Background(), c.Key, accountID); err != nil {
 		return err
 	}
 
+	action := jira4claude.ActionAssigned
 	if accountID == "" {
-		ctx.Printer.Success("Unassigned:", c.Key)
-	} else {
-		ctx.Printer.Success("Assigned:", c.Key)
+		action = jira4claude.ActionUnassigned
 	}
+	// Read the assignee back: an account ID given on the command line has no
+	// display name until Jira supplies it.
+	after, err := ctx.Service.Get(context.Background(), c.Key)
+	if err != nil {
+		return &jira4claude.Error{
+			Code:    jira4claude.ErrorCode(err),
+			Message: action + " " + c.Key + ", but reading it back failed",
+			Inner:   err,
+		}
+	}
+
+	result := newResult(ctx.Config, c.Key, action)
+	result.Changes = map[string]jira4claude.Change{"assignee": jira4claude.AssigneeChange(before, after)}
+	ctx.Printer.Mutation(result)
 	return nil
 }
 
@@ -642,7 +664,9 @@ func (c *IssueCommentCmd) Run(ctx *IssueContext) error {
 		return err
 	}
 
-	ctx.Printer.Success("Added comment "+comment.ID+" to", c.Key)
+	result := newResult(ctx.Config, c.Key, jira4claude.ActionCommentAdded)
+	result.CommentID = comment.ID
+	ctx.Printer.Mutation(result)
 	return nil
 }
 
@@ -657,9 +681,8 @@ func (c *IssueDeleteCmd) Run(ctx *IssueContext) error {
 	if err := ctx.Service.Delete(context.Background(), c.Key, c.DeleteSubtasks); err != nil {
 		return err
 	}
-	// Key goes in the message rather than as a variadic key arg, so printers
-	// don't render a /browse/<key> URL for an issue that no longer exists.
-	ctx.Printer.Success("Deleted " + c.Key)
+	// No URL: the issue no longer exists.
+	ctx.Printer.Mutation(jira4claude.MutationResult{Key: c.Key, Action: jira4claude.ActionDeleted})
 	return nil
 }
 
@@ -674,7 +697,9 @@ func (c *IssueDeleteCommentCmd) Run(ctx *IssueContext) error {
 	if err := ctx.Service.DeleteComment(context.Background(), c.Key, c.CommentID); err != nil {
 		return err
 	}
-	ctx.Printer.Success("Deleted comment "+c.CommentID+" from", c.Key)
+	result := newResult(ctx.Config, c.Key, jira4claude.ActionCommentDeleted)
+	result.CommentID = c.CommentID
+	ctx.Printer.Mutation(result)
 	return nil
 }
 

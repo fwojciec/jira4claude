@@ -1,0 +1,11 @@
+{
+  "key": "TEST-1",
+  "url": "https://test.atlassian.net/browse/TEST-1",
+  "action": "unassigned",
+  "changes": {
+    "assignee": {
+      "from": "Jane Doe",
+      "to": null
+    }
+  }
+}

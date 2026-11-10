@@ -10,14 +10,8 @@ import (
 // Printer outputs JSON for machine parsing: data on stdout, and errors and
 // warnings on stderr as one JSON object per line.
 type Printer struct {
-	out       io.Writer
-	err       io.Writer
-	serverURL string
-}
-
-// SetServerURL sets the server URL for generating issue URLs.
-func (p *Printer) SetServerURL(url string) {
-	p.serverURL = url
+	out io.Writer
+	err io.Writer
 }
 
 // NewPrinter creates a JSON printer that writes data to out.
@@ -118,22 +112,17 @@ func (p *Printer) Attachments(_ string, attachments []jira4claude.AttachmentView
 	p.encode(attachments)
 }
 
-// Success prints a success message as JSON.
-func (p *Printer) Success(msg string, keys ...string) {
-	result := map[string]any{
-		"success": true,
-		"message": msg,
+// Mutation prints the result of a write as one JSON object. changes is
+// always an object, {} when the command reports none.
+func (p *Printer) Mutation(result jira4claude.MutationResult) {
+	if result.Changes == nil {
+		result.Changes = map[string]jira4claude.Change{}
 	}
-	if len(keys) > 0 {
-		result["keys"] = keys
-		if p.serverURL != "" {
-			urls := make([]string, len(keys))
-			for i, k := range keys {
-				urls[i] = p.serverURL + "/browse/" + k
-			}
-			result["urls"] = urls
-		}
-	}
+	p.encode(result)
+}
+
+// Initialized prints what init wrote as one JSON object.
+func (p *Printer) Initialized(result jira4claude.InitResult) {
 	p.encode(result)
 }
 
@@ -154,12 +143,13 @@ type errorLine struct {
 }
 
 // warningLine is the stderr shape of a warning. A conversion warning also
-// carries the ConversionIssue fields (kind, node, detail, existing).
+// carries the ConversionIssue fields (kind, node, token, detail, existing).
 type warningLine struct {
 	Level    string `json:"level"`
 	Message  string `json:"message"`
 	Kind     string `json:"kind,omitempty"`
 	Node     string `json:"node,omitempty"`
+	Token    string `json:"token,omitempty"`
 	Detail   string `json:"detail,omitempty"`
 	Existing bool   `json:"existing,omitempty"`
 	// Key names the issue a warning is about (issue view).
@@ -183,13 +173,14 @@ func (p *Printer) Warning(msg string) {
 }
 
 // ConversionIssue prints a conversion issue to stderr as one JSON warning line
-// that also carries the issue's kind, node, detail and existing fields.
+// that also carries the issue's kind, node, token, detail and existing fields.
 func (p *Printer) ConversionIssue(issue jira4claude.ConversionIssue) {
 	p.diagnose(warningLine{
 		Level:    levelWarning,
 		Message:  issue.String(),
 		Kind:     issue.Kind,
 		Node:     issue.Node,
+		Token:    issue.Token,
 		Detail:   issue.Detail,
 		Existing: issue.Existing,
 	})

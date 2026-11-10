@@ -368,9 +368,9 @@ func TestIssueCreateCmd(t *testing.T) {
 		require.NotNil(t, created[0].Assignee)
 		assert.Equal(t, "myself-123", created[0].Assignee.AccountID)
 		assert.False(t, assignCalled, "Assign must not be called when create carries the assignee")
-		require.Len(t, printer.SuccessCalls, 1)
-		assert.Equal(t, "Created:", printer.SuccessCalls[0].Msg)
-		assert.Equal(t, []string{"TEST-1"}, printer.SuccessCalls[0].Keys)
+		require.Len(t, printer.MutationCalls, 1)
+		assert.Equal(t, jira4claude.ActionCreated, printer.MutationCalls[0].Action)
+		assert.Equal(t, "TEST-1", printer.MutationCalls[0].Key)
 	})
 
 	t.Run("assignee email is resolved and sent in the one create request", func(t *testing.T) {
@@ -413,8 +413,8 @@ func TestIssueCreateCmd(t *testing.T) {
 		require.NotNil(t, created[0].Assignee)
 		assert.Equal(t, "user-456", created[0].Assignee.AccountID)
 		assert.False(t, assignCalled, "Assign must not be called when create carries the assignee")
-		require.Len(t, printer.SuccessCalls, 1)
-		assert.Equal(t, "Created:", printer.SuccessCalls[0].Msg)
+		require.Len(t, printer.MutationCalls, 1)
+		assert.Equal(t, jira4claude.ActionCreated, printer.MutationCalls[0].Action)
 	})
 
 	t.Run("omitting assignee creates without assignment", func(t *testing.T) {
@@ -449,8 +449,8 @@ func TestIssueCreateCmd(t *testing.T) {
 		require.NotNil(t, capturedIssue)
 		assert.Nil(t, capturedIssue.Assignee)
 		assert.False(t, assignCalled, "Assign should not be called when assignee is empty")
-		require.Len(t, printer.SuccessCalls, 1)
-		assert.Equal(t, "Created:", printer.SuccessCalls[0].Msg)
+		require.Len(t, printer.MutationCalls, 1)
+		assert.Equal(t, jira4claude.ActionCreated, printer.MutationCalls[0].Action)
 	})
 
 	t.Run("unresolvable assignee email fails before Create is called", func(t *testing.T) {
@@ -486,7 +486,7 @@ func TestIssueCreateCmd(t *testing.T) {
 		require.Error(t, err)
 		assert.Equal(t, jira4claude.ENotFound, jira4claude.ErrorCode(err))
 		assert.False(t, createCalled, "Create must not be called when the assignee cannot be resolved")
-		assert.Empty(t, printer.SuccessCalls)
+		assert.Empty(t, printer.MutationCalls)
 	})
 
 	t.Run("assignee lookup failure fails before Create is called", func(t *testing.T) {
@@ -522,7 +522,7 @@ func TestIssueCreateCmd(t *testing.T) {
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "auth failed")
 		assert.False(t, createCalled, "Create must not be called when the assignee cannot be resolved")
-		assert.Empty(t, printer.SuccessCalls)
+		assert.Empty(t, printer.MutationCalls)
 	})
 }
 
@@ -586,9 +586,9 @@ func TestIssueCreateCmd_AssigneeFallback(t *testing.T) {
 		assert.Equal(t, []string{"a"}, created[1].Labels)
 		assert.Equal(t, "TEST-1", assignedKey)
 		assert.Equal(t, "myself-123", assignedID)
-		require.Len(t, printer.SuccessCalls, 1)
-		assert.Equal(t, "Created:", printer.SuccessCalls[0].Msg)
-		assert.Equal(t, []string{"TEST-1"}, printer.SuccessCalls[0].Keys)
+		require.Len(t, printer.MutationCalls, 1)
+		assert.Equal(t, jira4claude.ActionCreated, printer.MutationCalls[0].Action)
+		assert.Equal(t, "TEST-1", printer.MutationCalls[0].Key)
 		require.Len(t, printer.WarningCalls, 1)
 		assert.Contains(t, printer.WarningCalls[0], "assignee")
 	})
@@ -617,8 +617,8 @@ func TestIssueCreateCmd_AssigneeFallback(t *testing.T) {
 		assert.Contains(t, err.Error(), "assignment failed")
 		assert.Contains(t, err.Error(), "cannot assign")
 		assert.Equal(t, jira4claude.EForbidden, jira4claude.ErrorCode(err))
-		require.Len(t, printer.SuccessCalls, 1)
-		assert.Equal(t, []string{"TEST-1"}, printer.SuccessCalls[0].Keys)
+		require.Len(t, printer.MutationCalls, 1)
+		assert.Equal(t, "TEST-1", printer.MutationCalls[0].Key)
 	})
 
 	t.Run("does not retry create on a validation error that does not name the assignee", func(t *testing.T) {
@@ -641,7 +641,7 @@ func TestIssueCreateCmd_AssigneeFallback(t *testing.T) {
 
 		require.Error(t, err)
 		assert.Equal(t, 1, calls)
-		assert.Empty(t, printer.SuccessCalls)
+		assert.Empty(t, printer.MutationCalls)
 	})
 
 	t.Run("does not retry create when the first create may have been applied", func(t *testing.T) {
@@ -667,7 +667,7 @@ func TestIssueCreateCmd_AssigneeFallback(t *testing.T) {
 
 		require.Error(t, err)
 		assert.Equal(t, 1, calls)
-		assert.Empty(t, printer.SuccessCalls)
+		assert.Empty(t, printer.MutationCalls)
 	})
 
 	t.Run("does not retry create on a non-validation error that names the assignee", func(t *testing.T) {
@@ -690,7 +690,7 @@ func TestIssueCreateCmd_AssigneeFallback(t *testing.T) {
 
 		require.Error(t, err)
 		assert.Equal(t, 1, calls)
-		assert.Empty(t, printer.SuccessCalls)
+		assert.Empty(t, printer.MutationCalls)
 	})
 
 	t.Run("does not retry create when the fallback is not needed because no assignee was given", func(t *testing.T) {
@@ -802,7 +802,7 @@ func TestIssueUpdateCmd(t *testing.T) {
 		require.Error(t, err)
 		assert.Equal(t, jira4claude.EValidation, jira4claude.ErrorCode(err))
 		assert.Contains(t, err.Error(), "--clear-description")
-		assert.Empty(t, printer.SuccessCalls)
+		assert.Empty(t, printer.MutationCalls)
 	})
 
 	t.Run("empty append is a validation error and makes no service call", func(t *testing.T) {
@@ -822,7 +822,7 @@ func TestIssueUpdateCmd(t *testing.T) {
 
 		require.Error(t, err)
 		assert.Equal(t, jira4claude.EValidation, jira4claude.ErrorCode(err))
-		assert.Empty(t, printer.SuccessCalls)
+		assert.Empty(t, printer.MutationCalls)
 	})
 
 	t.Run("keeps description when no description flag is given", func(t *testing.T) {
@@ -830,6 +830,7 @@ func TestIssueUpdateCmd(t *testing.T) {
 
 		var capturedUpdate jira4claude.IssueUpdate
 		svc := &mock.IssueService{
+			GetFn: readsKey,
 			UpdateFn: func(ctx context.Context, key string, update jira4claude.IssueUpdate) (*jira4claude.Issue, error) {
 				capturedUpdate = update
 				return makeIssue(key), nil
@@ -875,7 +876,7 @@ func TestIssueUpdateCmd(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, jira4claude.DescriptionClear, capturedUpdate.Description.Mode())
 		assert.Nil(t, capturedUpdate.Description.Document())
-		require.Len(t, printer.SuccessCalls, 1)
+		require.Len(t, printer.MutationCalls, 1)
 	})
 
 	t.Run("append-description sends the existing nodes unchanged followed by the new nodes", func(t *testing.T) {
@@ -929,7 +930,7 @@ func TestIssueUpdateCmd(t *testing.T) {
 		want := append(append([]jira4claude.ADFNode{}, existing...),
 			jira4claude.ADFNode{Type: "paragraph", Content: []jira4claude.ADFNode{{Type: "text", Text: "new"}}})
 		assert.Equal(t, want, doc.Content)
-		require.Len(t, printer.SuccessCalls, 1)
+		require.Len(t, printer.MutationCalls, 1)
 	})
 
 	t.Run("append-description to an issue with no description behaves like set", func(t *testing.T) {
@@ -982,7 +983,7 @@ func TestIssueUpdateCmd(t *testing.T) {
 
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "get failed")
-		assert.Empty(t, printer.SuccessCalls)
+		assert.Empty(t, printer.MutationCalls)
 	})
 
 	t.Run("sets parent when parent flag provided", func(t *testing.T) {
@@ -990,6 +991,7 @@ func TestIssueUpdateCmd(t *testing.T) {
 
 		var capturedUpdate jira4claude.IssueUpdate
 		svc := &mock.IssueService{
+			GetFn: readsKey,
 			UpdateFn: func(ctx context.Context, key string, update jira4claude.IssueUpdate) (*jira4claude.Issue, error) {
 				capturedUpdate = update
 				result := makeIssue(key)
@@ -1019,6 +1021,7 @@ func TestIssueUpdateCmd(t *testing.T) {
 
 		var capturedUpdate jira4claude.IssueUpdate
 		svc := &mock.IssueService{
+			GetFn: readsKey,
 			UpdateFn: func(ctx context.Context, key string, update jira4claude.IssueUpdate) (*jira4claude.Issue, error) {
 				capturedUpdate = update
 				return makeIssue(key), nil
@@ -1045,6 +1048,7 @@ func TestIssueUpdateCmd(t *testing.T) {
 
 		var capturedUpdate jira4claude.IssueUpdate
 		svc := &mock.IssueService{
+			GetFn: readsKey,
 			UpdateFn: func(ctx context.Context, key string, update jira4claude.IssueUpdate) (*jira4claude.Issue, error) {
 				capturedUpdate = update
 				return makeIssue(key), nil
@@ -1072,6 +1076,7 @@ func TestIssueUpdateCmd(t *testing.T) {
 
 		var capturedUpdate jira4claude.IssueUpdate
 		svc := &mock.IssueService{
+			GetFn: readsKey,
 			UpdateFn: func(ctx context.Context, key string, update jira4claude.IssueUpdate) (*jira4claude.Issue, error) {
 				capturedUpdate = update
 				return makeIssue(key), nil
@@ -1105,6 +1110,7 @@ func TestIssueUpdateCmd(t *testing.T) {
 
 		var capturedUpdate jira4claude.IssueUpdate
 		svc := &mock.IssueService{
+			GetFn: readsKey,
 			UpdateFn: func(ctx context.Context, key string, update jira4claude.IssueUpdate) (*jira4claude.Issue, error) {
 				capturedUpdate = update
 				return makeIssue(key), nil
@@ -1138,6 +1144,7 @@ func TestIssueUpdateCmd(t *testing.T) {
 
 		var capturedUpdate jira4claude.IssueUpdate
 		svc := &mock.IssueService{
+			GetFn: readsKey,
 			UpdateFn: func(ctx context.Context, key string, update jira4claude.IssueUpdate) (*jira4claude.Issue, error) {
 				capturedUpdate = update
 				return makeIssue(key), nil
@@ -1165,6 +1172,7 @@ func TestIssueUpdateCmd(t *testing.T) {
 
 		var capturedUpdate jira4claude.IssueUpdate
 		svc := &mock.IssueService{
+			GetFn: readsKey,
 			UpdateFn: func(ctx context.Context, key string, update jira4claude.IssueUpdate) (*jira4claude.Issue, error) {
 				capturedUpdate = update
 				return makeIssue(key), nil
@@ -1313,12 +1321,10 @@ func TestIssueDeleteCmd(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, "TEST-1", capturedKey)
 		assert.False(t, capturedDeleteSubtasks)
-		require.Len(t, printer.SuccessCalls, 1)
-		// Key goes in the message, not as a variadic key arg, because the
-		// markdown/JSON printers turn variadic keys into /browse/<key> URLs
-		// — which would 404 for an issue we just deleted.
-		assert.Contains(t, printer.SuccessCalls[0].Msg, "TEST-1")
-		assert.Empty(t, printer.SuccessCalls[0].Keys)
+		require.Len(t, printer.MutationCalls, 1)
+		// A /browse/<key> URL would 404 for an issue we just deleted.
+		assert.Equal(t, jira4claude.MutationResult{Key: "TEST-1", Action: jira4claude.ActionDeleted}, printer.MutationCalls[0],
+			"no URL for an issue that no longer exists")
 	})
 
 	t.Run("forwards --delete-subtasks=true to service", func(t *testing.T) {
@@ -1367,7 +1373,7 @@ func TestIssueDeleteCmd(t *testing.T) {
 
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "not found")
-		assert.Empty(t, printer.SuccessCalls)
+		assert.Empty(t, printer.MutationCalls)
 	})
 }
 
@@ -2163,6 +2169,7 @@ func TestIssueAssignCmd(t *testing.T) {
 
 		var assignedID string
 		svc := &mock.IssueService{
+			GetFn: readsKey,
 			AssignFn: func(ctx context.Context, key, accountID string) error {
 				require.Equal(t, "TEST-1", key)
 				assignedID = accountID
@@ -2188,9 +2195,9 @@ func TestIssueAssignCmd(t *testing.T) {
 
 		require.NoError(t, err)
 		assert.Equal(t, "myself-123", assignedID)
-		require.Len(t, printer.SuccessCalls, 1)
-		assert.Equal(t, "Assigned:", printer.SuccessCalls[0].Msg)
-		assert.Equal(t, []string{"TEST-1"}, printer.SuccessCalls[0].Keys)
+		require.Len(t, printer.MutationCalls, 1)
+		assert.Equal(t, jira4claude.ActionAssigned, printer.MutationCalls[0].Action)
+		assert.Equal(t, "TEST-1", printer.MutationCalls[0].Key)
 	})
 
 	t.Run("resolves email via FindUsers and assigns", func(t *testing.T) {
@@ -2198,6 +2205,7 @@ func TestIssueAssignCmd(t *testing.T) {
 
 		var assignedID string
 		svc := &mock.IssueService{
+			GetFn: readsKey,
 			AssignFn: func(ctx context.Context, key, accountID string) error {
 				require.Equal(t, "TEST-1", key)
 				assignedID = accountID
@@ -2224,9 +2232,9 @@ func TestIssueAssignCmd(t *testing.T) {
 
 		require.NoError(t, err)
 		assert.Equal(t, "found-456", assignedID)
-		require.Len(t, printer.SuccessCalls, 1)
-		assert.Equal(t, "Assigned:", printer.SuccessCalls[0].Msg)
-		assert.Equal(t, []string{"TEST-1"}, printer.SuccessCalls[0].Keys)
+		require.Len(t, printer.MutationCalls, 1)
+		assert.Equal(t, jira4claude.ActionAssigned, printer.MutationCalls[0].Action)
+		assert.Equal(t, "TEST-1", printer.MutationCalls[0].Key)
 	})
 
 	t.Run("passes raw account ID through directly", func(t *testing.T) {
@@ -2234,6 +2242,7 @@ func TestIssueAssignCmd(t *testing.T) {
 
 		var assignedID string
 		svc := &mock.IssueService{
+			GetFn: readsKey,
 			AssignFn: func(ctx context.Context, key, accountID string) error {
 				require.Equal(t, "TEST-1", key)
 				assignedID = accountID
@@ -2254,9 +2263,9 @@ func TestIssueAssignCmd(t *testing.T) {
 
 		require.NoError(t, err)
 		assert.Equal(t, "abc123", assignedID)
-		require.Len(t, printer.SuccessCalls, 1)
-		assert.Equal(t, "Assigned:", printer.SuccessCalls[0].Msg)
-		assert.Equal(t, []string{"TEST-1"}, printer.SuccessCalls[0].Keys)
+		require.Len(t, printer.MutationCalls, 1)
+		assert.Equal(t, jira4claude.ActionAssigned, printer.MutationCalls[0].Action)
+		assert.Equal(t, "TEST-1", printer.MutationCalls[0].Key)
 	})
 
 	t.Run("unassigns when assignee flag is omitted", func(t *testing.T) {
@@ -2264,6 +2273,7 @@ func TestIssueAssignCmd(t *testing.T) {
 
 		var assignedID string
 		svc := &mock.IssueService{
+			GetFn: readsKey,
 			AssignFn: func(ctx context.Context, key, accountID string) error {
 				require.Equal(t, "TEST-1", key)
 				assignedID = accountID
@@ -2284,9 +2294,9 @@ func TestIssueAssignCmd(t *testing.T) {
 
 		require.NoError(t, err)
 		assert.Empty(t, assignedID)
-		require.Len(t, printer.SuccessCalls, 1)
-		assert.Equal(t, "Unassigned:", printer.SuccessCalls[0].Msg)
-		assert.Equal(t, []string{"TEST-1"}, printer.SuccessCalls[0].Keys)
+		require.Len(t, printer.MutationCalls, 1)
+		assert.Equal(t, jira4claude.ActionUnassigned, printer.MutationCalls[0].Action)
+		assert.Equal(t, "TEST-1", printer.MutationCalls[0].Key)
 	})
 
 	t.Run("returns error when email resolves to no user", func(t *testing.T) {
@@ -2319,6 +2329,7 @@ func TestIssueAssignCmd(t *testing.T) {
 		t.Parallel()
 
 		svc := &mock.IssueService{
+			GetFn: readsKey,
 			AssignFn: func(ctx context.Context, key, accountID string) error {
 				return &jira4claude.Error{Code: jira4claude.ENotFound, Message: "issue not found"}
 			},
@@ -2432,7 +2443,7 @@ func TestIssueCreateCmd_FieldJSON(t *testing.T) {
 		require.Error(t, err)
 		assert.Equal(t, jira4claude.EValidation, jira4claude.ErrorCode(err))
 		assert.False(t, createCalled, "service should not be called when --field-json is invalid")
-		assert.Empty(t, printer.SuccessCalls)
+		assert.Empty(t, printer.MutationCalls)
 	})
 }
 
@@ -2446,6 +2457,7 @@ func TestIssueUpdateCmd_FieldJSON(t *testing.T) {
 
 		var capturedUpdate jira4claude.IssueUpdate
 		svc := &mock.IssueService{
+			GetFn: readsKey,
 			UpdateFn: func(ctx context.Context, key string, update jira4claude.IssueUpdate) (*jira4claude.Issue, error) {
 				capturedUpdate = update
 				return makeIssue(key), nil
@@ -2477,6 +2489,7 @@ func TestIssueUpdateCmd_FieldJSON(t *testing.T) {
 
 		var capturedUpdate jira4claude.IssueUpdate
 		svc := &mock.IssueService{
+			GetFn: readsKey,
 			UpdateFn: func(ctx context.Context, key string, update jira4claude.IssueUpdate) (*jira4claude.Issue, error) {
 				capturedUpdate = update
 				return makeIssue(key), nil
@@ -2503,6 +2516,7 @@ func TestIssueUpdateCmd_FieldJSON(t *testing.T) {
 
 		updateCalled := false
 		svc := &mock.IssueService{
+			GetFn: readsKey,
 			UpdateFn: func(ctx context.Context, key string, update jira4claude.IssueUpdate) (*jira4claude.Issue, error) {
 				updateCalled = true
 				return makeIssue(key), nil
@@ -2525,7 +2539,7 @@ func TestIssueUpdateCmd_FieldJSON(t *testing.T) {
 		require.Error(t, err)
 		assert.Equal(t, jira4claude.EValidation, jira4claude.ErrorCode(err))
 		assert.False(t, updateCalled, "service should not be called when --field-json is invalid")
-		assert.Empty(t, printer.SuccessCalls)
+		assert.Empty(t, printer.MutationCalls)
 	})
 }
 

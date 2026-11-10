@@ -20,8 +20,13 @@ type ConversionIssue struct {
 	Kind   string `json:"kind"`   // ConversionDropped or ConversionDegraded
 	Node   string `json:"node"`   // e.g. "Image", "HTMLBlock", or a token such as "{{mention:2 Jane Doe}}"
 	Detail string `json:"detail"` // human-readable explanation
+	// Token is set, to the token text, when the issue is about a
+	// protected-node token (see Converter.ToMarkdown) rather than a node
+	// type; Node then holds the same token.
+	Token string `json:"token,omitempty"`
 	// Existing marks an issue about content already in the document being
-	// written over, rather than in the new text (see Converter.Reattach).
+	// written over, rather than in the new text (see Converter.Reattach): a
+	// dropped issue with Existing set is content the write removes.
 	Existing bool `json:"existing,omitempty"`
 }
 
@@ -56,7 +61,7 @@ func DroppedContentError(field string, issues []ConversionIssue) error {
 	var nodes, tokens, unreadable []string
 	for _, d := range dropped {
 		switch {
-		case IsProtectedToken(d.Node):
+		case d.Token != "":
 			tokens = append(tokens, d.Node)
 		case d.Existing:
 			unreadable = append(unreadable, d.Node)
@@ -82,13 +87,6 @@ func DroppedContentError(field string, issues []ConversionIssue) error {
 		Message: strings.Join(parts, "; ") +
 			". Nothing was written. Pass --force to write anyway, without that content",
 	}
-}
-
-// IsProtectedToken reports whether node, the Node of a ConversionIssue,
-// is a protected-node token (see Converter.ToMarkdown) rather than a node
-// type: such an issue is about existing content of the document.
-func IsProtectedToken(node string) bool {
-	return strings.HasPrefix(node, "{{") && strings.HasSuffix(node, "}}")
 }
 
 // Converter handles conversion between GitHub Flavored Markdown (GFM) and
@@ -122,12 +120,15 @@ type Converter interface {
 	// are checked; its label is not trusted.
 	//
 	// Every node that would be lost is reported as ConversionDropped, with
-	// the token in Node (see IsProtectedToken): a token missing from edited,
+	// the token in Node and Token: a token missing from edited,
 	// a token used more than once (only the first is restored), a token whose
 	// number original does not have or names another kind of node (original
 	// changed since it was read), and a block token placed where its node is
 	// not allowed. Such tokens other than the missing ones stay in the result
-	// as text.
+	// as text. Existing is set on the issues whose node of original the
+	// result does not hold (a missing token, a misplaced block token), which
+	// the write would remove; a token that is only left as text (unknown
+	// number, wrong kind, used twice) removes nothing.
 	//
 	// Content of original that ToMarkdown reports as dropped has no token, so
 	// no edit keeps it: each is reported again as ConversionDropped with

@@ -31,6 +31,7 @@ type User struct {
 type Transition struct {
 	ID   string
 	Name string
+	To   string // name of the status the transition leads to; empty if unknown
 }
 
 // IssueLinkType represents the type of relationship between linked issues.
@@ -209,9 +210,11 @@ func CheckClearDescription(conv Converter, current *ADFNode, force bool) ([]Conv
 	var tokens []string
 	for _, m := range DroppedIssues(missing) {
 		removed = append(removed, ConversionIssue{
-			Kind:   ConversionDropped,
-			Node:   m.Node,
-			Detail: "removed with the description, which was cleared",
+			Kind:     ConversionDropped,
+			Node:     m.Node,
+			Token:    m.Token,
+			Detail:   "removed with the description, which was cleared",
+			Existing: true,
 		})
 		tokens = append(tokens, m.Node)
 	}
@@ -237,6 +240,7 @@ func LiteralTokens(conv Converter, doc *ADFNode) []ConversionIssue {
 		issues = append(issues, ConversionIssue{
 			Kind:   ConversionDegraded,
 			Node:   token,
+			Token:  token,
 			Detail: "written as plain text; a token restores existing content only in issue update --description",
 		})
 	}
@@ -345,7 +349,9 @@ type IssueService interface {
 	// a non-empty next means the result was truncated.
 	List(ctx context.Context, filter IssueFilter) (issues []*Issue, next string, err error)
 
-	// Update modifies an existing issue and returns the updated issue.
+	// Update modifies an existing issue and returns it as read back after
+	// the write: the resulting values and updated time that issue update
+	// reports.
 	Update(ctx context.Context, key string, update IssueUpdate) (*Issue, error)
 
 	// Delete deletes an issue by its key.

@@ -1,0 +1,22 @@
+{
+  "key": "TEST-1",
+  "url": "https://test.atlassian.net/browse/TEST-1",
+  "action": "updated",
+  "changes": {
+    "assignee": {
+      "from": "Jane Doe",
+      "to": null
+    },
+    "labels": {
+      "from": [
+        "a"
+      ],
+      "to": []
+    },
+    "parent": {
+      "from": "TEST-9",
+      "to": null
+    }
+  },
+  "updated": "2026-11-10T09:00:00.456Z"
+}

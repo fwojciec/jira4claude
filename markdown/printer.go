@@ -20,9 +20,8 @@ const maxSummaryLength = 60
 // warnings and [info] notices (an empty result, hidden fields) go to err, so
 // that stdout holds only data.
 type Printer struct {
-	out       io.Writer
-	err       io.Writer
-	serverURL string
+	out io.Writer
+	err io.Writer
 }
 
 // NewPrinter creates a markdown printer that writes to out.
@@ -35,11 +34,6 @@ func NewPrinter(out io.Writer) *Printer {
 // NewPrinterWithIO creates a markdown printer with explicit stdout and stderr writers.
 func NewPrinterWithIO(out, err io.Writer) *Printer {
 	return &Printer{out: out, err: err}
-}
-
-// SetServerURL sets the server URL for generating issue URLs.
-func (p *Printer) SetServerURL(url string) {
-	p.serverURL = url
 }
 
 // Issue prints a single issue in markdown format.
@@ -488,17 +482,85 @@ func escapeControl(s string) string {
 	return b.String()
 }
 
-// Success prints a success message to stdout.
-func (p *Printer) Success(msg string, keys ...string) {
-	if len(keys) > 0 {
-		fmt.Fprintf(p.out, "[ok] %s %s\n", msg, strings.Join(keys, ", "))
-		if p.serverURL != "" {
-			for _, k := range keys {
-				fmt.Fprintf(p.out, "%s/browse/%s\n", p.serverURL, k)
-			}
+// Mutation prints the result of a write: a "KEY: what happened" line, one
+// indented line per changed field (sorted by field), the removed content and
+// the updated time when there are any, and the issue's URL last.
+func (p *Printer) Mutation(result jira4claude.MutationResult) {
+	changes := result.Changes
+	switch result.Action {
+	case jira4claude.ActionTransitioned:
+		// The status move is the whole result.
+		status := changes["status"]
+		fmt.Fprintf(p.out, "%s: %s → %s\n", result.Key, formatValue(status.From), formatValue(status.To))
+		changes = nil
+	case jira4claude.ActionCommentAdded:
+		fmt.Fprintf(p.out, "%s: added comment %s\n", result.Key, result.CommentID)
+	case jira4claude.ActionCommentDeleted:
+		fmt.Fprintf(p.out, "%s: deleted comment %s\n", result.Key, result.CommentID)
+	case jira4claude.ActionLinked:
+		fmt.Fprintf(p.out, "%s: linked, %s %s %s\n", result.Key, result.Link.Source, result.Link.Type, result.Link.Target)
+	case jira4claude.ActionUnlinked:
+		fmt.Fprintf(p.out, "%s: unlinked from %s\n", result.Key, result.Link.Target)
+	default:
+		fmt.Fprintf(p.out, "%s: %s\n", result.Key, result.Action)
+	}
+
+	fields := make([]string, 0, len(changes))
+	for field := range changes {
+		fields = append(fields, field)
+	}
+	slices.Sort(fields)
+	for _, field := range fields {
+		c := changes[field]
+		if c.Edit != "" {
+			fmt.Fprintf(p.out, "  %s: %s\n", field, c.Edit)
+			continue
 		}
-	} else {
-		fmt.Fprintf(p.out, "[ok] %s\n", msg)
+		fmt.Fprintf(p.out, "  %s: %s → %s\n", field, formatValue(c.From), formatValue(c.To))
+	}
+	if len(result.Removed) > 0 {
+		fmt.Fprintf(p.out, "  removed: %s\n", strings.Join(result.Removed, ", "))
+	}
+	if result.Updated != "" {
+		fmt.Fprintf(p.out, "  updated: %s\n", result.Updated)
+	}
+	if result.URL != "" {
+		fmt.Fprintln(p.out, result.URL)
+	}
+}
+
+// formatValue renders a Change value on one line: (none) for an empty value,
+// a list joined with commas, raw JSON compacted.
+func formatValue(v any) string {
+	switch v := v.(type) {
+	case nil:
+		return "(none)"
+	case string:
+		return v
+	case []string:
+		if len(v) == 0 {
+			return "(none)"
+		}
+		return strings.Join(v, ", ")
+	case json.RawMessage:
+		if len(v) == 0 {
+			return "(none)"
+		}
+		return compactJSON(v)
+	default:
+		return fmt.Sprint(v)
+	}
+}
+
+// Initialized prints one line for each thing init wrote or found.
+func (p *Printer) Initialized(result jira4claude.InitResult) {
+	if result.ConfigCreated {
+		fmt.Fprintln(p.out, "Created .jira4claude.yaml")
+	}
+	if result.GitignoreAdded {
+		fmt.Fprintln(p.out, "Added .jira4claude.yaml to .gitignore")
+	} else if result.GitignoreExists {
+		fmt.Fprintln(p.out, ".jira4claude.yaml already in .gitignore")
 	}
 }
 

@@ -1,0 +1,41 @@
+{
+  "key": "TEST-1",
+  "url": "https://test.atlassian.net/browse/TEST-1",
+  "action": "updated",
+  "changes": {
+    "assignee": {
+      "from": "Jane Doe",
+      "to": "Me Myself"
+    },
+    "customfield_10801": {
+      "from": {
+        "value": "Low"
+      },
+      "to": {
+        "value": "High"
+      }
+    },
+    "labels": {
+      "from": [
+        "a"
+      ],
+      "to": [
+        "b",
+        "c"
+      ]
+    },
+    "parent": {
+      "from": null,
+      "to": "TEST-9"
+    },
+    "priority": {
+      "from": "Medium",
+      "to": "High"
+    },
+    "summary": {
+      "from": "Old summary",
+      "to": "New summary"
+    }
+  },
+  "updated": "2026-11-10T09:00:00.456Z"
+}

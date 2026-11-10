@@ -268,7 +268,7 @@ func TestRun_IssueUpdateIfUpdated(t *testing.T) {
 		assert.Equal(t, []string{"get TEST-1"}, svc.Calls())
 	})
 
-	t.Run("without --if-updated a summary update makes no read", func(t *testing.T) {
+	t.Run("without --if-updated a summary update still reads first, for the from values", func(t *testing.T) {
 		t.Parallel()
 
 		svc := newGuardedService(guardedIssue())
@@ -276,7 +276,7 @@ func TestRun_IssueUpdateIfUpdated(t *testing.T) {
 		res := runCLI(t, testDeps(svc, &mock.UserService{}), "issue", "update", "TEST-1", "--summary=New")
 
 		assert.Equal(t, 0, res.code, "stderr: %s", res.stderr)
-		assert.Equal(t, []string{"update TEST-1"}, svc.Calls())
+		assert.Equal(t, []string{"get TEST-1", "update TEST-1"}, svc.Calls())
 	})
 
 	t.Run("the help text states the remaining race", func(t *testing.T) {
@@ -316,7 +316,7 @@ func TestRun_IssueUpdateReattachesDescription(t *testing.T) {
 		res := runCLI(t, testDeps(svc, &mock.UserService{}), "issue", "update", "TEST-1", "--description="+edited)
 
 		require.Equal(t, 0, res.code, "stderr: %s", res.stderr)
-		assert.Equal(t, "[ok] Updated: TEST-1\nhttps://test.atlassian.net/browse/TEST-1\n", res.stdout, "the success message is unchanged")
+		assert.Equal(t, "TEST-1: updated\n  description: set\nhttps://test.atlassian.net/browse/TEST-1\n", res.stdout)
 		sent := svc.Sent()
 		require.NotNil(t, sent)
 		assert.Equal(t, jira4claude.DescriptionSet, sent.Description.Mode())

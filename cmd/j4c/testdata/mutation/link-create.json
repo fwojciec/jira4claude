@@ -1,0 +1,11 @@
+{
+  "key": "TEST-1",
+  "url": "https://test.atlassian.net/browse/TEST-1",
+  "action": "linked",
+  "changes": {},
+  "link": {
+    "type": "Blocks",
+    "source": "TEST-1",
+    "target": "TEST-2"
+  }
+}
