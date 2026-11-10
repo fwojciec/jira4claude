@@ -146,10 +146,14 @@ func renderTextItems(items []jira4claude.ADFNode, skipped *skippedCollector) []s
 	out := make([]string, len(items))
 	edges := make([]textEdges, len(items))
 	delims := make([]byte, len(items))
+	conflict := false
 	render := func(i int) {
 		if href, ok := bareURL(&items[i]); ok && edges[i].breakLinks {
-			out[i] = bracketedURL(href)
-			return
+			if md, ok := bracketedURL(href); ok {
+				out[i] = md
+				return
+			}
+			conflict = true
 		}
 		out[i] = escapeTextNode(items, i, isLineStart(items, i), edges[i])
 		if len(items[i].Marks) > 0 {
@@ -166,12 +170,15 @@ func renderTextItems(items []jira4claude.ADFNode, skipped *skippedCollector) []s
 		}
 		if usesDelimiters(node.Marks) {
 			edges[i] = innerEdges(node)
-			delims[i] = '*'
-			if i > 0 && items[i-1].Type == "text" && strings.HasSuffix(out[i-1], "*") {
-				delims[i] = '_'
-			}
 		}
 		render(i)
+		// The delimiter switches only where the two runs meet: not when a
+		// link's brackets or a tag stand between them.
+		if usesDelimiters(node.Marks) && strings.HasPrefix(out[i], "*") &&
+			i > 0 && items[i-1].Type == "text" && strings.HasSuffix(out[i-1], "*") {
+			delims[i] = '_'
+			render(i)
+		}
 	}
 
 	// Then, until nothing changes: what each delimiter run needs from its
@@ -183,7 +190,6 @@ func renderTextItems(items []jira4claude.ADFNode, skipped *skippedCollector) []s
 	// node after it, then by encoding the last character of the text
 	// before it. Each repair can change what a delimiter run sees, so the
 	// passes repeat; a crossing no repair removes is degraded.
-	conflict := false
 	for range 4*len(items) + 1 {
 		before := slices.Clone(edges)
 		for i := range items {
@@ -203,26 +209,29 @@ func renderTextItems(items []jira4claude.ADFNode, skipped *skippedCollector) []s
 			}
 		}
 
-		i, crossing := autolinkCrossing(items, out)
-		switch {
-		case !crossing:
-			if slices.Equal(before, edges) {
-				if conflict && skipped != nil {
-					skipped.degrade("text", markedTextDetail)
-				}
-				return out
+		crossings := autolinkCrossings(items, out)
+		if len(crossings) == 0 && slices.Equal(before, edges) {
+			if conflict && skipped != nil {
+				skipped.degrade("text", markedTextDetail)
 			}
-		case !edges[i].breakLinks:
-			edges[i].breakLinks = true
-			render(i)
-		case i+1 < len(items) && items[i+1].Type == "text" && !edges[i+1].breakLinks:
-			edges[i+1].breakLinks = true
-			render(i + 1)
-		case !edges[i].last && !hasCodeMark(items[i].Marks):
-			edges[i].last = true
-			render(i)
-		default:
-			conflict = true
+			return out
+		}
+		// Every crossing found is repaired in this pass, so a line with many
+		// takes a few passes, not one per crossing.
+		for _, i := range crossings {
+			switch {
+			case !edges[i].breakLinks:
+				edges[i].breakLinks = true
+				render(i)
+			case i+1 < len(items) && items[i+1].Type == "text" && !edges[i+1].breakLinks:
+				edges[i+1].breakLinks = true
+				render(i + 1)
+			case !edges[i].last && !hasCodeMark(items[i].Marks):
+				edges[i].last = true
+				render(i)
+			default:
+				conflict = true
+			}
 		}
 	}
 	if skipped != nil {
@@ -231,11 +240,12 @@ func renderTextItems(items []jira4claude.ADFNode, skipped *skippedCollector) []s
 	return out
 }
 
-// autolinkCrossing reports the first text node, items[i], where Linkify would
-// read an autolink across the end of its text: one that starts before its
-// closing delimiters (or before its end, when it has none) and ends after
-// them, within the run of text nodes it belongs to.
-func autolinkCrossing(items []jira4claude.ADFNode, out []string) (int, bool) {
+// autolinkCrossings returns, in order, the text nodes, items[i], where
+// Linkify would read an autolink across the end of its text: one that starts
+// before its closing delimiters (or before its end, when it has none) and
+// ends after them, within the run of text nodes it belongs to.
+func autolinkCrossings(items []jira4claude.ADFNode, out []string) []int {
+	var crossings []int
 	for start := 0; start < len(items); start++ {
 		if items[start].Type != "text" {
 			continue
@@ -257,22 +267,61 @@ func autolinkCrossing(items []jira4claude.ADFNode, out []string) (int, bool) {
 			md.WriteString(out[stop])
 		}
 		// Linkify does not start inside a code span or link text, but a link
-		// that starts before one can run on into it.
+		// that starts before one can run on into it. The spans are found
+		// once per run; the node ends rise, so one pass over both finds,
+		// for each end, the furthest any span starting before it reaches.
 		canStart := func(p int) bool { return !noStart[p] }
+		spans := linkifySpans(md.String(), md.String(), isLineStart(items, start), canStart)
+		next, reach := 0, 0
 		for k, end := range ends {
-			if !hasCodeMark(items[start+k].Marks) && linkifyCrossesFrom(md.String(), end, isLineStart(items, start), canStart) {
-				return start + k, true
+			for ; next < len(spans) && spans[next][0] < end; next++ {
+				reach = max(reach, spans[next][1])
+			}
+			if !hasCodeMark(items[start+k].Marks) && reach > end {
+				crossings = append(crossings, start+k)
 			}
 		}
 		start = stop
 	}
-	return 0, false
+	return crossings
 }
 
 // bracketedURL writes a link whose text is its href in brackets rather than
-// as a bare URL.
-func bracketedURL(href string) string {
-	return "[" + escapeText(href, textContext{inLink: true}) + "](" + href + ")"
+// as a bare URL. It reports false when the href has no exact destination
+// form (see linkDestination).
+func bracketedURL(href string) (string, bool) {
+	dest, ok := linkDestination(href)
+	if !ok {
+		return "", false
+	}
+	return "[" + escapeText(href, textContext{inLink: true}) + "](" + dest + ")", true
+}
+
+// linkDestination writes href as a CommonMark link destination that reads
+// back as href: as it stands, or in angle brackets when it holds a blank, a
+// parenthesis or a backslash, which the brackets allow as they are. The
+// write side takes a destination's characters as they stand (it resolves
+// neither backslash escapes nor character references), so nothing can be
+// escaped: a href holding "<", ">", a line ending or another control
+// character, or ending in "\" (which would escape the closing ">"), has no
+// exact form and reports false.
+//
+// Only links this file writes in brackets use it; applyMarks still writes
+// other destinations as they are. Escaping hrefs in general, on both sides,
+// is #161's, which should take this function over.
+func linkDestination(href string) (string, bool) {
+	if strings.HasSuffix(href, `\`) || strings.ContainsAny(href, "<>\x7f") {
+		return "", false
+	}
+	for i := 0; i < len(href); i++ {
+		if href[i] < 0x20 {
+			return "", false
+		}
+	}
+	if href == "" || strings.ContainsAny(href, ` ()\`) {
+		return "<" + href + ">", true
+	}
+	return href, true
 }
 
 // fitDelimiter makes the edge of items[j] that meets a delimiter run fit it
@@ -308,8 +357,11 @@ func fitDelimiter(items []jira4claude.ADFNode, out []string, edges []textEdges, 
 	}
 	if href, ok := bareURL(&items[j]); ok {
 		// A link written as its bare URL is written in brackets instead.
-		out[j] = bracketedURL(href)
-		return true
+		md, ok := bracketedURL(href)
+		if ok {
+			out[j] = md
+		}
+		return ok
 	}
 	var r rune
 	if atEnd {

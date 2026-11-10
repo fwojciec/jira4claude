@@ -3,6 +3,7 @@ package markdown_test
 import (
 	"encoding/json"
 	"testing"
+	"time"
 
 	"github.com/fwojciec/jira4claude"
 	"github.com/fwojciec/jira4claude/markdown"
@@ -224,6 +225,107 @@ func TestToMarkdown_MarkNextToURL(t *testing.T) {
 			assert.Empty(t, writeIssues, "markdown was %q", md)
 			require.Len(t, back.Content, 1, "markdown was %q", md)
 			assert.Equal(t, inline, withoutAutolinks(back.Content[0].Content), "markdown was %q", md)
+		})
+	}
+}
+
+// linkTextNode is text with a link to href and, after it, the given marks.
+func linkTextNode(text, href string, marks ...string) jira4claude.ADFNode {
+	n := textNode(text, marks...)
+	attrs, _ := json.Marshal(map[string]string{"href": href})
+	n.Marks = append([]jira4claude.ADFMark{{Type: "link", Attrs: attrs}}, n.Marks...)
+	return n
+}
+
+// TestToMarkdown_MarkNextToLink covers delimited text next to links whose
+// label or href holds delimiter or destination characters (#159). Each line
+// reads back exactly; where a href has no exact destination form, the read
+// reports the text as degraded instead.
+func TestToMarkdown_MarkNextToLink(t *testing.T) {
+	t.Parallel()
+
+	cases := map[string][]jira4claude.ADFNode{}
+	// Marked links: the link's brackets keep its delimiters apart from its
+	// neighbours', and its label is escaped. Hrefs here need no escaping in a
+	// destination; writing any href as one is #161's.
+	for _, href := range []string{
+		"https://x.test/_", "https://x.test/*", "https://x.test/~", "https://x.test/a_b_",
+		"https://x.test/__", "https://x.test/**", "https://x.test/~~",
+	} {
+		cases["strong then em link labelled "+href] = []jira4claude.ADFNode{textNode("a", "strong"), linkTextNode(href, href, "em")}
+		cases["em then strong link labelled "+href] = []jira4claude.ADFNode{textNode("a", "em"), linkTextNode(href, href, "strong")}
+		cases["strong then em link to "+href] = []jira4claude.ADFNode{textNode("a", "strong"), linkTextNode("b_*~", href, "em")}
+		cases["em link labelled "+href+" then strong"] = []jira4claude.ADFNode{linkTextNode(href, href, "em"), textNode("a", "strong")}
+	}
+	// Bare links written in brackets next to a delimiter run: the
+	// destination is written for any href.
+	for _, href := range []string{
+		"https://x.test/_", "https://x.test/a(", "https://x.test/a)", "https://x.test/(a)",
+		"https://x.test/a b", "https://x.test/<a>", `https://x.test/a\b`, `https://x.test/a\`,
+		"https://x.test/&amp;", "https://x.test/a\x01", "https://x.test/a\nb", "https://x.test/a>",
+	} {
+		cases["strike then bare link "+href] = []jira4claude.ADFNode{textNode("a", "strike"), linkTextNode(href, href)}
+		cases["bare link "+href+" then punctuated strong"] = []jira4claude.ADFNode{linkTextNode(href, href), textNode(".a", "strong")}
+	}
+
+	for name, inline := range cases {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			conv := markdown.New()
+			md, readIssues := conv.ToMarkdown(paragraphDoc(inline...))
+			if len(readIssues) > 0 {
+				for _, is := range readIssues {
+					assert.Equal(t, "degraded", is.Kind, "markdown was %q", md)
+				}
+				return
+			}
+			back, writeIssues := conv.ToADF(md)
+			requireValidADF(t, back)
+			assert.Empty(t, writeIssues, "markdown was %q", md)
+			assert.Equal(t, paragraphDoc(inline...), back, "markdown was %q", md)
+		})
+	}
+}
+
+// TestToMarkdown_ManyMarkedNodes bounds the work for a long line of marked
+// text: the checks for autolinks and delimiters must stay close to linear in
+// the number of nodes (#159). Each case takes well under a second; a scan
+// per node boundary took 10 to 25 seconds. The bound is generous for -race
+// and parallel tests.
+func TestToMarkdown_ManyMarkedNodes(t *testing.T) {
+	t.Parallel()
+
+	for name, text := range map[string]string{
+		"words": "some ordinary words ",
+		// Each node's URL runs into its closing delimiters, so every node
+		// needs a repair.
+		"URLs": "https://x.test/ ",
+		// Plain URLs that would run into the strikes after them, each
+		// repaired in the node before the strike.
+		"plain URLs": "see https://x.test/",
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			inline := make([]jira4claude.ADFNode, 3000)
+			for i := range inline {
+				switch {
+				case name == "plain URLs" && i%2 == 0:
+					inline[i] = textNode(text)
+				case name == "plain URLs":
+					inline[i] = textNode("a", "strike")
+				case i%2 == 0:
+					inline[i] = textNode(text, "strong")
+				default:
+					inline[i] = textNode(text, "em")
+				}
+			}
+			start := time.Now()
+			md, readIssues := markdown.New().ToMarkdown(paragraphDoc(inline...))
+			elapsed := time.Since(start)
+			assert.Empty(t, readIssues)
+			assert.Less(t, elapsed, 4*time.Second, "markdown was %d bytes", len(md))
 		})
 	}
 }

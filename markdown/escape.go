@@ -243,9 +243,11 @@ func escapeTextNode(siblings []jira4claude.ADFNode, i int, lineStart bool, edges
 		case "code":
 			return node.Text
 		case "link":
-			if linkHref(mark) == node.Text {
-				return node.Text
+			if _, bare := bareURL(node); bare {
+				return node.Text // written as the bare URL, which Linkify reads
 			}
+			// Any other link is written in brackets, so its label is
+			// escaped, even when it is the href.
 			inLink = true
 		}
 	}
@@ -353,29 +355,34 @@ const linkifyTriggers = " \t\n(*_~>)]`"
 // at the start of md when atStart is set, and after linkifyTriggers. Erring
 // towards a crossing only breaks an autolink that would not have formed.
 func linkifyCrosses(md string, boundary int, atStart bool) bool {
-	return linkifyCrossesFrom(md, boundary, atStart, nil)
+	for _, span := range linkifySpans(md[:boundary], md, atStart, nil) {
+		if span[1] > boundary {
+			return true
+		}
+	}
+	return false
 }
 
-// linkifyCrossesFrom is linkifyCrosses with Linkify tried only where
-// canStart, if not nil, allows.
-func linkifyCrossesFrom(md string, boundary int, atStart bool, canStart func(p int) bool) bool {
+// linkifySpans returns the [start, end) of each autolink Linkify may read in
+// md that starts within scan (a prefix of md), in order. Linkify is tried at
+// the start of md when atStart is set, after linkifyTriggers, right after
+// another autolink, and only where canStart, if not nil, allows.
+func linkifySpans(scan, md string, atStart bool, canStart func(p int) bool) [][2]int {
+	var spans [][2]int
 	afterLink := -1 // Linkify is tried again right after an autolink
-	for p := 0; p < boundary; p++ {
+	for p := 0; p < len(scan); p++ {
 		if p != afterLink && (p == 0 && !atStart || p > 0 && strings.IndexByte(linkifyTriggers, md[p-1]) < 0) {
 			continue
 		}
 		if canStart != nil && !canStart(p) {
 			continue
 		}
-		n := autolinkLen(md[p:])
-		if n > 0 && p+n > boundary {
-			return true
-		}
-		if n > 0 {
+		if n := autolinkLen(md[p:]); n > 0 {
+			spans = append(spans, [2]int{p, p + n})
 			afterLink = p + n
 		}
 	}
-	return false
+	return spans
 }
 
 // charRef returns the decimal numeric character reference for r.
@@ -568,16 +575,14 @@ func autolinkLen(s string) int {
 		// the link, so a link read here would start one byte later.
 		return 0
 	}
-	if nl := strings.IndexByte(s, '\n'); nl >= 0 {
-		s = s[:nl]
-	}
-	word := s
-	if sp := strings.IndexAny(word, " \t"); sp >= 0 {
-		word = word[:sp]
+	// An autolink ends at a blank or line ending, so only the word at the
+	// start of s is parsed (which keeps a scan over a long line linear).
+	if sp := strings.IndexAny(s, " \t\n"); sp >= 0 {
+		s = s[:sp]
 	}
 	if !strings.HasPrefix(s, "http:") && !strings.HasPrefix(s, "https:") &&
 		!strings.HasPrefix(s, "ftp:") && !strings.HasPrefix(s, "www.") &&
-		!strings.Contains(word, "@") {
+		!strings.Contains(s, "@") {
 		return 0
 	}
 	source := []byte(s)
