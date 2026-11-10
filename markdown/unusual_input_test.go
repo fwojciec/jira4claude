@@ -286,11 +286,13 @@ func TestRoundTrip_DelimiterRowShapeInTableCell(t *testing.T) {
 	}
 }
 
-// A bare URL in plain Jira text gains a link mark on write (see
-// TestRoundTrip_BareURLKeepsWholeAutoLink). Linkify takes "&", "#" and ";"
-// into a URL, so when a character written as a reference follows (a line
-// feed, trailing blanks, or a backslash before a hard break), the URL is
-// closed with angle brackets.
+// A link whose text is its URL is written bare only where Linkify reads it
+// back whole. Linkify takes "&", "#" and ";" into a URL, so when a character
+// written as a reference follows (a line feed, trailing blanks, or a
+// backslash before a hard break), the link is written in brackets (#161).
+// Before #161 these inputs were plain text, which gained a link on write,
+// closed in angle brackets; plain text now stays plain
+// (TestRoundTrip_TextThatLooksLikeALinkStaysText), so the links are the input.
 func TestRoundTrip_BareURLBeforeCharacterReference(t *testing.T) {
 	t.Parallel()
 
@@ -302,26 +304,23 @@ func TestRoundTrip_BareURLBeforeCharacterReference(t *testing.T) {
 
 	br := jira4claude.ADFNode{Type: "hardBreak"}
 	tests := []struct {
-		name     string
-		text     string
-		expected []jira4claude.ADFNode
-		after    []jira4claude.ADFNode // inline nodes after the text, read back as they are
+		name   string
+		inline []jira4claude.ADFNode
 	}{
-		{"line feed after a path", "see https://x.com/a\nb", []jira4claude.ADFNode{txt("see "), link("https://x.com/a"), txt("\nb")}, nil},
-		{"line feed after a query", "https://x.com/a?q=1&r=[2]\nb", []jira4claude.ADFNode{link("https://x.com/a?q=1&r=[2]"), txt("\nb")}, nil},
-		{"trailing space", "see https://x.com/a ", []jira4claude.ADFNode{txt("see "), link("https://x.com/a"), txt(" ")}, nil},
-		{"full stop then a line feed", "(https://x.com/p?q=1.\n", []jira4claude.ADFNode{txt("("), link("https://x.com/p?q=1"), txt(".\n")}, nil},
-		{"backslash before a hard break", "https://x.com/a\\", []jira4claude.ADFNode{link("https://x.com/a"), txt(`\`)}, []jira4claude.ADFNode{br, txt("b")}},
-		{"after a single tilde", "~https://x.com/a\n", []jira4claude.ADFNode{txt("~"), link("https://x.com/a"), txt("\n")}, nil},
-		{"email before a line feed", "a@b.co\nx", []jira4claude.ADFNode{link("a@b.co"), txt("\nx")}, nil},
-		{"email before a trailing space", "a@b.co ", []jira4claude.ADFNode{link("a@b.co"), txt(" ")}, nil},
-		{"email before a hard break", "a@b.co\\", []jira4claude.ADFNode{link("a@b.co"), txt(`\`)}, []jira4claude.ADFNode{br, txt("b")}},
-		// Linkify gives a www. URL an http:// scheme in its text and href,
-		// as it does when the URL is written bare.
-		{"www URL before a line feed", "www.example.com/path\nnext", []jira4claude.ADFNode{link("http://www.example.com/path"), txt("\nnext")}, nil},
-		{"www URL before a trailing space", "see www.x.com/a ", []jira4claude.ADFNode{txt("see "), link("http://www.x.com/a"), txt(" ")}, nil},
-		{"www URL before a hard break", "www.x.com/a\\", []jira4claude.ADFNode{link("http://www.x.com/a"), txt(`\`)}, []jira4claude.ADFNode{br, txt("b")}},
-		{"www URL after punctuation before a line feed", "(www.x.com/a.\n", []jira4claude.ADFNode{txt("("), link("http://www.x.com/a"), txt(".\n")}, nil},
+		{"line feed after a path", []jira4claude.ADFNode{txt("see "), link("https://x.com/a"), txt("\nb")}},
+		{"line feed after a query", []jira4claude.ADFNode{link("https://x.com/a?q=1&r=[2]"), txt("\nb")}},
+		{"trailing space", []jira4claude.ADFNode{txt("see "), link("https://x.com/a"), txt(" ")}},
+		{"full stop then a line feed", []jira4claude.ADFNode{txt("("), link("https://x.com/p?q=1"), txt(".\n")}},
+		{"backslash before a hard break", []jira4claude.ADFNode{link("https://x.com/a"), txt(`\`), br, txt("b")}},
+		{"after a single tilde", []jira4claude.ADFNode{txt("~"), link("https://x.com/a"), txt("\n")}},
+		{"email before a line feed", []jira4claude.ADFNode{link("a@b.co"), txt("\nx")}},
+		{"email before a trailing space", []jira4claude.ADFNode{link("a@b.co"), txt(" ")}},
+		{"email before a hard break", []jira4claude.ADFNode{link("a@b.co"), txt(`\`), br, txt("b")}},
+		// Linkify gives a www. URL an http:// scheme in its text and href.
+		{"www URL before a line feed", []jira4claude.ADFNode{link("http://www.example.com/path"), txt("\nnext")}},
+		{"www URL before a trailing space", []jira4claude.ADFNode{txt("see "), link("http://www.x.com/a"), txt(" ")}},
+		{"www URL before a hard break", []jira4claude.ADFNode{link("http://www.x.com/a"), txt(`\`), br, txt("b")}},
+		{"www URL after punctuation before a line feed", []jira4claude.ADFNode{txt("("), link("http://www.x.com/a"), txt(".\n")}},
 	}
 
 	for _, tt := range tests {
@@ -329,12 +328,12 @@ func TestRoundTrip_BareURLBeforeCharacterReference(t *testing.T) {
 			t.Parallel()
 
 			conv := markdown.New()
-			md, readIssues := conv.ToMarkdown(paragraphDoc(append([]jira4claude.ADFNode{txt(tt.text)}, tt.after...)...))
+			md, readIssues := conv.ToMarkdown(paragraphDoc(tt.inline...))
 			back, writeIssues := conv.ToADF(md)
 
-			assert.Empty(t, readIssues)
+			assert.Empty(t, readIssues, "read as %q", md)
 			assert.Empty(t, writeIssues)
-			assert.Equal(t, paragraphDoc(append(tt.expected, tt.after...)...), back, "read as %q", md)
+			assert.Equal(t, paragraphDoc(tt.inline...), back, "read as %q", md)
 		})
 	}
 }
@@ -461,8 +460,9 @@ func TestRoundTrip_BareLinkThatCannotBeClosed(t *testing.T) {
 
 // goldmark's Linkify drops an escaping backslash right after an autolink, so
 // "a@b.co\\[" would read back as "a@b.co[" and let the "[" open a link. A
-// backslash there is written as "&#92;" after an email address, which ends
-// at the "&", and a URL before it is closed in angle brackets.
+// link written bare is followed by a backslash only where that reads back
+// (#161). Before #161 the inputs were the plain text the links came from;
+// plain text now stays plain, so the links are the input.
 func TestRoundTrip_BackslashAfterAutolink(t *testing.T) {
 	t.Parallel()
 
@@ -472,18 +472,15 @@ func TestRoundTrip_BackslashAfterAutolink(t *testing.T) {
 		return jira4claude.ADFNode{Type: "text", Text: text, Marks: []jira4claude.ADFMark{{Type: "link", Attrs: attrs}}}
 	}
 	tests := []struct {
-		name     string
-		inline   []jira4claude.ADFNode
-		expected []jira4claude.ADFNode
+		name   string
+		inline []jira4claude.ADFNode
 	}{
-		{"email before a link", []jira4claude.ADFNode{txt(`see a@b.co\`), link(";", "https://example.com")},
-			[]jira4claude.ADFNode{txt("see "), link("a@b.co", "a@b.co"), txt(`\`), link(";", "https://example.com")}},
-		{"email before punctuation", []jira4claude.ADFNode{txt(`see a@b.co\! x`)},
-			[]jira4claude.ADFNode{txt("see "), link("a@b.co", "a@b.co"), txt(`\! x`)}},
-		{"URL before punctuation", []jira4claude.ADFNode{txt(`see https://x.com/b\. x`)},
-			[]jira4claude.ADFNode{txt("see "), link("https://x.com/b", "https://x.com/b"), txt(`\. x`)}},
-		{"www URL holding @ before a link", []jira4claude.ADFNode{txt(`see www.x.com/a@b.co\`), link(";", "https://example.com")},
-			[]jira4claude.ADFNode{txt("see "), link("http://www.x.com/a@b.co", "http://www.x.com/a@b.co"), txt(`\`), link(";", "https://example.com")}},
+		{"email before a link", []jira4claude.ADFNode{txt("see "), link("a@b.co", "a@b.co"), txt(`\`), link(";", "https://example.com")}},
+		{"email before punctuation", []jira4claude.ADFNode{txt("see "), link("a@b.co", "a@b.co"), txt(`\! x`)}},
+		{"URL before punctuation", []jira4claude.ADFNode{txt("see "), link("https://x.com/b", "https://x.com/b"), txt(`\. x`)}},
+		{"www URL holding @ before a link", []jira4claude.ADFNode{
+			txt("see "), link("http://www.x.com/a@b.co", "http://www.x.com/a@b.co"), txt(`\`), link(";", "https://example.com"),
+		}},
 	}
 
 	for _, tt := range tests {
@@ -496,7 +493,7 @@ func TestRoundTrip_BackslashAfterAutolink(t *testing.T) {
 
 			assert.Empty(t, readIssues, "read as %q", md)
 			assert.Empty(t, writeIssues)
-			assert.Equal(t, paragraphDoc(tt.expected...), back, "read as %q", md)
+			assert.Equal(t, paragraphDoc(tt.inline...), back, "read as %q", md)
 		})
 	}
 }

@@ -353,10 +353,12 @@ func TestRoundTrip_PlainTextFromJira(t *testing.T) {
 func TestRoundTrip_BareURLKeepsWholeAutoLink(t *testing.T) {
 	t.Parallel()
 
-	// A bare URL in plain Jira text gains a link mark on write (Linkify). The
-	// read side must not escape inside it, or the link would stop at the
-	// first backslash. The linked range is the one Linkify gives the
-	// unescaped text, and every character of the text is kept.
+	// A link whose text is its URL is written bare, which Linkify reads back.
+	// The read side must not escape inside it, or the link would stop at the
+	// first backslash. Before #161 the input was plain text, which gained
+	// these links on write; plain text now stays plain
+	// (TestRoundTrip_TextThatLooksLikeALinkStaysText), so the links are the
+	// input and must come back unchanged.
 	link := func(url string) jira4claude.ADFNode {
 		attrs, err := json.Marshal(map[string]any{"href": url})
 		require.NoError(t, err)
@@ -372,39 +374,32 @@ func TestRoundTrip_BareURLKeepsWholeAutoLink(t *testing.T) {
 
 	tests := []struct {
 		name     string
-		text     string
 		expected []jira4claude.ADFNode
 	}{
 		{
 			name:     "brackets in query",
-			text:     "https://example.com/?filter[x]=1",
 			expected: []jira4claude.ADFNode{link("https://example.com/?filter[x]=1")},
 		},
 		{
 			name:     "underscores and double tildes in path",
-			text:     "see https://example.com/a_b_~~c~~/d now",
 			expected: []jira4claude.ADFNode{plain("see "), link("https://example.com/a_b_~~c~~/d"), plain(" now")},
 		},
 		{
 			// Linkify stops at "*", so the link ends there; the rest stays
 			// plain text instead of becoming emphasis.
 			name:     "asterisks in path",
-			text:     "https://example.com/a_b*c*d",
 			expected: []jira4claude.ADFNode{link("https://example.com/a_b"), plain("*c*d")},
 		},
 		{
 			name:     "followed by a full stop",
-			text:     "Read https://example.com/docs_v2.",
 			expected: []jira4claude.ADFNode{plain("Read "), link("https://example.com/docs_v2"), plain(".")},
 		},
 		{
 			name:     "followed by a closing parenthesis",
-			text:     "(see https://example.com/a_b)",
 			expected: []jira4claude.ADFNode{plain("(see "), link("https://example.com/a_b"), plain(")")},
 		},
 		{
 			name:     "in the middle of a sentence",
-			text:     "go to https://example.com/a_b?q=1&r=[2] for *details*",
 			expected: []jira4claude.ADFNode{plain("go to "), link("https://example.com/a_b?q=1&r=[2]"), plain(" for *details*")},
 		},
 	}
@@ -414,8 +409,9 @@ func TestRoundTrip_BareURLKeepsWholeAutoLink(t *testing.T) {
 			t.Parallel()
 
 			converter := markdown.New()
-			md, w1 := converter.ToMarkdown(paragraphDoc(plain(tt.text)))
+			md, w1 := converter.ToMarkdown(paragraphDoc(tt.expected...))
 			assert.Empty(t, w1)
+			assert.NotContains(t, md, "](", "the link is written bare")
 
 			result, w2 := converter.ToADF(md)
 			assert.Empty(t, w2)
@@ -428,10 +424,11 @@ func TestRoundTrip_BareURLKeepsWholeAutoLink(t *testing.T) {
 func TestRoundTrip_BareURLInMarkedText(t *testing.T) {
 	t.Parallel()
 
-	// Linkify also runs right after a formatting delimiter, so a URL at the
-	// start of marked text is linked whole on write; escaping inside it would
-	// cut the link short. Marks are written in canonical order, link first
-	// (#159).
+	// A URL that is a link and also marked is written in brackets; a bare
+	// link right after a formatting delimiter is read whole by Linkify, which
+	// runs there too. Marks are written in canonical order, link first
+	// (#159). Before #161 the inputs were the marked text without the link,
+	// which gained it on write; text that is not a link now stays so.
 	const url = "https://example.com/?filter[x]=1"
 	linkMark := jira4claude.ADFMark{Type: "link", Attrs: []byte(`{"href":"` + url + `"}`)}
 
@@ -444,20 +441,14 @@ func TestRoundTrip_BareURLInMarkedText(t *testing.T) {
 
 			for _, tc := range []struct {
 				name     string
-				inline   []jira4claude.ADFNode
 				expected []jira4claude.ADFNode
 			}{
 				{
 					name:     "whole node",
-					inline:   []jira4claude.ADFNode{{Type: "text", Text: url, Marks: []jira4claude.ADFMark{m}}},
 					expected: []jira4claude.ADFNode{{Type: "text", Text: url, Marks: []jira4claude.ADFMark{linkMark, m}}},
 				},
 				{
 					name: "after plain text",
-					inline: []jira4claude.ADFNode{
-						{Type: "text", Text: "see "},
-						{Type: "text", Text: url + " now", Marks: []jira4claude.ADFMark{m}},
-					},
 					expected: []jira4claude.ADFNode{
 						{Type: "text", Text: "see "},
 						{Type: "text", Text: url, Marks: []jira4claude.ADFMark{linkMark, m}},
@@ -466,17 +457,13 @@ func TestRoundTrip_BareURLInMarkedText(t *testing.T) {
 				},
 				{
 					name: "plain URL after marked text",
-					inline: []jira4claude.ADFNode{
-						{Type: "text", Text: "see", Marks: []jira4claude.ADFMark{m}},
-						{Type: "text", Text: url},
-					},
 					expected: []jira4claude.ADFNode{
 						{Type: "text", Text: "see", Marks: []jira4claude.ADFMark{m}},
 						{Type: "text", Text: url, Marks: []jira4claude.ADFMark{linkMark}},
 					},
 				},
 			} {
-				md, w1 := converter.ToMarkdown(paragraphDoc(tc.inline...))
+				md, w1 := converter.ToMarkdown(paragraphDoc(tc.expected...))
 				assert.Empty(t, w1)
 
 				result, w2 := converter.ToADF(md)
@@ -848,7 +835,10 @@ func TestRoundTrip_AdjacentTextNodesWithSameMarks(t *testing.T) {
 		{"three in a row", []jira4claude.ADFNode{node("a*", strong), node("_b_", strong), node("c~", strong)}, []jira4claude.ADFNode{node("a*_b_c~", strong)}},
 		{"unmarked split entity", []jira4claude.ADFNode{node("&am"), node("p;")}, []jira4claude.ADFNode{node("&amp;")}},
 		{"unmarked split tildes", []jira4claude.ADFNode{node("a~"), node("~b")}, []jira4claude.ADFNode{node("a~~b")}},
-		{"unmarked split URL", []jira4claude.ADFNode{node("https://example.com/?x="), node("[1]")}, []jira4claude.ADFNode{node(url, link)}},
+		// Plain text stays plain, URL or not (#161).
+		{"unmarked split URL", []jira4claude.ADFNode{node("https://example.com/?x="), node("[1]")}, []jira4claude.ADFNode{node(url)}},
+		// Two links to one href are one link, written bare (#161).
+		{"split link", []jira4claude.ADFNode{node("https://example.com/?x=", link), node("[1]", link)}, []jira4claude.ADFNode{node(url, link)}},
 	}
 
 	for _, tt := range tests {

@@ -179,3 +179,48 @@ func TestToMarkdown_OrdinaryLinkForms(t *testing.T) {
 		})
 	}
 }
+
+// roundTripsExactly asserts that doc reads and writes back unchanged, with
+// no issue on either side.
+func roundTripsExactly(t *testing.T, doc *jira4claude.ADFNode) {
+	t.Helper()
+
+	md, readIssues := markdown.New().ToMarkdown(doc)
+	back, writeIssues := markdown.New().ToADF(md)
+	assert.Empty(t, readIssues, "read as %q", md)
+	assert.Empty(t, writeIssues, "read as %q", md)
+	assert.Equal(t, doc, back, "read as %q", md)
+}
+
+// Text that is not a link stays text: where Linkify would read a URL or an
+// email address in it, the read keeps it from forming a link (the break mode
+// in escape.go), so a link appears only where ADF has one (#161).
+func TestRoundTrip_TextThatLooksLikeALinkStaysText(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		inline []jira4claude.ADFNode
+	}{
+		{"URL in a sentence", []jira4claude.ADFNode{txt("see https://x.test/a_b now")}},
+		{"URL at a line start", []jira4claude.ADFNode{txt("http://0.a0")}},
+		{"www URL", []jira4claude.ADFNode{txt("see www.x.test now")}},
+		{"email", []jira4claude.ADFNode{txt("mail a@b.co now")}},
+		{"email with punctuation", []jira4claude.ADFNode{txt("0!@0.0")}},
+		{"URL after a parenthesis", []jira4claude.ADFNode{txt("(https://0.a")}},
+		{"URL after an unmatched bracket", []jira4claude.ADFNode{txt("[ http://x.com")}},
+		{"URL after a hard break", []jira4claude.ADFNode{txt("a"), hardBreak(), txt("https://x.test")}},
+		{"strong URL", []jira4claude.ADFNode{textNode("https://x.test/a", "strong")}},
+		{"em URL after text", []jira4claude.ADFNode{txt("see "), textNode("https://x.test/a now", "em")}},
+		{"struck email", []jira4claude.ADFNode{textNode("a@b.co", "strike")}},
+		{"underlined URL", []jira4claude.ADFNode{textNode("https://x.test", "underline")}},
+		{"URL after a link", []jira4claude.ADFNode{hrefLink("a", "https://y.test"), txt("https://x.test")}},
+		{"URL after code", []jira4claude.ADFNode{textNode("c", "code"), txt("https://x.test")}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			roundTripsExactly(t, paragraphDoc(tt.inline...))
+		})
+	}
+}

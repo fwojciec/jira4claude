@@ -174,6 +174,12 @@ func renderTextItems(items []jira4claude.ADFNode, skipped *skippedCollector) []s
 		}
 	}
 
+	// Text that is not a link never forms one: Linkify is kept from starting
+	// anywhere in it.
+	for i := range items {
+		edges[i].breakLinks = items[i].Type == "text" && !hasMark(items[i].Marks, "link")
+	}
+
 	// Marked text first: its Markdown depends only on its own text and the
 	// delimiter chosen after its left neighbour.
 	for i := range items {
@@ -182,7 +188,8 @@ func renderTextItems(items []jira4claude.ADFNode, skipped *skippedCollector) []s
 			continue
 		}
 		if usesDelimiters(node.Marks) {
-			edges[i] = innerEdges(node)
+			inner := innerEdges(node)
+			edges[i].first, edges[i].last = inner.first, inner.last
 		}
 		render(i)
 		// The delimiter switches only where the two runs meet: not when a

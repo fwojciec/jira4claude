@@ -188,6 +188,12 @@ var propertySeeds = []string{
 	"[]()",
 	"[a](a&amp;b)",
 	"[a](<a\\>b>)",
+	"[ http://x.com",
+	"&#104;ttp://0.a0",
+	"[ http://0.a0",
+	"0\\!@0.0",
+	"\\(https://0.a",
+	"0@0\\.0",
 }
 
 // addPropertySeeds adds propertySeeds and the Markdown fixtures in testdata
@@ -426,7 +432,6 @@ func TestPropertyKnownFailures(t *testing.T) {
 	const (
 		// Found by fuzzing in #147.
 		gapLinkTextIsHref = "a link whose text equals its href is read as bare text, which only autolinks for real URLs (read)"
-		gapUnlinkedURL    = "URL text the writer did not linkify (after an unmatched [) is linkified on rewrite, because the reader's \\[ escape re-enables linkify (read)"
 	)
 
 	tests := []struct {
@@ -435,7 +440,6 @@ func TestPropertyKnownFailures(t *testing.T) {
 		input string
 	}{
 		{"link text equal to a non-URL href", gapLinkTextIsHref, "a [0](0)"},
-		{"URL after an unmatched bracket", gapUnlinkedURL, "[ http://x.com"},
 	}
 
 	for _, tt := range tests {
