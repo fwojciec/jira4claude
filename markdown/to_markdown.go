@@ -122,6 +122,12 @@ func adfCodeBlockToGFM(node *jira4claude.ADFNode, skipped *skippedCollector) str
 			code += child.Text
 		}
 	}
+	if text, changed := writableText(code); changed {
+		code = text
+		if skipped != nil {
+			skipped.degrade("codeBlock", unwritableTextDetail)
+		}
+	}
 
 	// The info string of a backtick fence cannot contain a backtick, so such
 	// a language takes a tilde fence. The fence is longer than any run of
@@ -790,6 +796,17 @@ func adfInlineLineToGFM(node *jira4claude.ADFNode, skipped *skippedCollector, si
 	// holds only nodes that emit something, with label nodes already turned
 	// into the text they read as.
 	items := emittingInline(node.Content, skipped)
+	for i := range items {
+		if items[i].Type != "text" {
+			continue
+		}
+		if text, changed := writableText(items[i].Text); changed {
+			items[i].Text = text
+			if skipped != nil {
+				skipped.degrade("text", unwritableTextDetail)
+			}
+		}
+	}
 	texts := renderTextItems(items, skipped)
 
 	var result strings.Builder
@@ -813,17 +830,8 @@ func adfInlineLineToGFM(node *jira4claude.ADFNode, skipped *skippedCollector, si
 					skipped.degrade("hardBreak", hardBreakDetail)
 				}
 			default:
-				// goldmark does not take "\\\" before a newline as an
-				// escaped backslash and a hard break, so a plain text that
-				// ends in a backslash writes it as a character reference.
-				if prev := i - 1; prev >= 0 && items[prev].Type == "text" &&
-					len(items[prev].Marks) == 0 && strings.HasSuffix(items[prev].Text, `\`) {
-					out := result.String()
-					if strings.HasSuffix(out, `\\`) {
-						result.Reset()
-						result.WriteString(out[:len(out)-2] + "&#92;")
-					}
-				}
+				// A plain text that ends in a backslash writes it as a
+				// character reference (see withBreakBackslash).
 				result.WriteString("\\\n")
 			}
 		case tokenItemType:

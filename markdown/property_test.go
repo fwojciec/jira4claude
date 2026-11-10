@@ -157,6 +157,26 @@ var propertySeeds = []string{
 	"1\t1&\\*-a@b.co <u>***-***</u>",
 	"**a**[*https://x.test/\\_*](https://x.test/_)",
 	"~~a~~[https://x.test/a(](<https://x.test/a(>)",
+	// #162 line endings, control characters, invalid UTF-8, two escapes
+	"\r#\r0",
+	"&#X1;",
+	"&#Xd;",
+	"a&#13;&#10;b",
+	"a&#10;# b",
+	"*0 []()\x81*",
+	"<A>\n\\ ",
+	"\\\n\\|-",
+	"a\\\n\\-:",
+	"\\|- \n|- ",
+	"<https://x.com/a>&#10;b",
+	"<https://x.com/a>&#92;\\\nb",
+	"<https://x.com/a>[b](https://example.com)",
+	"<http://www.x.com/a>;[;](https://example.com)",
+	"[https://x.com/a&#10;b](https://example.com)",
+	"a@b.co&#92;[;](https://example.com)",
+	"<https://x.com/b>\\\\. <http://www.x.com/a@b.co>\\\\~~;~~",
+	"&#120;**&#10;a**",
+	"**a&#10;**&#120;",
 }
 
 // addPropertySeeds adds propertySeeds and the Markdown fixtures in testdata
@@ -394,17 +414,12 @@ func TestPropertyKnownFailures(t *testing.T) {
 
 	const (
 		// Known before #147 (comments on #147).
-		gapHrefEscaping    = "link hrefs are not escaped on read (#147 comments) (read)"
-		gapTableAfterBreak = "a table delimiter row after a hard break is not escaped on read (#147 comments) (read)"
+		gapHrefEscaping = "link hrefs are not escaped on read (#147 comments) (read)"
 
 		// Found by fuzzing in #147.
-		gapLinkTextIsHref  = "a link whose text equals its href is read as bare text, which only autolinks for real URLs (read)"
-		gapEmptyHref       = "[text]() is written as a link mark with an empty href, which the reader drops (write)"
-		gapUnlinkedURL     = "URL text the writer did not linkify (after an unmatched [) is linkified on rewrite, because the reader's \\[ escape re-enables linkify (read)"
-		gapCarriageReturn  = "a lone carriage return is not normalised on write and is parsed inconsistently (write)"
-		gapBackslashEntity = "a literal backslash before the reader's &#32; trailing-space entity escapes the entity (read)"
-		gapControlEntity   = "a numeric entity for a control character (including CR) puts that character in ADF text, though NormalizeUnicode replaces raw control characters; the reader writes it back raw (write)"
-		gapInvalidUTF8     = "invalid UTF-8 is not replaced before parsing, so emphasis flanking differs between writes (write)"
+		gapLinkTextIsHref = "a link whose text equals its href is read as bare text, which only autolinks for real URLs (read)"
+		gapEmptyHref      = "[text]() is written as a link mark with an empty href, which the reader drops (write)"
+		gapUnlinkedURL    = "URL text the writer did not linkify (after an unmatched [) is linkified on rewrite, because the reader's \\[ escape re-enables linkify (read)"
 	)
 
 	tests := []struct {
@@ -414,15 +429,9 @@ func TestPropertyKnownFailures(t *testing.T) {
 	}{
 		{"href with a space", gapHrefEscaping, "[a](<b c>)"},
 		{"href with a parenthesis", gapHrefEscaping, "[0](( )"},
-		{"delimiter row after a hard break", gapTableAfterBreak, "\\\n\\|-"},
 		{"link text equal to a non-URL href", gapLinkTextIsHref, "a [0](0)"},
 		{"empty href", gapEmptyHref, "[0000]()"},
 		{"URL after an unmatched bracket", gapUnlinkedURL, "[ http://x.com"},
-		{"carriage returns", gapCarriageReturn, "\r#\r0"},
-		{"backslash then trailing space", gapBackslashEntity, "<A>\n\\ "},
-		{"control character entity", gapControlEntity, "&#X1;"},
-		{"carriage return entity", gapControlEntity, "&#Xd;"},
-		{"invalid UTF-8 after a link", gapInvalidUTF8, "*0 []()\x81*"},
 	}
 
 	for _, tt := range tests {

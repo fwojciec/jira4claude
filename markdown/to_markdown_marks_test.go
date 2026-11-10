@@ -305,6 +305,9 @@ func TestToMarkdown_ManyMarkedNodes(t *testing.T) {
 		// Plain URLs that would run into the strikes after them, each
 		// repaired in the node before the strike.
 		"plain URLs": "see https://x.test/",
+		// URLs each closed in angle brackets before the reference that
+		// writes the backslash before a hard break (#162).
+		"URLs before hard breaks": "see https://x.test/a\\",
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
@@ -316,6 +319,10 @@ func TestToMarkdown_ManyMarkedNodes(t *testing.T) {
 					inline[i] = textNode(text)
 				case name == "plain URLs":
 					inline[i] = textNode("a", "strike")
+				case name == "URLs before hard breaks" && (i%2 == 0 || i == len(inline)-1):
+					inline[i] = textNode(text)
+				case name == "URLs before hard breaks":
+					inline[i] = jira4claude.ADFNode{Type: "hardBreak"}
 				case i%2 == 0:
 					inline[i] = textNode(text, "strong")
 				default:
@@ -344,6 +351,9 @@ func TestToMarkdown_LongToken(t *testing.T) {
 		"emails in a word":        strings.Repeat("a*a@b.co*", 4000),
 		"underscores then email":  strings.Repeat("a_", 16000) + "a@b.co",
 		"schemes without slashes": strings.Repeat("_https:", 8000) + "https://x.test",
+		// Each URL is closed in angle brackets before the reference written
+		// for the line feed after it (#162).
+		"URLs before line feeds": strings.Repeat("https://x.test/a\n", 4000),
 	}
 	for name, token := range tokens {
 		for _, mark := range []string{"", "strong", "strike"} {

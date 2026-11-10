@@ -115,7 +115,7 @@ func newMarkdownParser() parser.Parser {
 // Always returns a non-nil *ADFNode.
 // localID supplies task list and task item localId values; nil means random.
 func toADF(markdown string, localID func(n int) string) (*jira4claude.ADFNode, []jira4claude.ConversionIssue) {
-	markdown = NormalizeUnicode(markdown)
+	markdown = normalizeText(markdown)
 
 	reader := text.NewReader([]byte(markdown))
 	doc := newMarkdownParser().Parse(reader)

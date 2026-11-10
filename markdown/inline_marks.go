@@ -147,13 +147,28 @@ func renderTextItems(items []jira4claude.ADFNode, skipped *skippedCollector) []s
 	edges := make([]textEdges, len(items))
 	delims := make([]byte, len(items))
 	conflict := false
+	// unclosable: an autolink runs across a node edge and no repair
+	// removes it; it is reported with its own detail.
+	unclosable := false
+	stuck := make([]bool, len(items))
+	report := func() {
+		if skipped == nil {
+			return
+		}
+		if conflict {
+			skipped.degrade("text", markedTextDetail)
+		}
+		if unclosable {
+			skipped.degrade("text", unclosableURLDetail)
+		}
+	}
 	render := func(i int) {
 		if href, ok := bareURL(&items[i]); ok && edges[i].breakLinks {
 			if md, ok := bracketedURL(href); ok {
 				out[i] = md
 				return
 			}
-			conflict = true
+			unclosable = true
 		}
 		out[i] = escapeTextNode(items, i, isLineStart(items, i), edges[i])
 		if len(items[i].Marks) > 0 {
@@ -209,11 +224,10 @@ func renderTextItems(items []jira4claude.ADFNode, skipped *skippedCollector) []s
 			}
 		}
 
-		crossings := autolinkCrossings(items, out)
+		// A crossing no repair removes is reported once and left.
+		crossings := slices.DeleteFunc(autolinkCrossings(items, out), func(i int) bool { return stuck[i] })
 		if len(crossings) == 0 && slices.Equal(before, edges) {
-			if conflict && skipped != nil {
-				skipped.degrade("text", markedTextDetail)
-			}
+			report()
 			return out
 		}
 		// Every crossing found is repaired in this pass, so a line with many
@@ -230,13 +244,15 @@ func renderTextItems(items []jira4claude.ADFNode, skipped *skippedCollector) []s
 				edges[i].last = true
 				render(i)
 			default:
-				conflict = true
+				stuck[i] = true
+				unclosable = true
 			}
 		}
 	}
-	if skipped != nil {
-		skipped.degrade("text", markedTextDetail)
-	}
+	// The passes did not settle: an autolink still crosses a node edge, or
+	// delimiter fixes kept changing each other.
+	conflict = conflict || !unclosable
+	report()
 	return out
 }
 

@@ -51,10 +51,15 @@ import (
 //     tilde next to it stays bare.
 //   - At the start of a line only: "#" that would open a heading, ">", a
 //     "-" or "+" list marker, a line made of only "-" or "=" (setext
-//     underline, thematic break), and the "." or ")" of an ordered list
-//     marker.
+//     underline, thematic break), the "." or ")" of an ordered list
+//     marker, and the first "-" of a line shaped like a table
+//     delimiter row ("|-", ":-:", "---|---").
 //   - In a heading only: a "#" run that ends the text after a blank (an ATX
 //     closing sequence).
+//
+// A line feed in text is written as "&#10;" (raw, it would be a soft line
+// break, which reads back as a space), and a backslash before it, or before
+// trailing blanks written as character references, is escaped.
 //
 // Everything else is written as is. A hardBreak between text nodes is
 // written as a CommonMark hard break, "\" and a newline (see
@@ -71,11 +76,16 @@ import (
 // is escaped again without the exception. A span that reaches the end of the
 // node is not kept when plain text follows in the next node. The span is
 // measured with Linkify's own parser,
-// so trailing punctuation is included or trimmed exactly as on write.
+// so trailing punctuation is included or trimmed exactly as on write. A span
+// with a scheme that a character reference follows ("&#10;", "&#32;",
+// "&#92;"), with only punctuation Linkify trimmed in between, is
+// written in angle brackets, since Linkify would take the reference in.
 
 // decodeText resolves backslash escapes and entity references in Markdown
 // text. A backslash before anything other than ASCII punctuation is kept, and
-// an escaped "&" is never read as the start of an entity.
+// an escaped "&" is never read as the start of an entity. A referenced
+// character follows the same rule as raw input (see normalize.go): "&#13;"
+// gives a line feed and "&#1;" a space.
 func decodeText(src []byte) string {
 	var b strings.Builder
 	n := 0
@@ -98,7 +108,7 @@ func decodeText(src []byte) string {
 		}
 	}
 	b.Write(src[n:])
-	return b.String()
+	return normalizeText(b.String())
 }
 
 // entityAt reports whether src[i:] starts with an entity or numeric
@@ -130,6 +140,22 @@ func entityAt(src []byte, i int) (string, int, bool) {
 		return "", 0, false
 	}
 	return string(entity.Characters), end + 1, true
+}
+
+// unwritableTextDetail explains the degraded issue reported when Jira text
+// holds a character that the write side would change (see writableText).
+const unwritableTextDetail = "a carriage return, control character or invalid UTF-8 in text cannot be written in Markdown; " +
+	"it is written as a line feed, a space or U+FFFD, as the write side would read it"
+
+// writableText returns s as the write side would read it back if it were
+// written raw: a carriage return, alone or before a line feed, becomes a line
+// feed, any other control character except tab and line feed becomes a space,
+// and invalid UTF-8 becomes U+FFFD (the rule in normalize.go). No escape can
+// carry these characters, so the caller reports a change. It reports whether
+// s changed.
+func writableText(s string) (string, bool) {
+	clean := normalizeText(s)
+	return clean, clean != s
 }
 
 // looksLikeEntity reports whether s, which starts with "&", is shaped like an
@@ -175,6 +201,9 @@ type textContext struct {
 	// lineEnd: the text is unmarked and its end is the end of the inline
 	// content, where a paragraph, heading or cell loses trailing blanks.
 	lineEnd bool
+	// breakAfter: the text is unmarked and a hardBreak follows it, so a
+	// backslash that ends it is written as "&#92;" (see withBreakBackslash).
+	breakAfter bool
 	// encodeFirst, encodeLast: write the first (or last) character as a
 	// numeric character reference, because it meets a mark delimiter that
 	// it would stop from opening or closing, or join (see inline_marks.go).
@@ -261,6 +290,7 @@ func escapeTextNode(siblings []jira4claude.ADFNode, i int, lineStart bool, edges
 		textAfter: i+1 < len(siblings) && siblings[i+1].Type == "text" &&
 			!hasRenderedMark(siblings[i+1].Marks),
 		lineEnd:     !hasRenderedMark(node.Marks) && onlyHardBreaksFrom(siblings, i+1),
+		breakAfter:  !hasRenderedMark(node.Marks) && i+1 < len(siblings) && siblings[i+1].Type == "hardBreak",
 		encodeFirst: edges.first,
 		encodeLast:  edges.last,
 
@@ -286,28 +316,43 @@ func escapeText(s string, ctx textContext) string {
 	if ctx.encodeFirst || ctx.encodeLast {
 		return escapeTextEncodingEdges(s, ctx)
 	}
+	// The output is checked and returned as it is written, with a backslash
+	// before a hard break already a reference.
+	write := func(keepAutolinks bool) (string, bool) {
+		out, kept := escapeTextWith(s, ctx, keepAutolinks)
+		return withBreakBackslash(out, ctx), kept
+	}
 	if ctx.breakAutolinks {
-		out, _ := escapeTextWith(s, ctx, false)
+		out, _ := write(false)
 		return out
 	}
-	out, keptAutolink := escapeTextWith(s, ctx, true)
-	// A character reference written for a blank can also be taken into an
-	// autolink that ends right before it, so output with one is checked too.
+	out, keptAutolink := write(true)
+	// A character reference written for a blank, a line feed or a backslash
+	// before a hard break can also be taken into an autolink that ends right
+	// before it, so output with one is checked too.
 	if (keptAutolink || strings.Contains(out, "&#")) && !readsBackAs(out, s) {
 		// The verbatim autolink span did not survive in its emitted
 		// surroundings (Linkify ended it elsewhere, or an entity at its edge
-		// was decoded). Plain escaping is always symmetric, so use that.
-		out, _ = escapeTextWith(s, ctx, false)
+		// was decoded), or it holds ">", so angle brackets cannot close
+		// it. Plain escaping is always symmetric, so use that.
+		out, _ = write(false)
 		if !readsBackAs(out, s) {
 			// Linkify still reads the span, now running on into a
-			// character reference after it (a trailing blank at the end
-			// of the line), so the span is kept from being linked.
+			// character reference after it, so the span is kept from
+			// being linked.
 			ctx.breakAutolinks = true
-			out, _ = escapeTextWith(s, ctx, false)
+			out, _ = write(false)
 		}
 	}
 	return out
 }
+
+// unclosableURLDetail explains the degraded issue reported when Linkify
+// would read an autolink on past the end of its node's text and no repair
+// in renderTextItems stops it.
+const unclosableURLDetail = "a URL that Linkify would read on past its text (into a character reference written for " +
+	"a line feed, blank or backslash, or into the next node) has no form here that stops it; " +
+	"it reads back taking in what follows"
 
 // escapeTextEncodingEdges escapes s with its first or last character, as
 // ctx says, written as a character reference. The rest is escaped as text
@@ -332,7 +377,7 @@ func escapeTextEncodingEdges(s string, ctx textContext) string {
 		mid.lineStart, mid.bareStart, mid.linkifyAtStart, mid.tildeBefore = false, false, false, false
 	}
 	if tail != "" {
-		mid.lineEnd, mid.tildeAfter, mid.textAfter = false, false, true
+		mid.lineEnd, mid.breakAfter, mid.tildeAfter, mid.textAfter = false, false, false, true
 	}
 	out := head + escapeText(s, mid)
 	if tail != "" && !mid.breakAutolinks && linkifyCrosses(out+tail, len(out)-1, ctx.linkifyAtStart) {
@@ -505,7 +550,12 @@ func readsBackAs(md, want string) bool {
 			return false
 		}
 	}
-	return strings.Trim(got.String(), " \t") == strings.Trim(want, " \t")
+	// A "www." URL written in angle brackets carries the "http://" that
+	// Linkify gives the bare form, so the two compare equal.
+	norm := func(s string) string {
+		return strings.ReplaceAll(strings.Trim(s, " \t"), "http://www.", "www.")
+	}
+	return norm(got.String()) == norm(want)
 }
 
 // escapeTextWith escapes s; with keepAutolinks, a span Linkify will read as
@@ -516,12 +566,16 @@ func escapeTextWith(s string, ctx textContext, keepAutolinks bool) (string, bool
 	links := autolinkScanner{s: s}
 	atLineStart := ctx.lineStart
 	afterEncodedBlank := false
+	// emailEnd is where a kept email address ends (see backslashAfter).
+	emailEnd := -1
 	for i := 0; i < len(s); {
 		c := s[i]
 		if c == '\n' {
-			b.WriteByte(c)
+			// A line feed in text is not a line ending: written raw it would
+			// be a soft line break, which reads back as a space.
+			b.WriteString("&#10;")
 			i++
-			atLineStart = true
+			afterEncodedBlank = true
 			continue
 		}
 		// The content loses its trailing blanks on parse too, so blanks that
@@ -562,13 +616,38 @@ func escapeTextWith(s string, ctx textContext, keepAutolinks bool) (string, bool
 			atLineStart = false
 			continue
 		}
-		if keepAutolinks && !ctx.inLink && !afterEncodedBlank && linkifyMayStart(s, i, ctx.linkifyAtStart) {
+		if keepAutolinks && !ctx.inLink && !afterEncodedBlank && linkifyMayStart(s, i, ctx.linkifyAtStart, b.String()) {
 			// A span that reaches the end of the node could run on into
 			// the next node's text, which this check cannot see.
 			if n := links.lenAt(i); n > 0 && (i+n < len(s) || !ctx.textAfter) {
 				kept = true
-				b.WriteString(s[i : i+n])
+				span := s[i : i+n]
+				// goldmark's Linkify drops an escaping backslash right after
+				// an autolink, so a backslash written escaped there is
+				// lost: after an email it is written as a reference
+				// (below), and a URL is closed as before a reference.
+				backslashAfter := i+n < len(s) && s[i+n] == '\\' && (i+n+1 == len(s) || util.IsPunct(s[i+n+1]))
+				// An email address has no scheme; a URL may hold "@" too.
+				email := strings.Contains(span, "@") && !hasURLScheme(span) && !strings.HasPrefix(span, "www.")
+				switch {
+				case !referenceBeforeBlank(s, i+n, ctx) && !backslashAfter || email || strings.Contains(span, ">"):
+					// Linkify ends an email address at the "&". A URL
+					// holding ">" has no closed form: escapeText finds it
+					// does not read back and keeps it from being linked.
+					b.WriteString(span)
+				case hasURLScheme(span):
+					// Linkify would take the "&", "#" and ";" of the
+					// reference into the URL; angle brackets close it.
+					b.WriteString("<" + span + ">")
+				default:
+					// A "www." URL: in angle brackets it needs the scheme
+					// Linkify gives it anyway.
+					b.WriteString("<http://" + span + ">")
+				}
 				i += n
+				if email {
+					emailEnd = i
+				}
 				atLineStart = false
 				continue
 			}
@@ -589,7 +668,15 @@ func escapeTextWith(s string, ctx textContext, keepAutolinks bool) (string, bool
 		}
 		switch c {
 		case '\\':
-			if i+1 == len(s) || s[i+1] == '\n' || util.IsPunct(s[i+1]) {
+			if i == emailEnd && (i+1 == len(s) || util.IsPunct(s[i+1])) {
+				b.WriteString("&#92;")
+				i++
+				continue
+			}
+			// A line feed and trailing blanks at the line end are written as
+			// character references, which start with "&".
+			if i+1 == len(s) || s[i+1] == '\n' || util.IsPunct(s[i+1]) ||
+				ctx.lineEnd && strings.Trim(s[i+1:], " \t") == "" {
 				b.WriteByte('\\')
 			}
 		case '`', '[':
@@ -616,6 +703,42 @@ func escapeTextWith(s string, ctx textContext, keepAutolinks bool) (string, bool
 	return b.String(), kept
 }
 
+// referenceBeforeBlank reports whether, from s[i] up to the next blank or
+// "<" (where Linkify stops for good), escapeTextWith writes a character as a
+// character reference: a line feed, the blanks that end the content, or a
+// backslash before a hard break. Characters Linkify left out of the URL at
+// s[i] (trailing punctuation) are skipped, since a reference after them would
+// pull them back in.
+func referenceBeforeBlank(s string, i int, ctx textContext) bool {
+	for ; i < len(s); i++ {
+		switch s[i] {
+		case '\n':
+			return true
+		case ' ', '\t':
+			return ctx.lineEnd && strings.Trim(s[i:], " \t") == ""
+		case '<':
+			return false
+		}
+	}
+	return ctx.breakAfter && strings.HasSuffix(s, `\`)
+}
+
+// hasURLScheme reports whether an autolink span starts with a scheme, so it
+// can be written as a CommonMark autolink in angle brackets.
+func hasURLScheme(span string) bool {
+	return strings.HasPrefix(span, "http:") || strings.HasPrefix(span, "https:") || strings.HasPrefix(span, "ftp:")
+}
+
+// withBreakBackslash returns out as it is written before a hard break: a
+// final escaped backslash becomes "&#92;", since goldmark does not take
+// "\\\" before a newline as an escaped backslash and a hard break.
+func withBreakBackslash(out string, ctx textContext) string {
+	if ctx.breakAfter && strings.HasSuffix(out, `\\`) {
+		return out[:len(out)-2] + "&#92;"
+	}
+	return out
+}
+
 // mayOpenHTML reports whether s, which starts with "<", could be parsed as
 // HTML or an autolink. goldmark's inline raw HTML parser (parser/raw_html.go)
 // and HTML block parser (parser/html_block.go) need a letter, "/", "!" or "?"
@@ -637,17 +760,19 @@ func mayOpenHTML(s string) bool {
 // linkifyMayStart reports whether goldmark's Linkify parser is tried at s[i]
 // when the escaped text is parsed: at the head of a line, right after another
 // inline construct (goldmark restarts its scan there), or after a blank or
-// "(". Its other triggers ("*", "_", "~") may be escaped, so they are left
-// out. A tab is not a trigger: a span kept verbatim after one is not read as
+// "(". Its other triggers ("*", "_", "~") count only when out, the text
+// written so far, ends with them unescaped. A tab is not a trigger: a span kept verbatim after one is not read as
 // a link, and its "*" or "_" can pair with a delimiter after it. At the start
 // of the node, atStart decides.
-func linkifyMayStart(s string, i int, atStart bool) bool {
+func linkifyMayStart(s string, i int, atStart bool, out string) bool {
 	if i == 0 {
 		return atStart
 	}
-	switch s[i-1] {
+	switch c := s[i-1]; c {
 	case ' ', '\n', '(':
 		return true
+	case '*', '_', '~':
+		return strings.HasSuffix(out, string(c)) && !strings.HasSuffix(out, `\`+string(c))
 	}
 	return false
 }
@@ -702,6 +827,16 @@ func escapeLineStart(b *strings.Builder, s string, i int) int {
 	}
 	onlyOf := func(c byte) bool {
 		return strings.Trim(line, string(c)+" \t") == ""
+	}
+
+	// A line of only "-", ":", "|" and blanks, with a "-", is a table
+	// delimiter row, which makes the line before it a table header. Any
+	// backslash on the line keeps it from being one. The first "-" takes it,
+	// not a "|": a table cell escapes every "|" again (adfTableCellToGFM).
+	if dash := strings.IndexByte(line, '-'); dash >= 0 && strings.Trim(line, "-:| \t") == "" {
+		b.WriteString(line[:dash])
+		b.WriteString(`\-`)
+		return dash + 1
 	}
 
 	switch c := line[0]; {
@@ -768,7 +903,7 @@ func escapeRun(b *strings.Builder, s string, i int, lineStart bool, ctx textCont
 		if afterKnown {
 			after, _ = utf8.DecodeRuneInString(s[j:])
 		}
-		bothSpace := beforeKnown && afterKnown && unicode.IsSpace(before) && unicode.IsSpace(after)
+		bothSpace := beforeKnown && afterKnown && writtenAsSpace(before) && writtenAsSpace(after)
 		// Breaking autolinks may turn either neighbour into a character
 		// reference, which is punctuation, so snake_case is not relied on.
 		bothWord := !ctx.breakAutolinks && beforeKnown && afterKnown && isWordRune(before) && isWordRune(after)
@@ -782,6 +917,13 @@ func escapeRun(b *strings.Builder, s string, i int, lineStart bool, ctx textCont
 		b.WriteByte(c)
 	}
 	return run
+}
+
+// writtenAsSpace reports whether r is whitespace that escapeText writes as
+// itself. A line feed is written as "&#10;", which flanks a delimiter run as
+// punctuation does.
+func writtenAsSpace(r rune) bool {
+	return r != '\n' && unicode.IsSpace(r)
 }
 
 // isWordRune reports whether r is a letter or digit, so that an underscore
