@@ -1,6 +1,6 @@
 ---
 id: jir-kz84
-status: in_progress
+status: closed
 deps: []
 links: []
 created: 2026-11-10T07:47:17Z
@@ -18,3 +18,9 @@ GitHub issue 161 is the contract, plus the nine link causes handed over by the o
 
 The five remaining known-failure cases are seeds and pass. Several consecutive clean 120 s runs of FuzzToADFFixedPoint. Tests first, in external test packages with t.Parallel(). make validate passes on the tree that becomes main.
 
+
+## Notes
+
+**2026-11-10T08:32:58Z**
+
+Merged to main in 3d57eb4 after a clean second-opinion review and a green gate. Known-failure table empty; three consecutive clean 120 s runs of FuzzToADFFixedPoint, 60 s clean of FuzzReattachProtectedNodes. Write side no longer links a bare email address.
