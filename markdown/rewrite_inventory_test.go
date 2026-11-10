@@ -238,6 +238,7 @@ func rewriteRow(t *testing.T, row inventoryRow, variant string) (inventoryResult
 	got, issues := conv.Reattach(&doc, adf)
 	issues = append(issues, writeIssues...)
 
+	require.NoError(t, validateADF(got), "%s: the result must be schema-valid\nmarkdown: %q", variant, edited)
 	res := inventoryResult{md: md, issues: issues, got: comparable(t, got), want: comparable(t, &expected)}
 	switch {
 	case res.got == res.want && len(issues) == 0:

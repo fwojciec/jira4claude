@@ -606,13 +606,23 @@ func reattach(original, edited *jira4claude.ADFNode) (*jira4claude.ADFNode, []ji
 
 	// Issues about the new text stand; a protected node reported lost is
 	// lost only if the result does not hold it after all.
+	// The nodes restored from their tokens claim their copies first, so a
+	// node reported lost is kept only by a copy no token accounts for.
 	present := protectedCounts(&result)
+	reported := make(map[string]bool)
+	for _, i := range r.issues {
+		if i.Existing {
+			reported[i.Token] = true
+		}
+	}
 	kept := make(map[string]bool)
-	for _, p := range r.nodes {
-		key := nodeJSON(&p.node)
-		if present[key] > 0 {
-			present[key]--
-			kept[p.token] = true
+	for _, lostFirst := range []bool{false, true} {
+		for _, p := range r.nodes {
+			key := nodeJSON(&p.node)
+			if reported[p.token] == lostFirst && present[key] > 0 {
+				present[key]--
+				kept[p.token] = true
+			}
 		}
 	}
 	var issues []jira4claude.ConversionIssue
@@ -629,7 +639,7 @@ func reattach(original, edited *jira4claude.ADFNode) (*jira4claude.ADFNode, []ji
 	changed := lostIssues(original, &result)
 	changed = append(changed, rs.shapeIssues()...)
 	_, reread := renderDocument(original, skipped.tokens.salt, rs.whole)
-	changed = append(changed, readIssues(reread.issues(), changed)...)
+	changed = append(changed, readIssues(reread, changed)...)
 	return &result, append(issues, changed...)
 }
 
@@ -646,7 +656,7 @@ func clearDocument(original *jira4claude.ADFNode) (*jira4claude.ADFNode, []jira4
 	}
 	for _, d := range jira4claude.DroppedIssues(skipped.issues()) {
 		if d.Token == "" {
-			r.issues = append(r.issues, existingDropped(d))
+			r.issues = append(r.issues, existingDropped(d, skipped.count(d)))
 		}
 	}
 	return out, r.issues
@@ -663,13 +673,15 @@ func newReattacher(skipped *skippedCollector, md string, edited *jira4claude.ADF
 	}
 }
 
-// existingDropped turns a dropped issue of a read of the original into one
+// existingDropped turns a dropped issue of a read of the original, recorded
+// n times, into one
 // about the write, which would remove that content.
-func existingDropped(d jira4claude.ConversionIssue) jira4claude.ConversionIssue {
+func existingDropped(d jira4claude.ConversionIssue, n int) jira4claude.ConversionIssue {
 	return jira4claude.ConversionIssue{
-		Kind:     jira4claude.ConversionDropped,
-		Node:     d.Node,
-		Detail:   "existing content with no Markdown form (" + d.Detail + "); writing the description would remove it",
+		Kind: jira4claude.ConversionDropped,
+		Node: d.Node,
+		Detail: fmt.Sprintf("existing content with no Markdown form (%s; %s); writing the description would remove it",
+			d.Detail, plural(n, "place", "places")),
 		Existing: true,
 	}
 }
@@ -680,22 +692,24 @@ func existingDropped(d jira4claude.ConversionIssue) jira4claude.ConversionIssue 
 // in that form (degraded). Token issues are reported as missing tokens, a
 // code block's language is counted by the census, and a node an issue in
 // named already names is not named again as degraded.
-func readIssues(read, named []jira4claude.ConversionIssue) []jira4claude.ConversionIssue {
+func readIssues(read *skippedCollector, named []jira4claude.ConversionIssue) []jira4claude.ConversionIssue {
 	seen := make(map[string]bool)
 	for _, i := range named {
 		seen[i.Node] = true
 	}
 	var out []jira4claude.ConversionIssue
-	for _, d := range read {
+	for _, d := range read.issues() {
+		n := read.count(d)
 		switch {
 		case d.Token != "", d.Detail == codeLanguageDetail:
 		case d.Kind == jira4claude.ConversionDropped:
-			out = append(out, existingDropped(d))
+			out = append(out, existingDropped(d, n))
 		case !seen[d.Node]:
 			out = append(out, jira4claude.ConversionIssue{
-				Kind:     jira4claude.ConversionDegraded,
-				Node:     d.Node,
-				Detail:   "existing content the edit touched is written back in another form: " + d.Detail,
+				Kind: jira4claude.ConversionDegraded,
+				Node: d.Node,
+				Detail: fmt.Sprintf("existing content the edit touched is written back in another form (%s): %s",
+					plural(n, "place", "places"), d.Detail),
 				Existing: true,
 			})
 		}

@@ -31,6 +31,8 @@ import (
 // conversion function.
 type skippedCollector struct {
 	types map[issueKey]jira4claude.ConversionIssue
+	// counts holds how many times each issue was recorded.
+	counts map[issueKey]int
 
 	localID  func(n int) string // write side only: source of localId values
 	localIDs int                // number of localId values generated so far
@@ -52,7 +54,7 @@ type issueKey struct {
 }
 
 func newSkippedCollector() *skippedCollector {
-	return &skippedCollector{types: make(map[issueKey]jira4claude.ConversionIssue)}
+	return &skippedCollector{types: make(map[issueKey]jira4claude.ConversionIssue), counts: make(map[issueKey]int)}
 }
 
 // add records nodeType as dropped: its content is not in the output.
@@ -85,7 +87,14 @@ func (s *skippedCollector) record(issue jira4claude.ConversionIssue) {
 	if s.quietDepth > 0 {
 		return
 	}
-	s.types[issueKey{kind: issue.Kind, node: issue.Node}] = issue
+	key := issueKey{kind: issue.Kind, node: issue.Node}
+	s.types[key] = issue
+	s.counts[key]++
+}
+
+// count returns how many times issue was recorded.
+func (s *skippedCollector) count(issue jira4claude.ConversionIssue) int {
+	return s.counts[issueKey{kind: issue.Kind, node: issue.Node}]
 }
 
 // issues returns one ConversionIssue per recorded (kind, node type) pair,

@@ -751,8 +751,12 @@ description back, the tool compares your text with the description as it
 was read:
 
 - A block you did not change (a paragraph, a list item, a table cell, a
-  panel, any block and what it holds) comes back exactly as Jira held it.
-  Writing back what you read changes nothing.
+  panel, any block and what it holds) comes back exactly as Jira held it,
+  as long as the tool can tell which original block it is. Writing back what
+  you read changes nothing. Two cases it cannot tell, and treats the block as
+  changed (next bullet): a block identical to a sibling when you add or
+  remove one of those copies, and the rows and cells of a table whose shape
+  you changed, which lose their widths and spans.
 - A block you changed keeps what Markdown cannot show when it matches the
   original: same kind of block, same place among the blocks of that kind
   next to it, as many of them as before, inside a container that matches the
@@ -810,7 +814,7 @@ Every refusal writes nothing. Each error message says what to do.
 | New Markdown has no Jira form, for example an image: `description would drop unsupported content (Image)` | 1 | Remove it, or pass `--force` to write without it. An image can be attached with `attachment upload`, but not placed in the text. |
 | A token from the current description is missing: `description would lose existing content ({{mention:2 Jane Doe}})` | 1 | Put the token back, unchanged (a block token on its own line). Pass `--force` to delete the node on purpose. |
 | A part of the current description you edited holds content with no Markdown form, or inline comments: `rewriting the description would remove existing content that has no Markdown form (annotation)` | 1 | Leave that part as you read it, or use `--append-description`, which keeps the existing content. `--force` deletes it. |
-| `--clear-description` on a description with tokens (images, mentions, statuses, dates) | 1 | Pass `--force` to clear it anyway. |
+| `--clear-description` on a description with tokens (images, mentions, statuses, dates, placeholders) | 1 | Pass `--force` to clear it anyway. |
 | `--if-updated` does not match: `PROJ-123 was updated at ..., not at ...` | 5 | Read the issue again and redo the edit on the current text. |
 | `--field-json` names a field a typed flag also sets: `--field-json priority and --priority both set priority` | 1 | Give one of them. |
 | `--field-json description=...` | 1 | Use `--description` or `--description-file`. |

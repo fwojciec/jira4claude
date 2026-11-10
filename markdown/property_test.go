@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	jira4claude "github.com/fwojciec/jira4claude"
@@ -246,7 +247,7 @@ func propertyConverter() *markdown.Converter {
 func checkSchemaValid(md string) string {
 	adf, _ := propertyConverter().ToADF(md)
 	if err := validateADF(adf); err != nil {
-		return fmt.Sprintf("ToADF is not schema-valid\ninput: %q\nadf:   %s\n%s", md, mustJSON(adf), truncate(err.Error(), 400))
+		return fmt.Sprintf("ToADF is not schema-valid\ninput: %q\nadf:   %s\n%s", md, mustJSON(adf), shortError(err))
 	}
 	return ""
 }
@@ -259,8 +260,10 @@ func mustJSON(v any) string {
 	return string(data)
 }
 
-// truncate shortens schema errors, which list every alternative of an anyOf.
-func truncate(s string, n int) string {
+// shortError shortens schema errors, which list every alternative of an anyOf.
+func shortError(err error) string {
+	const n = 400
+	s := err.Error()
 	if len(s) <= n {
 		return s
 	}
@@ -276,7 +279,7 @@ func checkFixedPoint(md string) string {
 	adf2, rewriteIssues := conv.ToADF(md1)
 
 	if err := validateADF(adf2); err != nil {
-		return fmt.Sprintf("second write is not schema-valid\ninput: %q\nread:  %q\nadf2:  %s\n%s", md, md1, mustJSON(adf2), truncate(err.Error(), 400))
+		return fmt.Sprintf("second write is not schema-valid\ninput: %q\nread:  %q\nadf2:  %s\n%s", md, md1, mustJSON(adf2), shortError(err))
 	}
 
 	json1, err := json.Marshal(adf1)
@@ -340,7 +343,10 @@ func FuzzToADFFixedPoint(f *testing.F) {
 //   - with a paragraph appended to the Markdown, the result is the original
 //     plus that paragraph, or the write reports an issue. For a schema-valid
 //     original the result is schema-valid, and when the write reports no
-//     dropped node every protected node comes back unchanged and in order.
+//     dropped node every protected node comes back unchanged and in order;
+//   - with the first "e" of the Markdown changed, so a block is edited in
+//     place and the original is merged into it, the same two hold
+//     (checkEditedInPlace); the rest is the edit's and is not compared.
 //
 // Excused in the second comparison, as changing nothing in Jira: the order
 // of a text node's marks, how text with the same marks is split into nodes,
@@ -423,12 +429,15 @@ func checkReattach(data []byte) string {
 		// What a guarded update sends must be what Jira accepts.
 		if err := validateADF(got); err != nil {
 			return fmt.Sprintf("Reattach of a schema-valid document, edited, is not schema-valid\n"+
-				"input: %s\nread:  %q\ngot:   %s\n%s", data, md, mustJSON(got), truncate(err.Error(), 400))
+				"input: %s\nread:  %q\ngot:   %s\n%s", data, md, mustJSON(got), shortError(err))
 		}
 	}
 	if len(jira4claude.DroppedIssues(issues)) == 0 && mustJSON(protectedNodes(&doc)) != mustJSON(protectedNodes(got)) {
 		return fmt.Sprintf("protected nodes do not survive an edit elsewhere, and no loss is reported\n"+
 			"input:  %s\nread:   %q\nissues: %v\nhave:   %s", data, md, issueStrings(issues), mustJSON(got))
+	}
+	if failure := checkEditedInPlace(&doc, md); failure != "" {
+		return failure
 	}
 	want := doc
 	want.Version = 1 // the writer always writes the version ADF requires
@@ -436,6 +445,32 @@ func checkReattach(data []byte) string {
 	if canonical(&want) != canonical(got) && len(issues) == 0 {
 		return fmt.Sprintf("a rewrite with a paragraph appended changes the original, and nothing is reported\n"+
 			"input: %s\nread:  %q\nwant:  %s\nhave:  %s", data, md, canonical(&want), canonical(got))
+	}
+	return ""
+}
+
+// checkEditedInPlace is the third leg of P3: the Markdown of doc, md, with
+// its first "e" changed, so the block holding it is edited and Reattach
+// merges the original into it. For a schema-valid doc the result is
+// schema-valid, and the protected nodes come back unchanged and in order
+// unless a dropped node is reported. What else the edit changes is the
+// edit's, so it is not compared.
+func checkEditedInPlace(doc *jira4claude.ADFNode, md string) string {
+	if !strings.Contains(md, "e") {
+		return ""
+	}
+	conv := propertyConverter()
+	edited, _ := conv.ToADF(strings.Replace(md, "e", "E", 1))
+	got, issues := conv.Reattach(doc, edited)
+	if validateADF(doc) == nil {
+		if err := validateADF(got); err != nil {
+			return fmt.Sprintf("Reattach of a schema-valid document, edited in place, is not schema-valid\n"+
+				"input: %s\nread:  %q\ngot:   %s\n%s", mustJSON(doc), md, mustJSON(got), shortError(err))
+		}
+	}
+	if len(jira4claude.DroppedIssues(issues)) == 0 && mustJSON(protectedNodes(doc)) != mustJSON(protectedNodes(got)) {
+		return fmt.Sprintf("protected nodes do not survive an edit in place, and no loss is reported\n"+
+			"input:  %s\nread:   %q\nissues: %v\nhave:   %s", mustJSON(doc), md, issueStrings(issues), mustJSON(got))
 	}
 	return ""
 }

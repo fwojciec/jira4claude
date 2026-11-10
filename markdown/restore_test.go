@@ -147,15 +147,73 @@ func TestRestore_ReadAsNothing(t *testing.T) {
 	})
 }
 
-func TestRestore_ProtectedNodeOfAnUnchangedPart(t *testing.T) {
+func TestRestore_ReadLossOfAnEditedBlockIsCounted(t *testing.T) {
 	t.Parallel()
 
-	// A token that does not read back would be lost by an edit, but an
-	// unchanged rewrite gives its node back, so nothing is reported.
-	doc := docOf(paraOf(plainText("a "), mention("u1", "Ann")), paraOf(plainText("b")))
-	_, got, issues := readEditWrite(t, doc, func(md string) string { return strings.Replace(md, "b", "c", 1) })
+	code := func(s string) jira4claude.ADFNode {
+		return jira4claude.ADFNode{Type: "text", Text: s, Marks: []jira4claude.ADFMark{{Type: "code"}}}
+	}
+	edit := func(md string) string { return strings.Replace(md, "Alpha", "Omega", 1) }
+
+	t.Run("every place in the edited block", func(t *testing.T) {
+		t.Parallel()
+		doc := docOf(paraOf(plainText("Alpha "), code("a\nb"), plainText(" and "), code("c\nd")))
+		_, _, issues := readEditWrite(t, doc, edit)
+		require.Len(t, issues, 1)
+		assert.Equal(t, jira4claude.ConversionDegraded, issues[0].Kind)
+		assert.True(t, issues[0].Existing)
+		assert.Contains(t, issues[0].Detail, "(2 places)", issues[0].Detail)
+	})
+
+	t.Run("not the places in a block that comes back whole", func(t *testing.T) {
+		t.Parallel()
+		doc := docOf(paraOf(plainText("Alpha "), code("a\nb")), paraOf(plainText("Beta "), code("c\nd")))
+		_, got, issues := readEditWrite(t, doc, edit)
+		require.Len(t, issues, 1)
+		assert.Contains(t, issues[0].Detail, "(1 place)", issues[0].Detail)
+		require.Len(t, got.Content, 2)
+		assert.Equal(t, jsonOf(t, doc.Content[1]), jsonOf(t, got.Content[1]))
+	})
+}
+
+func TestRestore_DeletedTokenOfIdenticalNodes(t *testing.T) {
+	t.Parallel()
+
+	// Two identical mentions: the one kept by its token does not hide the
+	// loss of the other, whichever is deleted.
+	doc := docOf(paraOf(plainText("a "), mention("u1", "Jo"), plainText(" b "), mention("u1", "Jo")))
+	for _, deleted := range []string{"{{mention:1 Jo}}", "{{mention:2 Jo}}"} {
+		t.Run(deleted, func(t *testing.T) {
+			t.Parallel()
+			_, got, issues := readEditWrite(t, doc, func(md string) string { return strings.Replace(md, deleted, "x", 1) })
+			assert.Len(t, protectedNodes(got), 1)
+			require.Len(t, issues, 1)
+			assert.Equal(t, jira4claude.ConversionDropped, issues[0].Kind)
+			assert.Equal(t, deleted, issues[0].Node)
+			assert.True(t, issues[0].Existing)
+		})
+	}
+
+	t.Run("an unchanged paragraph gives both back", func(t *testing.T) {
+		t.Parallel()
+		_, got, issues := readEditWrite(t, doc, func(md string) string { return md + "\n\nmore" })
+		assert.Empty(t, issues)
+		assert.Len(t, protectedNodes(got), 2)
+	})
+}
+
+// TestRestore_KnownLimit pins what the matching cannot see: an edit that
+// removes a node and adds another of the same type in the same container
+// gives the new node the removed one's attributes, without a report.
+func TestRestore_KnownLimit(t *testing.T) {
+	t.Parallel()
+
+	doc := docOf(rawNode(t, customPanel), paraOf(plainText("text")))
+	_, got, issues := readEditWrite(t, doc, func(string) string { return "text\n\n> [!NOTE]\n> Other" })
 	assert.Empty(t, issues)
-	assert.Equal(t, jsonOf(t, docOf(paraOf(plainText("a "), mention("u1", "Ann")), paraOf(plainText("c")))), jsonOf(t, got))
+	require.Len(t, got.Content, 2)
+	assert.JSONEq(t, `{"panelType":"custom","panelColor":"#ABF5D1"}`, string(got.Content[1].Attrs),
+		"the new panel takes the removed panel's attributes")
 }
 
 // collectAttr returns the values of attribute key in doc, in document order.
