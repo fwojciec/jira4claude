@@ -596,6 +596,81 @@ func TestRoundTrip_TildesAcrossTextNodes(t *testing.T) {
 	})
 }
 
+func TestToADF_AutolinkKeepsEntitiesRaw(t *testing.T) {
+	t.Parallel()
+
+	// On write, a Linkify autolink takes its text and href from the raw
+	// source: entities inside it are not decoded in either.
+	const url = "https://example.com/?a=1&amp;b=2"
+	converter := markdown.New()
+	result, warnings := converter.ToADF("see " + url + " now")
+
+	attrs, err := json.Marshal(map[string]any{"href": url})
+	require.NoError(t, err)
+	assert.Empty(t, warnings)
+	assert.Equal(t, paragraphDoc(
+		jira4claude.ADFNode{Type: "text", Text: "see "},
+		jira4claude.ADFNode{Type: "text", Text: url, Marks: []jira4claude.ADFMark{{Type: "link", Attrs: attrs}}},
+		jira4claude.ADFNode{Type: "text", Text: " now"},
+	), result)
+}
+
+func TestRoundTrip_BareURLWithEntities(t *testing.T) {
+	t.Parallel()
+
+	color := []jira4claude.ADFMark{{Type: "textColor", Attrs: []byte(`{"color":"#ff0000"}`)}}
+	plain := func(s string) jira4claude.ADFNode { return jira4claude.ADFNode{Type: "text", Text: s} }
+
+	type tc struct {
+		name   string
+		inline []jira4claude.ADFNode
+	}
+	tests := make([]tc, 0, 64)
+	tests = append(tests, []tc{
+		{"trailing entity then underscore", []jira4claude.ADFNode{plain("https://example.com/?x=&amp;_")}},
+		{"entity completed by the next node", []jira4claude.ADFNode{plain("https://example.com/?x=&am"), plain("p;")}},
+		{"entity completed by the next node with unrendered mark", []jira4claude.ADFNode{
+			plain("https://example.com/?x=&am"), {Type: "text", Text: "p;", Marks: color},
+		}},
+	}...)
+	urls := []string{
+		"https://example.com/?a=1&amp;b=2&lt;c=&#35;d",
+		"https://example.com/?a=&amp;",
+		"https://example.com/?a=&lt;",
+		"https://example.com/?a=&#35;",
+		"https://example.com/?a=&#x41;",
+	}
+	for _, url := range urls {
+		tests = append(tests, tc{url, []jira4claude.ADFNode{plain(url)}})
+		for _, after := range []string{"_", "*", ")", ".", "_x", "*x*"} {
+			tests = append(tests, tc{url + after, []jira4claude.ADFNode{plain("(see " + url + after + " now")}})
+		}
+		tests = append(tests,
+			tc{url + " + node", []jira4claude.ADFNode{plain("see " + url), plain("_x")}},
+			tc{url + " + marked node", []jira4claude.ADFNode{plain("see " + url), {Type: "text", Text: "x;", Marks: color}}},
+		)
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			converter := markdown.New()
+			md, _ := converter.ToMarkdown(paragraphDoc(tt.inline...))
+			result, _ := converter.ToADF(md)
+
+			var want, got string
+			for _, n := range tt.inline {
+				want += n.Text
+			}
+			for _, n := range result.Content[0].Content {
+				got += n.Text
+			}
+			assert.Equal(t, want, got, "markdown was %q", md)
+		})
+	}
+}
+
 func TestToADF_DecodesTextAroundLiteralInlineTag(t *testing.T) {
 	t.Parallel()
 

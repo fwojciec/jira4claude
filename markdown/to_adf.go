@@ -80,6 +80,19 @@ func (s *skippedCollector) issues() []jira4claude.ConversionIssue {
 	return issues
 }
 
+// newMarkdownParser returns the goldmark parser used on write. The read side
+// also uses it to check its own output.
+func newMarkdownParser() parser.Parser {
+	return goldmark.New(
+		// GFM minus its strikethrough, which also strikes on a single tilde.
+		goldmark.WithExtensions(extension.Linkify, extension.Table, extension.TaskList),
+		goldmark.WithParserOptions(
+			parser.WithAutoHeadingID(),
+			parser.WithInlineParsers(util.Prioritized(newStrikethroughParser(), 500)),
+		),
+	).Parser()
+}
+
 // toADF converts GitHub-flavored markdown to Atlassian Document Format (ADF).
 // The result can be used directly in Jira API requests for description and comment fields.
 // Returns a ConversionIssue for any content that was dropped or degraded.
@@ -87,17 +100,8 @@ func (s *skippedCollector) issues() []jira4claude.ConversionIssue {
 func toADF(markdown string) (*jira4claude.ADFNode, []jira4claude.ConversionIssue) {
 	markdown = NormalizeUnicode(markdown)
 
-	md := goldmark.New(
-		// GFM minus its strikethrough, which also strikes on a single tilde.
-		goldmark.WithExtensions(extension.Linkify, extension.Table, extension.TaskList),
-		goldmark.WithParserOptions(
-			parser.WithAutoHeadingID(),
-			parser.WithInlineParsers(util.Prioritized(newStrikethroughParser(), 500)),
-		),
-	)
-
 	reader := text.NewReader([]byte(markdown))
-	doc := md.Parser().Parse(reader)
+	doc := newMarkdownParser().Parse(reader)
 
 	skipped := newSkippedCollector()
 	content := convertNode(doc, []byte(markdown), skipped)

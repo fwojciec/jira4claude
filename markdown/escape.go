@@ -65,8 +65,12 @@ import (
 // address) is written verbatim, because Linkify reads it raw and a backslash
 // would end the link early. Linkify is tried at a line head, after a blank
 // or "(", and right after another inline construct such as a formatting
-// delimiter, so marked text is covered too. The span is measured with
-// Linkify's own parser,
+// delimiter, so marked text is covered too. Because the span is measured on
+// the raw text, not on what surrounds it in the output, the exception checks
+// itself: the escaped node is parsed back, and if its text differs, the node
+// is escaped again without the exception. A span that reaches the end of the
+// node is not kept when plain text follows in the next node. The span is
+// measured with Linkify's own parser,
 // so trailing punctuation is included or trimmed exactly as on write.
 
 // decodeText resolves backslash escapes and entity references in Markdown
@@ -165,6 +169,9 @@ type textContext struct {
 	// with "~" right against this one, so an edge tilde here would join its
 	// run in the Markdown.
 	tildeBefore, tildeAfter bool
+	// textAfter: the next inline node is text written with no delimiter in
+	// between, so an autolink at the end of this text could run into it.
+	textAfter bool
 }
 
 // tildeEdge reports whether nodes[k] is a text node whose Markdown starts
@@ -226,6 +233,8 @@ func escapeTextNode(siblings []jira4claude.ADFNode, i int, lineStart bool) strin
 		linkifyAtStart: lineStart || afterConstruct || hasRenderedMark(node.Marks),
 		tildeBefore:    tildeEdge(siblings, i-1, false),
 		tildeAfter:     tildeEdge(siblings, i+1, true),
+		textAfter: i+1 < len(siblings) && siblings[i+1].Type == "text" &&
+			!hasRenderedMark(siblings[i+1].Marks),
 	})
 }
 
@@ -244,6 +253,54 @@ func linkHref(mark jira4claude.ADFMark) string {
 // same text; ctx says where it lands. The rule is described at the top of
 // this file.
 func escapeText(s string, ctx textContext) string {
+	out, keptAutolink := escapeTextWith(s, ctx, true)
+	if keptAutolink && !readsBackAs(out, s) {
+		// The verbatim autolink span did not survive in its emitted
+		// surroundings (Linkify ended it elsewhere, or an entity at its edge
+		// was decoded). Plain escaping is always symmetric, so use that.
+		out, _ = escapeTextWith(s, ctx, false)
+	}
+	return out
+}
+
+// readsBackAs reports whether md, parsed on its own as the write side parses
+// it, yields exactly the text want: decoded text plus raw autolink labels.
+// Blanks at either end are ignored, since a paragraph trims them.
+func readsBackAs(md, want string) bool {
+	source := []byte(md)
+	doc := newMarkdownParser().Parse(text.NewReader(source))
+	para := doc.FirstChild()
+	if para == nil || para.NextSibling() != nil || para.Kind() != ast.KindParagraph {
+		return false
+	}
+	var got strings.Builder
+	for n := para.FirstChild(); n != nil; n = n.NextSibling() {
+		switch n := n.(type) {
+		case *ast.Text:
+			if n.HardLineBreak() {
+				return false
+			}
+			if n.IsRaw() {
+				got.Write(n.Segment.Value(source))
+			} else {
+				got.WriteString(decodeText(n.Segment.Value(source)))
+			}
+			if n.SoftLineBreak() {
+				got.WriteByte('\n')
+			}
+		case *ast.AutoLink:
+			got.Write(n.Label(source))
+		default:
+			return false
+		}
+	}
+	return strings.Trim(got.String(), " \t") == strings.Trim(want, " \t")
+}
+
+// escapeTextWith escapes s; with keepAutolinks, a span Linkify will read as
+// an autolink is written verbatim. It reports whether any span was.
+func escapeTextWith(s string, ctx textContext, keepAutolinks bool) (string, bool) {
+	kept := false
 	var b strings.Builder
 	atLineStart := ctx.lineStart
 	afterEncodedBlank := false
@@ -265,8 +322,11 @@ func escapeText(s string, ctx textContext) string {
 			afterEncodedBlank = true
 			continue
 		}
-		if !ctx.inLink && !afterEncodedBlank && linkifyMayStart(s, i, ctx.linkifyAtStart) {
-			if n := autolinkLen(s[i:]); n > 0 {
+		if keepAutolinks && !ctx.inLink && !afterEncodedBlank && linkifyMayStart(s, i, ctx.linkifyAtStart) {
+			// A span that reaches the end of the node could run on into
+			// the next node's text, which this check cannot see.
+			if n := autolinkLen(s[i:]); n > 0 && (i+n < len(s) || !ctx.textAfter) {
+				kept = true
 				b.WriteString(s[i : i+n])
 				i += n
 				atLineStart = false
@@ -313,7 +373,7 @@ func escapeText(s string, ctx textContext) string {
 		b.WriteByte(c)
 		i++
 	}
-	return b.String()
+	return b.String(), kept
 }
 
 // mayOpenHTML reports whether s, which starts with "<", could be parsed as
