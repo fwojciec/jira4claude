@@ -129,4 +129,6 @@ This project has the `cclsp` MCP configured, providing Go language server integr
 
 ## Reference Documentation
 
-- `docs/design.md` - Architecture and API design
+- `README.md` - what the tool does, for scripts and agents
+- `docs/plans/2026-11-09-scripted-use-alignment-design.md` - the current design and what was built
+- `docs/design.md` - the original design, kept as history
