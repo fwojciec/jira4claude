@@ -17,3 +17,9 @@ Design 2.6. A 'Scripting' section in the README and in --help: field selection, 
 
 README section and help text match the built behaviour (examples run against the mock in a test where practical); release tagged with the owner's go-ahead.
 
+
+## Notes
+
+**2026-11-10T10:23:36Z**
+
+Documentation merged to main in a8c7d4c: README rewritten with a Scripting section and refusal table, CHANGELOG.md with v0.3.0 (up to 336d6c8) and v0.4.0 sections, help text pass, docs/design.md marked historical, and cmd/j4c/readme_test.go, which parses every README example against the real CLI. Still open on this ticket: tagging v0.4.0, which needs the owner's go-ahead.
