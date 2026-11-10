@@ -9,7 +9,14 @@ current behaviour in full.
 
 **Errors go to stderr in `--json` mode.** Each error and warning is one JSON
 object per line on stderr, with a `level` key. stdout holds only data, or
-nothing when a command fails.
+nothing when a command fails, except where part of the work was done:
+`issue view` with several keys and `attachment download` and `upload` with
+several files print what succeeded, `issue create` prints the new key when
+its separate assignment step failed, and `issue update` and `issue assign`
+print their result when only the read-back after the write failed. When
+every key or file of such a command fails, `--json` still prints the empty
+result (`[]`, or the upload result with `"attachments": []`); text mode
+prints nothing.
 
 ```text
 before (stdout):  {"code": "not_found", "error": true, "message": "issue not found"}   (indented over five lines)
@@ -21,7 +28,8 @@ Migration: read errors from stderr, one JSON object per line, and select by
 
 **Warnings in `--json` mode are JSON.** They were plain text lines starting
 with `warning: ` on stderr; now they are objects with `"level":"warning"`,
-and conversion warnings also carry `kind`, `node`, `detail` and `token`.
+and conversion warnings also carry `kind`, `node` and `detail`, and `token`
+when the warning is about a token.
 
 Migration: parse stderr lines as JSON.
 
@@ -43,7 +51,8 @@ after:  j4c issue view   ->  usage and error on stderr, stdout empty, exit 1
 With `--json`, only a JSON error line is printed. Migration: treat exit 1 as
 any validation error; stop testing for 80.
 
-**Every write prints a result instead of an `[ok]` line.**
+**Every write to Jira prints a result instead of an `[ok]` line.** (`init`
+prints its own shape; see below.)
 
 ```text
 before:
@@ -146,6 +155,13 @@ from a file) exits 1. It used to be sent to Jira.
 
 Migration: do not send empty comments.
 
+**A blank description in `issue update` is an error.** A `--description` or
+`--append-description` of only spaces, tabs and line breaks, inline or from a
+file, used to be sent (and became an empty document); it now exits 1 like an
+empty one. In `issue create` a blank description still means none.
+
+Migration: use `--clear-description` to remove a description.
+
 **`--field-json` refuses two cases.** `--field-json description=...` is
 refused (it would bypass the protection of images and mentions), and so is a
 `--field-json` for a field that a typed flag of the same command also sets,
@@ -203,10 +219,17 @@ one.
 - `--description-file`, `--append-description-file` and `--body-file` read
   text from a file, or from standard input for `-`.
 - `--dry-run` on `issue create`, `issue update` and `issue comment` prints
-  the text as Jira would hold it, with the same checks, and writes nothing.
-- Every write reports a typed result: action, each field's old and new value,
-  the content removed under `--force`, and the issue's `updated` time after an
-  update.
+  the text as Jira would hold it and writes nothing. An update dry run reads
+  the issue and makes every check of a real run, `--if-updated` included; a
+  create or comment dry run reads nothing from Jira (but an `--assignee`
+  lookup), so it makes only the local checks and does not prove the project
+  or issue exists, that you may write to it, or that Jira accepts the fields.
+- Every write to Jira reports a typed result: action, the fields written
+  (old and new values, or `edit` for the description and for a built-in field
+  set with `--field-json`; none for a create), the content removed under
+  `--force`, and the issue's `updated` time after an update. An update or
+  assign whose read-back failed after the write still prints its result,
+  without `updated`, and fails with the read's code.
 - `issue list` and `issue ready` items include `type` and `assignee`, in text
   and JSON.
 - Attachments: `attachment list`, `attachment download` (`--id`, `--name` or
@@ -283,8 +306,9 @@ reads the issue first and puts each token's original node back. A token left
 out is refused unless `--force`; so is clearing a description that holds
 images or mentions, and rewriting one that holds content with no Markdown form.
 
-Migration: edit the text `issue view --field description` prints; use
-`--append-description` to add text without rewriting.
+Migration: edit the description as `issue view --json` gives it in
+`description` (`issue view --field description`, which prints it alone, came
+in v0.4.0); use `--append-description` to add text without rewriting.
 
 **A bare email address is written as text.** Jira does not link an address
 typed into it, so the write side no longer does either. A bare URL still
@@ -302,8 +326,9 @@ that form would not read back), which writes back as the same link.
 
 Migration: write `<a@b.co>` where you want a link.
 
-**`--description ""` is an error.** It used to do nothing and print
-`[ok] Updated: KEY`.
+**`issue update --description ""` is an error.** It used to do nothing and
+print `[ok] Updated: KEY`. (`issue create` with an empty description still
+creates the issue without one.)
 
 Migration: use `--clear-description` to remove a description.
 
@@ -380,6 +405,21 @@ company-managed project.
   current user.
 - `issue ready` listed issues in Won't Do.
 - Backslash escapes and HTML entities reached Jira as literal text.
+- A bare URL in Markdown was dropped on write; it becomes a link.
+- Line endings, control characters and invalid UTF-8 are handled the same
+  way on write and on read: CRLF and a lone CR become a line break, other
+  control characters but tab a space, and invalid UTF-8 U+FFFD; a read that
+  meets one in Jira's text reports it as `degraded`.
+- `issue list` and `issue ready` no longer convert descriptions, so they no
+  longer print conversion warnings about descriptions they do not show.
+- `--field-json` split a JSON value at its commas
+  (`--field-json 'labels=["a","b"]'` failed); a value is kept whole.
+- A status the tool did not know (such as Won't Do) was shown as To Do; every
+  status is shown as Jira names it.
+- Jira's field errors name the field (`body: INVALID_INPUT`, not
+  `INVALID_INPUT`), sorted so the message is the same on every run.
+- `issue fields` lists fields in the same order on every run, quotes allowed
+  values, and skips an allowed value with no display value.
 - Many round-trip losses in lists, quotes, task items, marks, code spans,
   code blocks and links.
 

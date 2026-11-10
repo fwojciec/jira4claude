@@ -224,7 +224,7 @@ type IssueCreateCmd struct {
 	Assignee        string   `help:"Assignee: 'me', email, or account ID" short:"A"`
 	FieldJSON       []string `name:"field-json" sep:"none" placeholder:"ID=JSON" help:"Set field by ID, value is JSON (repeatable). Example: customfield_10801='{\"value\":\"High\"}'. Refused for the description, and for a field a typed flag given here also sets (e.g. priority with --priority)"`
 	Force           bool     `help:"Write even if Markdown conversion drops content (e.g. images); dropped content is reported as a warning"`
-	DryRun          bool     `name:"dry-run" help:"Create nothing: print the description as Jira would hold it (as issue view would print it), with the same warnings and refusals as a real run; the assignee is still looked up"`
+	DryRun          bool     `name:"dry-run" help:"Create nothing: print the description as Jira would hold it (as issue view would print it), with the local checks, warnings and refusals of a real run. Nothing is read from Jira but an --assignee lookup, so it does not prove the project exists, that you may create in it, or that Jira accepts the fields"`
 }
 
 // Run executes the create command.
@@ -766,7 +766,7 @@ type IssueCommentCmd struct {
 	Body     string  `help:"Comment body (Markdown)" placeholder:"TEXT" short:"b" required:"" xor:"body"`
 	BodyFile *string `name:"body-file" placeholder:"PATH" help:"Read the comment body from this file, or from standard input for -: UTF-8, at most 1 MiB; a leading byte order mark and one trailing newline are removed, so the output of a command can be passed back as it is" required:"" xor:"body"`
 	Force    bool    `help:"Write even if Markdown conversion drops content (e.g. images); dropped content is reported as a warning"`
-	DryRun   bool    `name:"dry-run" help:"Add nothing: print the body as Jira would hold it (as issue view would print it), with the same warnings and refusals as a real run; the issue is not read"`
+	DryRun   bool    `name:"dry-run" help:"Add nothing: print the body as Jira would hold it (as issue view would print it), with the local checks, warnings and refusals of a real run. Nothing is read from Jira, so it does not prove the issue exists or that you may comment on it"`
 }
 
 // Run executes the comment command.

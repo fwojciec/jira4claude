@@ -86,7 +86,7 @@ type AttachmentDownloadCmd struct {
 	Name      string `help:"Download the attachment with this exact filename (as Jira reports it, not as list escapes it)" xor:"which"`
 	All       bool   `help:"Download every attachment of the issue" xor:"which"`
 	Dir       string `help:"Existing directory to save into (not created)" required:""`
-	Overwrite bool   `help:"Replace existing regular files (never symlinks or directories)"`
+	Overwrite bool   `help:"Replace existing regular files; a symlink or directory found there is refused, and a download never writes through a symlink"`
 }
 
 // Validate requires one of --id, --name and --all; kong's xor group makes

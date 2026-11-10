@@ -88,7 +88,7 @@ func DiscoverConfig(workDir, homeDir string) (string, error) {
 		return homePath, nil
 	}
 
-	return "", notFoundErr("no config file found; searched: ./"+configFileName+", ~/"+configFileName+"\nRun: j4c init --server=URL --project=KEY", nil)
+	return "", notFoundErr("no config file found: no "+configFileName+" in the current directory, its parents or ~; run j4c init --server=URL --project=KEY, or pass --config PATH", nil)
 }
 
 // Compile-time interface verification.

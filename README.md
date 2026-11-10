@@ -24,7 +24,8 @@ as Markdown; the tool converts them to and from Jira's document format.
   waits forever.
 - **stdout carries only data.** Errors, warnings and notices such as
   `[info] No issues found` go to stderr. With `--json`, stdout is JSON and each
-  stderr line is one JSON object.
+  stderr line is one JSON object. `--help` and `--version` print text even
+  with `--json`.
 - **Exit codes say what failed**: 1 for a validation or usage error, 4 for not
   found, 5 for a conflict, and so on (see [Exit codes](#exit-codes)).
 - **A failed command prints nothing on stdout**, with these exceptions, where
@@ -32,15 +33,26 @@ as Markdown; the tool converts them to and from Jira's document format.
   several keys, `attachment download` and `attachment upload` with several
   files, `issue create` whose separate assignment step failed (the new key is
   printed), and `issue update` and `issue assign` whose read-back failed
-  (the write was applied; the error says not to repeat it).
+  (the write was applied; the error says not to repeat it). When every key
+  or file of a several-item command fails, text mode prints nothing on
+  stdout, but `--json` still prints the empty result so that stdout always
+  parses: `[]` for `issue view` with several keys and for
+  `attachment download`, and the usual result object with
+  `"attachments": []` for `attachment upload`.
 - **A write that would lose content is refused**, with exit 1 and nothing
   written, unless you pass `--force`. This covers Markdown that has no Jira
   form (an image), existing images, mentions, statuses and dates left out of
   an edited description, and existing content the tool cannot show as
   Markdown. Emoji and smart links that a rewrite turns into text and plain
   links are reported as warnings.
-- **Every write prints what it did**: the key, the action, each field's old and
-  new value, and the issue's `updated` time after an update.
+- **Every write to Jira prints what it did**: the key, the action, the fields
+  written (with old and new values where the tool knows them; see
+  [Other updates](#other-updates)), and the issue's `updated` time after an
+  update. `init`, which writes only local files, prints what it wrote in its
+  own shape, with no action or changes. When `issue update` or `issue assign`
+  was applied but reading the issue back failed, the result is still printed
+  (an update without `updated`, an assign naming the account ID sent), and
+  the command fails with the code of the failed read.
 
 ## Install and configure
 
@@ -288,9 +300,16 @@ guarded update.
 ### Preview with --dry-run
 
 `issue create`, `issue update` and `issue comment` accept `--dry-run`. It
-makes the same checks, warnings and refusals as a real run (an update still
-reads the issue and checks `--if-updated`), writes nothing, and prints the
-text as Jira would hold it after the write:
+writes nothing and prints the text as Jira would hold it after the write.
+The checks it makes depend on what it reads:
+
+- `issue update --dry-run` reads the issue, so it makes every check, warning
+  and refusal of a real run, `--if-updated` included.
+- `issue create --dry-run` and `issue comment --dry-run` read nothing from
+  Jira (a create still looks up an `--assignee` given as `me` or an email).
+  They make the local checks and conversion refusals of a real run, but do
+  not prove that the project or issue exists, that you may write to it, or
+  that Jira accepts the fields.
 
 ```bash
 j4c issue update PROJ-123 --description-file d.md --dry-run
@@ -348,12 +367,17 @@ PROJ-123: updated
 https://example.atlassian.net/browse/PROJ-123
 ```
 
-`--clear-description` removes the description. `--description ""` is an
-error, not a no-op.
+`--clear-description` removes the description. In `issue update` an empty
+or blank `--description`, `--append-description` or input file is an error,
+not a no-op; in `issue create` it means the issue has no description.
 
 ### Other updates
 
-Each field written is reported with its old and new value:
+Each field written is reported with its old and new value, except the
+description (reported as `set`, `appended` or `cleared`) and a built-in field
+such as `priority` set through `--field-json` (reported as `set`, without
+values: the tool does not read them). `issue create` reports no field
+changes.
 
 ```bash
 j4c issue update PROJ-123 --summary "Fix login timeout on staging" --priority Highest
@@ -374,12 +398,15 @@ description, nor a field that a typed flag of the same command sets.
 
 ### Write results as JSON
 
-Every write prints one object with `action` and `changes` (always present,
-`{}` when the command reports none). Depending on the command it also has
-`key`, `url`, `updated` (an update), `removed` (content deleted under
+Every write to Jira prints one object with `action` and `changes` (always
+present, `{}` when the command reports none, as for `issue create`).
+Depending on the command it also has `key`, `url`, `updated` (an update,
+unless reading the issue back failed), `removed` (content deleted under
 `--force`), `commentId`, `link`, `attachments`, and for a dry run `dryRun`
-and `text`. A change has `from` and `to`, or `edit` (`set`, `appended`,
-`cleared`) for a description.
+and `text`. A change has `from` and `to`, or `edit` instead: `set`,
+`appended` or `cleared` for the description, and `set` for a built-in field
+written through `--field-json`. `init` prints
+`{"configCreated": ..., "gitignoreAdded": ..., "gitignoreExists": ...}`.
 
 ```bash
 j4c --json issue update PROJ-123 --description-file d.md --if-updated "$updated"
@@ -432,7 +459,9 @@ j4c issue list --status "To Do" | while IFS=$'\t' read -r key status type priori
 ```
 
 With `--json` the list is an object; `priority` and `assignee` are left out
-when empty, and `truncated` says whether more issues match than were printed:
+when empty, and `truncated` says whether more issues match than were
+printed. For `issue ready` it says only that more ready issues may exist: the
+search had more results, which may not be ready. For example:
 
 ```bash
 j4c --json issue list
@@ -483,7 +512,11 @@ the other filters.
 
 ### Errors and warnings on stderr
 
-In text mode each line starts with `[error]`, `[warn]` or `[info]`. With
+In text mode each message starts with `[error]`, `[warn]` or `[info]`. The
+tool's own messages are one line each, but text quoted from Jira (an error
+message it sent, a filename) can hold a line break, and the usage text
+printed with a usage error has no prefix at all; read messages by their
+prefix, not line by line, or use `--json`. With
 `--json` each line is one JSON object with a `level` of `error` or `warning`.
 An error also has `error: true`, `code` (the names in the
 [exit-code table](#exit-codes)) and `message`. A conversion warning also has
@@ -598,8 +631,13 @@ Download rules:
 - Only the base name of Jira's filename is used, and nothing is written
   outside `--dir`. Two attachments with the same name are saved as
   `report.pdf` and `report-10001.pdf` (the second gets its ID).
-- An existing file is not replaced without `--overwrite`, and `--overwrite`
-  never replaces a symlink or a directory.
+- An existing file is not replaced without `--overwrite`. With it, only a
+  regular file found there is replaced; a symlink or directory found there
+  is refused. A download never writes through a symlink. The check and the
+  replacement are separate steps, so an entry another process puts in
+  place between them (a symlink included) is replaced as a directory entry,
+  its target left untouched; the replacement is not atomic against a
+  concurrent writer.
 - Credentials are sent only to the configured Jira host, never to a redirect
   target on another host.
 - With `--all`, a file that fails is reported and the others are still
@@ -736,7 +774,7 @@ Every refusal writes nothing. Each error message says what to do.
 | `--if-updated` does not match: `PROJ-123 was updated at ..., not at ...` | 5 | Read the issue again and redo the edit on the current text. |
 | `--field-json` names a field a typed flag also sets: `--field-json priority and --priority both set priority` | 1 | Give one of them. |
 | `--field-json description=...` | 1 | Use `--description` or `--description-file`. |
-| An empty or blank `--description`, `--body` or input file: `--description cannot be empty` | 1 | Pass text, or `--clear-description` to remove the description. |
+| An empty or blank description or appended text in `issue update`, or comment body, inline or from a file: `--description cannot be empty` (in `issue create` a blank description creates the issue without one) | 1 | Pass text, or `--clear-description` to remove the description. |
 | `--status` matches more than one transition: `status "Done" is ambiguous` | 1 | Use `--id` with an ID from `issue transitions`. |
 
 ## Exit codes

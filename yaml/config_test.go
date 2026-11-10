@@ -151,6 +151,7 @@ project: TEST
 		assert.Contains(t, err.Error(), "j4c init")
 		assert.Contains(t, err.Error(), "--server")
 		assert.Contains(t, err.Error(), "--project")
+		assert.NotContains(t, err.Error(), "\n", "one line, as every stderr line is one message")
 	})
 
 	t.Run("prefers local config over global when both exist", func(t *testing.T) {
