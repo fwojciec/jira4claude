@@ -212,7 +212,7 @@ func (c *IssueReadyCmd) Run(ctx *IssueContext) error {
 // IssueCreateCmd creates an issue.
 type IssueCreateCmd struct {
 	Project     string `help:"Project key" short:"p"`
-	Type        string `help:"Issue type" short:"t" default:"Task"`
+	Type        string `help:"Issue type (default Task)" short:"t"`
 	Summary     string `help:"Issue summary" short:"s" required:""`
 	Description string `help:"Issue description" short:"d" xor:"description"`
 	// DescriptionFile is a pointer so that an empty path is an error, not
@@ -229,9 +229,40 @@ type IssueCreateCmd struct {
 
 // Run executes the create command.
 func (c *IssueCreateCmd) Run(ctx *IssueContext) error {
+	customFields, err := ParseFieldJSON(c.FieldJSON)
+	if err != nil {
+		return err
+	}
+	// summary is required, so it is always typed. The type and project are
+	// typed only when their flags are given: without them a --field-json
+	// value (by ID, say) overrides the defaults.
+	typed := map[string]string{"summary": "--summary"}
+	for id, flag := range map[string]struct {
+		name string
+		set  bool
+	}{
+		"issuetype": {"--type", c.Type != ""},
+		"project":   {"--project", c.Project != ""},
+		"priority":  {"--priority", c.Priority != ""},
+		"labels":    {"--labels", len(c.Labels) > 0},
+		"parent":    {"--parent", c.Parent != ""},
+		"assignee":  {"--assignee", c.Assignee != ""},
+	} {
+		if flag.set {
+			typed[id] = flag.name
+		}
+	}
+	if err := checkFieldJSON(customFields, typed); err != nil {
+		return err
+	}
+
 	project := c.Project
 	if project == "" {
 		project = ctx.Config.Project
+	}
+	issueType := c.Type
+	if issueType == "" {
+		issueType = "Task"
 	}
 
 	text, _, err := textInput{"description", &c.Description, "description-file", c.DescriptionFile}.read(ctx.Stdin)
@@ -254,11 +285,6 @@ func (c *IssueCreateCmd) Run(ctx *IssueContext) error {
 		parent = &jira4claude.LinkedIssue{Key: c.Parent}
 	}
 
-	customFields, err := ParseFieldJSON(c.FieldJSON)
-	if err != nil {
-		return err
-	}
-
 	// Resolve the assignee before any write, so a bad value fails without
 	// leaving an issue behind.
 	var assignee *jira4claude.User
@@ -272,7 +298,7 @@ func (c *IssueCreateCmd) Run(ctx *IssueContext) error {
 
 	issue := &jira4claude.Issue{
 		Project:      project,
-		Type:         c.Type,
+		Type:         issueType,
 		Summary:      c.Summary,
 		Description:  description,
 		Priority:     c.Priority,
@@ -374,6 +400,35 @@ func (c *IssueUpdateCmd) Run(ctx *IssueContext) error {
 	// Validate and convert the new Markdown first, so a refusal that does not
 	// depend on the current issue happens before any service call, including
 	// assignee lookup.
+	customFields, err := ParseFieldJSON(c.FieldJSON)
+	if err != nil {
+		return err
+	}
+	typed := map[string]string{}
+	for id, flag := range map[string]struct {
+		name string
+		set  bool
+	}{
+		"summary":  {"--summary", c.Summary != nil},
+		"priority": {"--priority", c.Priority != nil},
+		"assignee": {"--assignee", c.Assignee != nil},
+		"labels":   {"--labels", len(c.Labels) > 0},
+		"parent":   {"--parent", c.Parent != nil},
+	} {
+		if flag.set {
+			typed[id] = flag.name
+		}
+	}
+	if _, ok := typed["labels"]; !ok && c.ClearLabels {
+		typed["labels"] = "--clear-labels"
+	}
+	if c.ClearParent {
+		typed["parent"] = "--clear-parent"
+	}
+	if err := checkFieldJSON(customFields, typed); err != nil {
+		return err
+	}
+
 	var ifUpdated *time.Time
 	if c.IfUpdated != nil {
 		t, err := jira4claude.ParseTimestamp(*c.IfUpdated)
@@ -421,11 +476,6 @@ func (c *IssueUpdateCmd) Run(ctx *IssueContext) error {
 			return err
 		}
 		c.Assignee = &accountID
-	}
-
-	customFields, err := ParseFieldJSON(c.FieldJSON)
-	if err != nil {
-		return err
 	}
 
 	current, err := ctx.Service.Get(context.Background(), c.Key)

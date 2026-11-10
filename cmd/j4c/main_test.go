@@ -193,16 +193,22 @@ func TestIssueListCmd_DefaultLimit(t *testing.T) {
 func TestIssueCreateCmd_DefaultType(t *testing.T) {
 	t.Parallel()
 
+	// The default is applied when the command runs, not by the parser, so
+	// that a --field-json issuetype can take its place when --type is not
+	// given.
 	t.Run("uses default type of Task", func(t *testing.T) {
 		t.Parallel()
 
-		var cli main.CLI
-		parser, err := kong.New(&cli)
-		require.NoError(t, err)
+		var created *jira4claude.Issue
+		svc := &mock.IssueService{CreateFn: func(_ context.Context, issue *jira4claude.Issue) (*jira4claude.Issue, error) {
+			created = issue
+			return &jira4claude.Issue{Key: "TEST-1"}, nil
+		}}
 
-		_, err = parser.Parse([]string{"issue", "create", "--summary=Test"})
-		require.NoError(t, err)
-		assert.Equal(t, "Task", cli.Issue.Create.Type)
+		res := runCLI(t, testDeps(svc, &mock.UserService{}), "issue", "create", "--summary=Test")
+
+		require.Equal(t, 0, res.code, "stderr: %s", res.stderr)
+		assert.Equal(t, "Task", created.Type)
 	})
 
 	t.Run("overrides default type", func(t *testing.T) {

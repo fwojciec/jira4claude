@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"slices"
 	"strings"
 
 	"github.com/fwojciec/jira4claude"
@@ -59,4 +60,43 @@ func ParseFieldJSON(raws []string) (map[string]json.RawMessage, error) {
 		out[key] = json.RawMessage(value)
 	}
 	return out, nil
+}
+
+// checkFieldJSON refuses --field-json values that would write around the
+// typed flags. typed maps each Jira field ID a typed flag of this command
+// sets to that flag (e.g. "summary" to "--summary"). Field IDs are compared
+// without case.
+//
+//   - The description is never accepted: a raw ADF document skips
+//     re-attaching protected nodes, the loss checks and the dropped-content
+//     refusal of --description.
+//   - A field that a typed flag also sets is ambiguous: the request would
+//     carry the raw value, not the one the command reports or previews.
+//
+// A built-in field no typed flag sets is allowed.
+func checkFieldJSON(fields map[string]json.RawMessage, typed map[string]string) error {
+	keys := make([]string, 0, len(fields))
+	for key := range fields {
+		keys = append(keys, key)
+	}
+	slices.Sort(keys)
+	for _, key := range keys {
+		if strings.EqualFold(key, "description") {
+			return &jira4claude.Error{
+				Code: jira4claude.EValidation,
+				Message: "--field-json cannot set the description: a raw document skips re-attaching existing images and mentions, " +
+					"the checks for lost content and the dropped-content refusal; use --description or --description-file",
+			}
+		}
+	}
+	for _, key := range keys {
+		id := strings.ToLower(key)
+		if flag, ok := typed[id]; ok {
+			return &jira4claude.Error{
+				Code:    jira4claude.EValidation,
+				Message: "--field-json " + key + " and " + flag + " both set " + id + "; give one of them",
+			}
+		}
+	}
+	return nil
 }
