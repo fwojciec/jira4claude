@@ -474,7 +474,7 @@ func TestToIssueView_CustomFields(t *testing.T) {
 func TestToIssueListItems(t *testing.T) {
 	t.Parallel()
 
-	t.Run("extracts only list-relevant fields", func(t *testing.T) {
+	t.Run("extracts only list-relevant fields, with type and assignee", func(t *testing.T) {
 		t.Parallel()
 
 		issues := []*jira4claude.Issue{
@@ -484,6 +484,8 @@ func TestToIssueListItems(t *testing.T) {
 				Status:   "To Do",
 				Priority: "High",
 				Type:     "Task",
+				Assignee: &jira4claude.User{AccountID: "a1", DisplayName: "Jane Doe"},
+				Labels:   []string{"not-listed"},
 			},
 			{
 				Key:      "TEST-2",
@@ -497,8 +499,8 @@ func TestToIssueListItems(t *testing.T) {
 		items := jira4claude.ToIssueListItems(issues)
 
 		assert.Len(t, items, 2)
-		assert.Equal(t, jira4claude.IssueListItem{Key: "TEST-1", Status: "To Do", Priority: "High", Summary: "First issue"}, items[0])
-		assert.Equal(t, jira4claude.IssueListItem{Key: "TEST-2", Status: "Done", Priority: "Low", Summary: "Second issue"}, items[1])
+		assert.Equal(t, jira4claude.IssueListItem{Key: "TEST-1", Status: "To Do", Type: "Task", Priority: "High", Assignee: "Jane Doe", Summary: "First issue"}, items[0])
+		assert.Equal(t, jira4claude.IssueListItem{Key: "TEST-2", Status: "Done", Type: "Bug", Priority: "Low", Summary: "Second issue"}, items[1], "an unassigned issue has an empty assignee")
 	})
 
 	t.Run("handles empty slice", func(t *testing.T) {

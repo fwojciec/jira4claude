@@ -13,9 +13,6 @@ import (
 	"github.com/fwojciec/jira4claude"
 )
 
-// maxSummaryLength is the maximum length for issue summaries in list format.
-const maxSummaryLength = 60
-
 // Printer outputs GitHub-Flavored Markdown format. Data goes to out; errors,
 // warnings and [info] notices (an empty result, hidden fields) go to err, so
 // that stdout holds only data.
@@ -208,7 +205,13 @@ func compactJSON(raw json.RawMessage) string {
 	return buf.String()
 }
 
-// Issues prints multiple issues as a markdown list.
+// Issues prints one line per issue for a script to split on tabs, as
+// attachment list does: key, status, type, priority (as Jira names it),
+// assignee (display name) and summary. The summary, the only free-form field,
+// comes last and is never cut. Every value has its control characters escaped
+// (see escapeControl), so that none can break the line or add a column. An
+// empty value other than the summary prints as "-", because a shell's read
+// with IFS set to a tab merges adjacent tabs and would shift the columns.
 func (p *Printer) Issues(view jira4claude.IssueListView) {
 	items := view.Issues
 	if len(items) == 0 {
@@ -217,9 +220,19 @@ func (p *Printer) Issues(view jira4claude.IssueListView) {
 	}
 
 	for _, item := range items {
-		summary := truncate(item.Summary, maxSummaryLength)
-		fmt.Fprintln(p.out, formatIssueListItem(item.Key, item.Status, item.Priority, summary))
+		fmt.Fprintf(p.out, "%s\t%s\t%s\t%s\t%s\t%s\n",
+			listColumn(item.Key), listColumn(item.Status), listColumn(item.Type),
+			listColumn(item.Priority), listColumn(item.Assignee), escapeControl(item.Summary))
 	}
+}
+
+// listColumn renders a non-summary column of an issue list line: escaped, or
+// "-" when empty.
+func listColumn(s string) string {
+	if s == "" {
+		return "-"
+	}
+	return escapeControl(s)
 }
 
 // Comment prints a single comment.
@@ -593,7 +606,10 @@ func (p *Printer) Error(err error) {
 	fmt.Fprintf(p.err, "[error] %s\n", jira4claude.ErrorMessage(err))
 }
 
-// renderComment formats a comment with author and timestamp.
+// renderComment formats a comment with author, timestamp and ID:
+// "**Author** (YYYY-MM-DD HH:MM, id 10042):", the ID being the one
+// issue delete-comment KEY ID takes. The ID part is left out when the comment
+// has none.
 func (p *Printer) renderComment(view jira4claude.CommentView) {
 	author := view.Author
 	if author == "" {
@@ -603,6 +619,9 @@ func (p *Printer) renderComment(view jira4claude.CommentView) {
 	created := view.Created
 	if len(created) >= 16 {
 		created = created[:10] + " " + created[11:16]
+	}
+	if view.ID != "" {
+		created += ", id " + escapeControl(view.ID)
 	}
 	fmt.Fprintf(p.out, "**%s** (%s):\n%s\n", author, created, view.Body)
 }
@@ -661,40 +680,10 @@ func formatRelatedIssueItem(key, status, issueType, summary string) string {
 	return fmt.Sprintf("- **%s** [%s] (%s) %s", key, statusInd, issueType, summary)
 }
 
-// formatIssueListItem formats an issue list item in the standard format.
-// Format with priority: - **KEY** [Status] [Priority] Summary
-// Format without priority: - **KEY** [Status] Summary
-func formatIssueListItem(key, status, priority, summary string) string {
-	statusInd := statusIndicator(status)
-	if priority == "" {
-		return fmt.Sprintf("- **%s** [%s] %s", key, statusInd, summary)
-	}
-	priorityInd := priorityIndicator(priority)
-	return fmt.Sprintf("- **%s** [%s] [%s] %s", key, statusInd, priorityInd, summary)
-}
-
 // statusIndicator returns a human-readable status marker.
 // Passes through the status as-is to preserve custom statuses like "Won't Do".
 func statusIndicator(status string) string {
 	return status
-}
-
-// priorityIndicator returns a P0-P4 priority marker.
-func priorityIndicator(priority string) string {
-	switch priority {
-	case "Highest":
-		return "P0"
-	case "High":
-		return "P1"
-	case "Medium":
-		return "P2"
-	case "Low":
-		return "P3"
-	case "Lowest":
-		return "P4"
-	default:
-		return "P2"
-	}
 }
 
 // truncate shortens a string to maxLen, adding "..." if truncated.

@@ -75,17 +75,24 @@ Add linked issues section to issue view output...
 [View in Jira](https://company.atlassian.net/browse/J4C-81)
 ```
 
-Issue lists are line-oriented for easy piping:
+Issue lists print one tab-separated line per issue: key, status, type,
+priority, assignee and summary. The summary comes last and is never cut; an
+empty value other than the summary prints as `-`, and tabs, newlines and
+backslashes inside a value are escaped (`\t`, `\n`, `\\`), so every line splits
+into exactly six columns:
 
 ```bash
 j4c issue list --limit=3
 ```
 
 ```
-- **J4C-110** [To Do] [P2] Standardize issue list item format
-- **J4C-95** [To Do] [P2] Investigate epic support
-- **J4C-66** [To Do] [P2] Create Homebrew tap
+J4C-110	To Do	Task	Medium	Filip Wojciechowski	Standardize issue list item format
+J4C-95	To Do	Epic	High	-	Investigate epic support
+J4C-66	In Progress	Task	Medium	Filip Wojciechowski	Create Homebrew tap
 ```
+
+In `issue view`, each comment's header carries the ID that
+`issue delete-comment KEY ID` takes: `**Alice** (2026-01-04 10:30, id 10042):`.
 
 ### JSON Mode
 

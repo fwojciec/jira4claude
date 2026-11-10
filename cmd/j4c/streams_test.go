@@ -307,7 +307,7 @@ func warningCases() []warningCase {
 			args:        []string{"issue", "list", "--limit=1"},
 			services:    truncatedList,
 			textWarning: "[warn] showing the first 1 issues; more match",
-			textStdout:  "- **TEST-1** ",
+			textStdout:  "TEST-1\t",
 			jsonWarning: map[string]any{"level": "warning", "message": "showing the first 1 issues; more match (raise --limit to see them)"},
 		},
 		{
@@ -315,7 +315,7 @@ func warningCases() []warningCase {
 			args:        []string{"issue", "ready", "--limit=1"},
 			services:    truncatedList,
 			textWarning: "[warn] showing the first 1 ready issues",
-			textStdout:  "- **TEST-1** ",
+			textStdout:  "TEST-1\t",
 			jsonWarning: map[string]any{"level": "warning", "message": "showing the first 1 ready issues; more may exist (raise --limit to see them)"},
 		},
 	}

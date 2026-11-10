@@ -117,7 +117,7 @@ const viewIssuePage = "# TEST-1: Fix the login\n\n" +
 	"- **Story Points:** 5\n" +
 	"- **Team:** {\"id\":\"1\",\"name\":\"Core\"}\n" +
 	"\n## Comments\n\n" +
-	"**John Roe** (2026-11-01 09:00):\nLooks good\n" +
+	"**John Roe** (2026-11-01 09:00, id 10001):\nLooks good\n" +
 	"\n[View in Jira](https://test.atlassian.net/browse/TEST-1)\n"
 
 const viewIssueJSON = `{

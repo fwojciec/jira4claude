@@ -40,7 +40,7 @@ func TestPrinter_Issue(t *testing.T) {
 				{Relationship: "is blocked by", Key: "J4C-74", Type: "Task", Status: "Done", Summary: "Inject Converter into CLI"},
 			},
 			Comments: []jira4claude.CommentView{
-				{Author: "Filip Wojciechowski", Created: "2026-01-04T10:30:00Z", Body: "Completed the initial investigation."},
+				{ID: "10042", Author: "Filip Wojciechowski", Created: "2026-01-04T10:30:00Z", Body: "Completed the initial investigation."},
 			},
 			URL: "https://fwojciec.atlassian.net/browse/J4C-100",
 		}
@@ -72,7 +72,7 @@ func TestPrinter_Issue(t *testing.T) {
 		assert.Contains(t, result, "- **J4C-74** [Done] (Task) Inject Converter into CLI")
 		// Comments section
 		assert.Contains(t, result, "## Comments")
-		assert.Contains(t, result, "**Filip Wojciechowski** (2026-01-04 10:30):")
+		assert.Contains(t, result, "**Filip Wojciechowski** (2026-01-04 10:30, id 10042):\n")
 		assert.Contains(t, result, "Completed the initial investigation.")
 		// URL
 		assert.Contains(t, result, "[View in Jira](https://fwojciec.atlassian.net/browse/J4C-100)")
@@ -233,70 +233,88 @@ func TestPrinter_Issue(t *testing.T) {
 func TestPrinter_Issues(t *testing.T) {
 	t.Parallel()
 
-	t.Run("renders issue list with status and priority indicators", func(t *testing.T) {
+	t.Run("prints one tab-separated line per issue: key, status, type, priority, assignee, summary", func(t *testing.T) {
 		t.Parallel()
 		var out bytes.Buffer
 		p := markdown.NewPrinter(&out)
 
 		views := []jira4claude.IssueListItem{
-			{Key: "J4C-103", Summary: "http package cleanup", Status: "Done", Priority: "Medium"},
-			{Key: "J4C-102", Summary: "goldmark package test coverage", Status: "Done", Priority: "Medium"},
-			{Key: "J4C-95", Summary: "Investigate epic support", Status: "To Do", Priority: "Medium"},
-			{Key: "J4C-104", Summary: "Implement new feature", Status: "In Progress", Priority: "High"},
+			{Key: "J4C-103", Summary: "http package cleanup", Status: "Done", Type: "Task", Priority: "Medium", Assignee: "Jane Doe"},
+			{Key: "J4C-104", Summary: "Implement new feature", Status: "In Progress", Type: "Epic", Priority: "High", Assignee: "John Roe"},
 		}
 
 		p.Issues(jira4claude.IssueListView{Issues: views})
-		result := out.String()
 
-		assert.Contains(t, result, "- **J4C-103** [Done] [P2] http package cleanup")
-		assert.Contains(t, result, "- **J4C-102** [Done] [P2] goldmark package test coverage")
-		assert.Contains(t, result, "- **J4C-95** [To Do] [P2] Investigate epic support")
-		assert.Contains(t, result, "- **J4C-104** [In Progress] [P1] Implement new feature")
+		assert.Equal(t,
+			"J4C-103\tDone\tTask\tMedium\tJane Doe\thttp package cleanup\n"+
+				"J4C-104\tIn Progress\tEpic\tHigh\tJohn Roe\tImplement new feature\n",
+			out.String())
 	})
 
-	t.Run("truncates long summaries", func(t *testing.T) {
+	t.Run("prints a 200-character summary whole on one line", func(t *testing.T) {
 		t.Parallel()
 		var out bytes.Buffer
 		p := markdown.NewPrinter(&out)
 
+		summary := strings.Repeat("abcdefghi ", 20)
+		require.Len(t, summary, 200)
 		views := []jira4claude.IssueListItem{
-			{
-				Key:      "J4C-100",
-				Summary:  "This is a very long summary that exceeds sixty characters and should be truncated",
-				Status:   "To Do",
-				Priority: "Medium",
-			},
+			{Key: "J4C-100", Summary: summary, Status: "To Do", Type: "Task", Priority: "Medium", Assignee: "Jane Doe"},
 		}
 
 		p.Issues(jira4claude.IssueListView{Issues: views})
-		result := out.String()
 
-		// Should truncate at 60 chars with ...
-		assert.Contains(t, result, "This is a very long summary that exceeds sixty characters...")
-		assert.NotContains(t, result, "should be truncated")
+		assert.Equal(t, "J4C-100\tTo Do\tTask\tMedium\tJane Doe\t"+summary+"\n", out.String())
 	})
 
-	t.Run("handles all priority levels", func(t *testing.T) {
+	t.Run("prints priority as Jira names it", func(t *testing.T) {
 		t.Parallel()
 		var out bytes.Buffer
 		p := markdown.NewPrinter(&out)
 
 		views := []jira4claude.IssueListItem{
-			{Key: "J4C-1", Summary: "Highest priority", Status: "To Do", Priority: "Highest"},
-			{Key: "J4C-2", Summary: "High priority", Status: "To Do", Priority: "High"},
-			{Key: "J4C-3", Summary: "Medium priority", Status: "To Do", Priority: "Medium"},
-			{Key: "J4C-4", Summary: "Low priority", Status: "To Do", Priority: "Low"},
-			{Key: "J4C-5", Summary: "Lowest priority", Status: "To Do", Priority: "Lowest"},
+			{Key: "J4C-1", Summary: "One", Status: "To Do", Type: "Bug", Priority: "Highest", Assignee: "A"},
+			{Key: "J4C-2", Summary: "Two", Status: "To Do", Type: "Bug", Priority: "Blocker", Assignee: "A"},
+			{Key: "J4C-3", Summary: "Three", Status: "To Do", Type: "Bug", Priority: "Lowest", Assignee: "A"},
 		}
 
 		p.Issues(jira4claude.IssueListView{Issues: views})
-		result := out.String()
 
-		assert.Contains(t, result, "- **J4C-1** [To Do] [P0] Highest priority")
-		assert.Contains(t, result, "- **J4C-2** [To Do] [P1] High priority")
-		assert.Contains(t, result, "- **J4C-3** [To Do] [P2] Medium priority")
-		assert.Contains(t, result, "- **J4C-4** [To Do] [P3] Low priority")
-		assert.Contains(t, result, "- **J4C-5** [To Do] [P4] Lowest priority")
+		assert.Equal(t,
+			"J4C-1\tTo Do\tBug\tHighest\tA\tOne\n"+
+				"J4C-2\tTo Do\tBug\tBlocker\tA\tTwo\n"+
+				"J4C-3\tTo Do\tBug\tLowest\tA\tThree\n",
+			out.String())
+	})
+
+	t.Run("an empty column prints as a dash so that no column collapses", func(t *testing.T) {
+		t.Parallel()
+		var out bytes.Buffer
+		p := markdown.NewPrinter(&out)
+
+		views := []jira4claude.IssueListItem{
+			{Key: "J4C-1", Summary: "Unassigned, no priority", Status: "To Do", Type: "Task"},
+		}
+
+		p.Issues(jira4claude.IssueListView{Issues: views})
+
+		assert.Equal(t, "J4C-1\tTo Do\tTask\t-\t-\tUnassigned, no priority\n", out.String())
+	})
+
+	t.Run("escapes control characters so a value stays in its column and on its line", func(t *testing.T) {
+		t.Parallel()
+		var out bytes.Buffer
+		p := markdown.NewPrinter(&out)
+
+		views := []jira4claude.IssueListItem{
+			{Key: "J4C-1", Summary: "tab\there, new\nline, back\\slash", Status: "To Do", Type: "Task", Priority: "Medium", Assignee: "Jane\tDoe"},
+		}
+
+		p.Issues(jira4claude.IssueListView{Issues: views})
+
+		line := out.String()
+		assert.Equal(t, "J4C-1\tTo Do\tTask\tMedium\tJane\\tDoe\ttab\\there, new\\nline, back\\\\slash\n", line)
+		assert.Len(t, strings.Split(strings.TrimSuffix(line, "\n"), "\t"), 6)
 	})
 
 	t.Run("empty list shows the info message on stderr", func(t *testing.T) {
@@ -316,19 +334,18 @@ func TestPrinter_Issues(t *testing.T) {
 		p := markdown.NewPrinter(&out)
 
 		views := []jira4claude.IssueListItem{
-			{Key: "J4C-100", Summary: "Cancelled issue", Status: "Won't Do", Priority: "Medium"},
+			{Key: "J4C-100", Summary: "Cancelled issue", Status: "Won't Do", Type: "Task", Priority: "Medium", Assignee: "Jane Doe"},
 		}
 
 		p.Issues(jira4claude.IssueListView{Issues: views})
-		result := out.String()
 
-		assert.Contains(t, result, "- **J4C-100** [Won't Do] [P2] Cancelled issue")
+		assert.Equal(t, "J4C-100\tWon't Do\tTask\tMedium\tJane Doe\tCancelled issue\n", out.String())
 	})
 
 	t.Run("truncated list renders the same stdout as an untruncated one", func(t *testing.T) {
 		t.Parallel()
 		views := []jira4claude.IssueListItem{
-			{Key: "J4C-1", Summary: "One", Status: "To Do", Priority: "Medium"},
+			{Key: "J4C-1", Summary: "One", Status: "To Do", Type: "Task", Priority: "Medium", Assignee: "Jane Doe"},
 		}
 
 		var plain, truncated, errOut bytes.Buffer
@@ -343,7 +360,24 @@ func TestPrinter_Issues(t *testing.T) {
 func TestPrinter_Comment(t *testing.T) {
 	t.Parallel()
 
-	t.Run("renders comment with author and timestamp", func(t *testing.T) {
+	t.Run("renders comment with author, timestamp and the ID issue delete-comment takes", func(t *testing.T) {
+		t.Parallel()
+		var out bytes.Buffer
+		p := markdown.NewPrinter(&out)
+
+		view := jira4claude.CommentView{
+			ID:      "10042",
+			Author:  "Filip Wojciechowski",
+			Created: "2026-01-04T10:30:00Z",
+			Body:    "This is a comment body.",
+		}
+
+		p.Comment(view)
+
+		assert.Equal(t, "**Filip Wojciechowski** (2026-01-04 10:30, id 10042):\nThis is a comment body.\n", out.String())
+	})
+
+	t.Run("omits the ID part of the header when the comment has no ID", func(t *testing.T) {
 		t.Parallel()
 		var out bytes.Buffer
 		p := markdown.NewPrinter(&out)
@@ -355,10 +389,8 @@ func TestPrinter_Comment(t *testing.T) {
 		}
 
 		p.Comment(view)
-		result := out.String()
 
-		assert.Contains(t, result, "**Filip Wojciechowski** (2026-01-04 10:30):")
-		assert.Contains(t, result, "This is a comment body.")
+		assert.Equal(t, "**Filip Wojciechowski** (2026-01-04 10:30):\nThis is a comment body.\n", out.String())
 	})
 
 	t.Run("handles unknown author", func(t *testing.T) {
@@ -367,6 +399,7 @@ func TestPrinter_Comment(t *testing.T) {
 		p := markdown.NewPrinter(&out)
 
 		view := jira4claude.CommentView{
+			ID:      "10007",
 			Created: "2026-01-04T10:30:00Z",
 			Body:    "Anonymous comment.",
 		}
@@ -374,7 +407,7 @@ func TestPrinter_Comment(t *testing.T) {
 		p.Comment(view)
 		result := out.String()
 
-		assert.Contains(t, result, "**Unknown** (2026-01-04 10:30):")
+		assert.Contains(t, result, "**Unknown** (2026-01-04 10:30, id 10007):")
 	})
 
 	t.Run("preserves short timestamp", func(t *testing.T) {

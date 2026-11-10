@@ -225,6 +225,11 @@ The retry loop gets an idempotency input:
 - `issue list` items gain `type` and `assignee`. Summaries are not cut, and priority prints as Jira names it (F15).
 - Markdown view shows comment IDs (F15).
 
+  Decided shapes (jir-dhy6):
+  - Text list (`list`, `ready`): one tab-separated line per issue, `KEY  STATUS  TYPE  PRIORITY  ASSIGNEE  SUMMARY`, no header. The summary is last and never cut; another empty value prints as `-` (a shell `read` with a tab `IFS` merges adjacent tabs); control characters and backslashes are escaped as in `attachment list`, so a line always has six columns. Priority is Jira's name; assignee is the display name.
+  - JSON list items: `key, status, type, priority, assignee, summary`; `type` always present, `priority` and `assignee` left out when empty, as in the issue view.
+  - Comment header: `**Author** (YYYY-MM-DD HH:MM, id 10042):`, the ID being what `issue delete-comment KEY ID` takes.
+
 #### 2.3 Input
 
 - `--description-file PATH` and `--body-file PATH`; `-` means stdin. Mutually exclusive with the inline flags (F17).

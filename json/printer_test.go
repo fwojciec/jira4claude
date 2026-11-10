@@ -258,6 +258,23 @@ func TestPrinter_Issues(t *testing.T) {
 	assert.False(t, *result.Truncated)
 }
 
+func TestPrinter_Issues_TypeAndAssignee(t *testing.T) {
+	t.Parallel()
+
+	var out bytes.Buffer
+	p := jsonpkg.NewPrinter(&out)
+
+	p.Issues(jira4claude.IssueListView{Issues: []jira4claude.IssueListItem{
+		{Key: "TEST-1", Status: "Open", Type: "Bug", Priority: "Blocker", Assignee: "Jane Doe", Summary: "First"},
+		{Key: "TEST-2", Status: "Open", Type: "Epic", Summary: "Second"},
+	}})
+
+	assert.JSONEq(t, `{"issues":[
+		{"key":"TEST-1","status":"Open","type":"Bug","priority":"Blocker","assignee":"Jane Doe","summary":"First"},
+		{"key":"TEST-2","status":"Open","type":"Epic","summary":"Second"}
+	],"truncated":false}`, out.String())
+}
+
 func TestPrinter_Issues_Truncated(t *testing.T) {
 	t.Parallel()
 

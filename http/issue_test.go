@@ -1059,6 +1059,63 @@ func TestIssueService_List(t *testing.T) {
 		assert.Contains(t, receivedJQL, "status = \"To Do\"")
 	})
 
+	t.Run("requests and maps type, assignee and priority for list items", func(t *testing.T) {
+		t.Parallel()
+
+		var receivedFields string
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Method != http.MethodGet || r.URL.Path != "/rest/api/3/search/jql" {
+				w.WriteHeader(http.StatusNotFound)
+				return
+			}
+			receivedFields = r.URL.Query().Get("fields")
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{
+				"issues": [
+					{
+						"key": "TEST-1",
+						"fields": {
+							"summary": "Assigned bug",
+							"status": {"name": "To Do"},
+							"issuetype": {"name": "Bug"},
+							"priority": {"name": "Blocker"},
+							"assignee": {"accountId": "a1", "displayName": "Jane Doe"}
+						}
+					},
+					{
+						"key": "TEST-2",
+						"fields": {
+							"summary": "Unassigned epic",
+							"status": {"name": "To Do"},
+							"issuetype": {"name": "Epic"},
+							"assignee": null
+						}
+					}
+				],
+				"isLast": true
+			}`))
+		}))
+		defer server.Close()
+
+		client := newTestClient(t, server.URL, "user@example.com", "api-token")
+		svc := jirahttp.NewIssueService(client)
+
+		issues, _, err := svc.List(context.Background(), jira4claude.IssueFilter{Project: "TEST"})
+
+		require.NoError(t, err)
+		requested := strings.Split(receivedFields, ",")
+		assert.Contains(t, requested, "issuetype")
+		assert.Contains(t, requested, "assignee")
+		assert.Contains(t, requested, "priority")
+		require.Len(t, issues, 2)
+		assert.Equal(t, "Bug", issues[0].Type)
+		assert.Equal(t, "Blocker", issues[0].Priority)
+		require.NotNil(t, issues[0].Assignee)
+		assert.Equal(t, "Jane Doe", issues[0].Assignee.DisplayName)
+		assert.Equal(t, "Epic", issues[1].Type)
+		assert.Nil(t, issues[1].Assignee)
+	})
+
 	t.Run("uses raw JQL when provided", func(t *testing.T) {
 		t.Parallel()
 

@@ -3,6 +3,7 @@ package main_test
 import (
 	"context"
 	"strconv"
+	"strings"
 	"sync"
 	"testing"
 
@@ -76,6 +77,52 @@ func pagedService(pages ...[]*jira4claude.Issue) (*mock.IssueService, func() []s
 
 func pageToken(i int) string {
 	return "page-" + strconv.Itoa(i)
+}
+
+func TestRun_IssueListOutput(t *testing.T) {
+	t.Parallel()
+
+	longSummary := strings.Repeat("abcdefghi ", 20)
+	require.Len(t, longSummary, 200)
+	listed := func() *mock.IssueService {
+		return &mock.IssueService{ListFn: func(context.Context, jira4claude.IssueFilter) ([]*jira4claude.Issue, string, error) {
+			return []*jira4claude.Issue{
+				{
+					Key: "TEST-1", Summary: longSummary, Status: "To Do", Type: "Bug", Priority: "Blocker",
+					Assignee: &jira4claude.User{AccountID: "a1", DisplayName: "Jane Doe"},
+				},
+				{Key: "TEST-2", Summary: "Plan the release", Status: "In Progress", Type: "Epic"},
+			}, "", nil
+		}}
+	}
+	wantText := "TEST-1\tTo Do\tBug\tBlocker\tJane Doe\t" + longSummary + "\n" +
+		"TEST-2\tIn Progress\tEpic\t-\t-\tPlan the release\n"
+	wantJSON := `{"issues":[
+		{"key":"TEST-1","status":"To Do","type":"Bug","priority":"Blocker","assignee":"Jane Doe","summary":"` + longSummary + `"},
+		{"key":"TEST-2","status":"In Progress","type":"Epic","summary":"Plan the release"}
+	],"truncated":false}`
+
+	for _, command := range []string{"list", "ready"} {
+		t.Run(command+"/text shows type, assignee, Jira's priority name and the whole summary", func(t *testing.T) {
+			t.Parallel()
+
+			res := runCLI(t, testDeps(listed(), &mock.UserService{}), "issue", command)
+
+			assert.Equal(t, 0, res.code, "stderr: %q", res.stderr)
+			assert.Equal(t, wantText, res.stdout)
+			assert.Empty(t, res.stderr)
+		})
+
+		t.Run(command+"/json items carry type and assignee", func(t *testing.T) {
+			t.Parallel()
+
+			res := runCLI(t, testDeps(listed(), &mock.UserService{}), "--json", "issue", command)
+
+			assert.Equal(t, 0, res.code, "stderr: %q", res.stderr)
+			assert.JSONEq(t, wantJSON, res.stdout)
+			assert.Empty(t, res.stderr)
+		})
+	}
 }
 
 func TestIssueListCmd_Truncation(t *testing.T) {

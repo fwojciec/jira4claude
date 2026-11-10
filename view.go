@@ -320,11 +320,14 @@ func nonNil[T any](s []T) []T {
 
 // IssueListItem is a minimal representation for list display.
 // It contains only the fields needed for issue lists, avoiding
-// expensive ADF-to-markdown conversion.
+// expensive ADF-to-markdown conversion. Assignee is the display name, empty
+// (and left out of the JSON, as in IssueView) when the issue is unassigned.
 type IssueListItem struct {
 	Key      string `json:"key"`
 	Status   string `json:"status"`
+	Type     string `json:"type"`
 	Priority string `json:"priority,omitempty"`
+	Assignee string `json:"assignee,omitempty"`
 	Summary  string `json:"summary"`
 }
 
@@ -399,7 +402,9 @@ func ToIssueListItems(issues []*Issue) []IssueListItem {
 		items[i] = IssueListItem{
 			Key:      issue.Key,
 			Status:   issue.Status,
+			Type:     issue.Type,
 			Priority: issue.Priority,
+			Assignee: displayName(issue.Assignee),
 			Summary:  issue.Summary,
 		}
 	}
