@@ -145,6 +145,8 @@ func nodeToADF(node ast.Node, source []byte, skipped *skippedCollector) (jira4cl
 		return convertHeading(n, source, skipped)
 	case *ast.FencedCodeBlock:
 		return convertFencedCodeBlock(n, source), true
+	case *ast.CodeBlock:
+		return convertIndentedCodeBlock(n, source), true
 	case *ast.List:
 		return convertList(n, source, skipped), true
 	case *ast.Blockquote:
@@ -229,6 +231,23 @@ func convertFencedCodeBlock(node *ast.FencedCodeBlock, source []byte) jira4claud
 	}
 
 	return result
+}
+
+// convertIndentedCodeBlock converts a goldmark indented code block to an ADF
+// codeBlock. Indented code carries no info string, so no language is set.
+func convertIndentedCodeBlock(node *ast.CodeBlock, source []byte) jira4claude.ADFNode {
+	var b strings.Builder
+	lines := node.Lines()
+	for i := range lines.Len() {
+		line := lines.At(i)
+		b.Write(line.Value(source))
+	}
+	return jira4claude.ADFNode{
+		Type: "codeBlock",
+		Content: []jira4claude.ADFNode{
+			{Type: "text", Text: strings.TrimSuffix(b.String(), "\n")},
+		},
+	}
 }
 
 // convertList converts a goldmark list to an ADF bulletList, orderedList, or taskList.
