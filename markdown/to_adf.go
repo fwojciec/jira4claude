@@ -901,12 +901,19 @@ func marksEqual(a, b []jira4claude.ADFMark) bool {
 	return true
 }
 
-// textNodeWithMarks creates an ADF text node with the given text and marks.
-func textNodeWithMarks(text string, marks []jira4claude.ADFMark) jira4claude.ADFNode {
+// textNodeWithMarks creates an ADF text node with the given text and marks,
+// in canonical form (see canonicalMarks). Nested marks of one type with
+// different attributes cannot all apply: the innermost is kept and the text
+// is reported as degraded.
+func textNodeWithMarks(text string, marks []jira4claude.ADFMark, skipped *skippedCollector) jira4claude.ADFNode {
+	canonical, conflict := canonicalMarks(marks)
+	if conflict && skipped != nil {
+		skipped.degrade("text", conflictingMarksDetail)
+	}
 	return jira4claude.ADFNode{
 		Type:  "text",
 		Text:  text,
-		Marks: marks,
+		Marks: canonical,
 	}
 }
 
@@ -933,7 +940,7 @@ func convertInlineNode(node ast.Node, source []byte, marks []jira4claude.ADFMark
 		}
 		var nodes []jira4claude.ADFNode
 		if text != "" {
-			nodes = append(nodes, textNodeWithMarks(text, marks))
+			nodes = append(nodes, textNodeWithMarks(text, marks, skipped))
 		}
 		// The break flag can sit on an empty Text node, as when the break
 		// directly follows emphasis, a link or inline code; it must be kept
@@ -971,7 +978,7 @@ func convertInlineNode(node ast.Node, source []byte, marks []jira4claude.ADFMark
 		// text nodes around the code span retain the parent marks, so visual
 		// formatting is preserved everywhere except the code span itself.
 		newMarks := append(filterCodeCompatibleMarks(marks), jira4claude.ADFMark{Type: "code"})
-		return []jira4claude.ADFNode{textNodeWithMarks(codeText, newMarks)}
+		return []jira4claude.ADFNode{textNodeWithMarks(codeText, newMarks, skipped)}
 
 	case *ast.Link:
 		attrs, _ := json.Marshal(map[string]any{"href": string(n.Destination)})
@@ -988,7 +995,7 @@ func convertInlineNode(node ast.Node, source []byte, marks []jira4claude.ADFMark
 			Type:  "link",
 			Attrs: attrs,
 		}
-		return []jira4claude.ADFNode{textNodeWithMarks(url, append(cloneMarks(marks), newMark))}
+		return []jira4claude.ADFNode{textNodeWithMarks(url, append(cloneMarks(marks), newMark), skipped)}
 
 	case *extast.Strikethrough:
 		newMarks := append(cloneMarks(marks), jira4claude.ADFMark{Type: "strike"})

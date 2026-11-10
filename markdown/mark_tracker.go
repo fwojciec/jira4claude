@@ -130,7 +130,7 @@ func convertInlineRun(first ast.Node, source []byte, marks []jira4claude.ADFMark
 		}
 		if rh, ok := child.(*ast.RawHTML); ok {
 			if tracker.visit(rh, source) == tagLiteral {
-				content = append(content, textNodeWithMarks(literalHTML(rh, source), tracker.marks(marks)))
+				content = append(content, textNodeWithMarks(literalHTML(rh, source), tracker.marks(marks), skipped))
 			}
 			continue
 		}

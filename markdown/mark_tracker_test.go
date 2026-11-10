@@ -86,7 +86,7 @@ func TestMarkTracker_Transitions(t *testing.T) {
 			markdown: "<u>a<sub>b</sub>c</u>",
 			want: []span{
 				{Text: "a", Marks: []string{"underline"}},
-				{Text: "b", Marks: []string{"underline", "sub"}},
+				{Text: "b", Marks: []string{"sub", "underline"}},
 				{Text: "c", Marks: []string{"underline"}},
 			},
 		},
@@ -170,7 +170,7 @@ func TestMarkTracker_Transitions(t *testing.T) {
 		{
 			name:     "pair around emphasis applies both marks",
 			markdown: "<u>*a*</u>",
-			want:     []span{{Text: "a", Marks: []string{"underline", "em"}}},
+			want:     []span{{Text: "a", Marks: []string{"em", "underline"}}},
 		},
 		{
 			name:     "pair inside emphasis applies both marks",

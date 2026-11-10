@@ -430,7 +430,8 @@ func TestRoundTrip_BareURLInMarkedText(t *testing.T) {
 
 	// Linkify also runs right after a formatting delimiter, so a URL at the
 	// start of marked text is linked whole on write; escaping inside it would
-	// cut the link short.
+	// cut the link short. Marks are written in canonical order, link first
+	// (#159).
 	const url = "https://example.com/?filter[x]=1"
 	linkMark := jira4claude.ADFMark{Type: "link", Attrs: []byte(`{"href":"` + url + `"}`)}
 
@@ -449,7 +450,7 @@ func TestRoundTrip_BareURLInMarkedText(t *testing.T) {
 				{
 					name:     "whole node",
 					inline:   []jira4claude.ADFNode{{Type: "text", Text: url, Marks: []jira4claude.ADFMark{m}}},
-					expected: []jira4claude.ADFNode{{Type: "text", Text: url, Marks: []jira4claude.ADFMark{m, linkMark}}},
+					expected: []jira4claude.ADFNode{{Type: "text", Text: url, Marks: []jira4claude.ADFMark{linkMark, m}}},
 				},
 				{
 					name: "after plain text",
@@ -459,7 +460,7 @@ func TestRoundTrip_BareURLInMarkedText(t *testing.T) {
 					},
 					expected: []jira4claude.ADFNode{
 						{Type: "text", Text: "see "},
-						{Type: "text", Text: url, Marks: []jira4claude.ADFMark{m, linkMark}},
+						{Type: "text", Text: url, Marks: []jira4claude.ADFMark{linkMark, m}},
 						{Type: "text", Text: " now", Marks: []jira4claude.ADFMark{m}},
 					},
 				},
