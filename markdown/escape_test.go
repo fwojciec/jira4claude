@@ -263,6 +263,18 @@ func TestRoundTrip_PlainTextFromJira(t *testing.T) {
 		`a \~~b~~ c`,
 		"5~10 and 20~30",
 		"pass <word> as *b* &amp; [x]",
+		"<div>",
+		"a <b>bold</b> c",
+		"</p> closes",
+		"<!-- comment -->",
+		"<?php echo ?>",
+		"<!DOCTYPE html>",
+		"<![CDATA[x]]>",
+		"<https://example.com>",
+		"mail <a@b.co> now",
+		"<1@b.co>",
+		"a < b and x<5 and <- and <3",
+		"ends with <",
 	}
 
 	type context struct {
@@ -456,11 +468,13 @@ func TestRoundTrip_HeadingTextFromJira(t *testing.T) {
 func TestRoundTrip_PlainTextAfterHardBreakGainsNoBlock(t *testing.T) {
 	t.Parallel()
 
-	// A hardBreak is read out as a bare newline, which is written back as a
-	// soft break (a space); that loss is separate from escaping. What must
-	// hold is that text starting the new line does not become a block of its
-	// own (heading, list, quote, fence) and keeps all its characters.
-	for _, text := range []string{"# x", "> quote", "- item", "* item", "1. item", "---", "===", "~~~", "```"} {
+	// A hardBreak is read out as a CommonMark hard break ("\" and a newline).
+	// Text starting the new line must not become a block of its own
+	// (heading, list, quote, fence, HTML) and must keep all its characters.
+	for _, text := range []string{
+		"# x", "> quote", "- item", "* item", "1. item", "---", "===", "~~~", "```",
+		"<div>", "</div>", "<!-- c -->", "  indented", "\tTab",
+	} {
 		t.Run(text, func(t *testing.T) {
 			t.Parallel()
 
@@ -477,9 +491,193 @@ func TestRoundTrip_PlainTextAfterHardBreakGainsNoBlock(t *testing.T) {
 			result, w2 := converter.ToADF(md)
 			assert.Empty(t, w2)
 			requireValidADF(t, result)
-			assert.Equal(t, paragraphDoc(jira4claude.ADFNode{Type: "text", Text: "first " + text}), result, "markdown was %q", md)
+			assert.Equal(t, original, result, "markdown was %q", md)
 		})
 	}
+}
+
+func TestRoundTrip_HardBreaks(t *testing.T) {
+	t.Parallel()
+
+	text := func(s string, marks ...jira4claude.ADFMark) jira4claude.ADFNode {
+		return jira4claude.ADFNode{Type: "text", Text: s, Marks: marks}
+	}
+	br := jira4claude.ADFNode{Type: "hardBreak"}
+	strong := jira4claude.ADFMark{Type: "strong"}
+	em := jira4claude.ADFMark{Type: "em"}
+	code := jira4claude.ADFMark{Type: "code"}
+
+	tests := []struct {
+		name     string
+		inline   []jira4claude.ADFNode
+		markdown string
+	}{
+		{"one", []jira4claude.ADFNode{text("a"), br, text("b")}, "a\\\nb"},
+		{"two consecutive", []jira4claude.ADFNode{text("a"), br, br, text("b")}, "a\\\n\\\nb"},
+		{"three consecutive", []jira4claude.ADFNode{text("a"), br, br, br, text("b")}, "a\\\n\\\n\\\nb"},
+		{"leading", []jira4claude.ADFNode{br, text("b")}, "\\\nb"},
+		{"after strong", []jira4claude.ADFNode{text("a", strong), br, text("b")}, "**a**\\\nb"},
+		{"between marked", []jira4claude.ADFNode{text("a", strong), br, text("b", em)}, "**a**\\\n*b*"},
+		{"after code", []jira4claude.ADFNode{text("a", code), br, text("b")}, "`a`\\\nb"},
+		{"after a backslash", []jira4claude.ADFNode{text(`a\`), br, text("b")}, "a&#92;\\\nb"},
+		{"after trailing spaces", []jira4claude.ADFNode{text("a  "), br, text("b")}, "a  \\\nb"},
+		{"blank line held as a space", []jira4claude.ADFNode{text("a"), br, text(" "), br, text("b")}, "a\\\n&#32;\\\nb"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			original := paragraphDoc(tt.inline...)
+
+			converter := markdown.New()
+			md, w1 := converter.ToMarkdown(original)
+			assert.Empty(t, w1)
+			assert.Equal(t, tt.markdown, md)
+
+			result, w2 := converter.ToADF(md)
+			assert.Empty(t, w2)
+			requireValidADF(t, result)
+			assert.Equal(t, original, result, "markdown was %q", md)
+		})
+	}
+}
+
+func TestRoundTrip_HardBreaksInContainers(t *testing.T) {
+	t.Parallel()
+
+	br := jira4claude.ADFNode{Type: "hardBreak"}
+	text := func(s string) jira4claude.ADFNode { return jira4claude.ADFNode{Type: "text", Text: s} }
+	doc := func(block jira4claude.ADFNode) *jira4claude.ADFNode {
+		return &jira4claude.ADFNode{Type: "doc", Version: 1, Content: []jira4claude.ADFNode{block}}
+	}
+	para := func(inline ...jira4claude.ADFNode) jira4claude.ADFNode {
+		return jira4claude.ADFNode{Type: "paragraph", Content: inline}
+	}
+
+	for _, second := range []string{"b", "# x", "- item", "<div>"} {
+		inline := []jira4claude.ADFNode{text("a"), br, text(second)}
+		tests := map[string]*jira4claude.ADFNode{
+			"blockquote": doc(jira4claude.ADFNode{Type: "blockquote", Content: []jira4claude.ADFNode{para(inline...)}}),
+			"bullet item": doc(jira4claude.ADFNode{Type: "bulletList", Content: []jira4claude.ADFNode{
+				{Type: "listItem", Content: []jira4claude.ADFNode{para(inline...)}},
+			}}),
+			"ordered item": doc(jira4claude.ADFNode{Type: "orderedList", Content: []jira4claude.ADFNode{
+				{Type: "listItem", Content: []jira4claude.ADFNode{para(inline...)}},
+			}}),
+		}
+		for name, original := range tests {
+			t.Run(name+"/"+second, func(t *testing.T) {
+				t.Parallel()
+
+				converter := markdown.New()
+				md, w1 := converter.ToMarkdown(original)
+				assert.Empty(t, w1)
+
+				result, w2 := converter.ToADF(md)
+				assert.Empty(t, w2)
+				requireValidADF(t, result)
+				assert.Equal(t, original, result, "markdown was %q", md)
+			})
+		}
+	}
+}
+
+func TestToMarkdown_HardBreakWithoutMarkdownForm(t *testing.T) {
+	t.Parallel()
+
+	br := jira4claude.ADFNode{Type: "hardBreak"}
+	text := func(s string) jira4claude.ADFNode { return jira4claude.ADFNode{Type: "text", Text: s} }
+	degraded := jira4claude.ConversionIssue{
+		Kind: jira4claude.ConversionDegraded,
+		Node: "hardBreak",
+		Detail: "a line break at the end of a paragraph, or inside a heading or table cell, " +
+			"cannot be written in Markdown: it is left out at the end and read as a space elsewhere",
+	}
+	heading := func(inline ...jira4claude.ADFNode) *jira4claude.ADFNode {
+		return &jira4claude.ADFNode{Type: "doc", Version: 1, Content: []jira4claude.ADFNode{
+			{Type: "heading", Attrs: []byte(`{"level":2}`), Content: inline},
+		}}
+	}
+	cell := func(inline ...jira4claude.ADFNode) *jira4claude.ADFNode {
+		return &jira4claude.ADFNode{Type: "doc", Version: 1, Content: []jira4claude.ADFNode{{
+			Type: "table",
+			Content: []jira4claude.ADFNode{{
+				Type: "tableRow",
+				Content: []jira4claude.ADFNode{{
+					Type:    "tableHeader",
+					Content: []jira4claude.ADFNode{{Type: "paragraph", Content: inline}},
+				}},
+			}},
+		}}}
+	}
+
+	tests := []struct {
+		name     string
+		doc      *jira4claude.ADFNode
+		markdown string
+		readBack *jira4claude.ADFNode
+	}{
+		{
+			name:     "trailing in a paragraph",
+			doc:      paragraphDoc(text("a"), br),
+			markdown: "a",
+			readBack: paragraphDoc(text("a")),
+		},
+		{
+			name:     "two trailing in a paragraph",
+			doc:      paragraphDoc(text("a"), br, br),
+			markdown: "a",
+			readBack: paragraphDoc(text("a")),
+		},
+		{
+			name:     "inside a heading",
+			doc:      heading(text("a"), br, text("b")),
+			markdown: "## a b",
+			readBack: heading(text("a b")),
+		},
+		{
+			name:     "trailing in a heading",
+			doc:      heading(text("a"), br),
+			markdown: "## a",
+			readBack: heading(text("a")),
+		},
+		{
+			name:     "inside a table cell",
+			doc:      cell(text("a"), br, text("b")),
+			markdown: "| a b |\n| --- |",
+			readBack: cell(text("a b")),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			converter := markdown.New()
+			md, issues := converter.ToMarkdown(tt.doc)
+			assert.Equal(t, tt.markdown, md)
+			assert.Equal(t, []jira4claude.ConversionIssue{degraded}, issues)
+
+			result, w := converter.ToADF(md)
+			assert.Empty(t, w)
+			assert.Equal(t, tt.readBack, result)
+		})
+	}
+}
+
+func TestToADF_EscapedAngleBracketNextToLiteralTag(t *testing.T) {
+	t.Parallel()
+
+	converter := markdown.New()
+	result, warnings := converter.ToADF(`\<b> and <word> and \</i> and <u>x</u>`)
+
+	assert.Empty(t, warnings)
+	requireValidADF(t, result)
+	assert.Equal(t, paragraphDoc(
+		jira4claude.ADFNode{Type: "text", Text: "<b> and <word> and </i> and "},
+		jira4claude.ADFNode{Type: "text", Text: "x", Marks: []jira4claude.ADFMark{{Type: "underline"}}},
+	), result)
 }
 
 // TestRoundTrip_PlainTextExhaustive enumerates every short string over the
@@ -489,7 +687,7 @@ func TestRoundTrip_PlainTextAfterHardBreakGainsNoBlock(t *testing.T) {
 func TestRoundTrip_PlainTextExhaustive(t *testing.T) {
 	t.Parallel()
 
-	alphabet := []string{"a", " ", "*", "_", "~", "[", "]", `\`, "&", ";", "#", "`", "-", ">"}
+	alphabet := []string{"a", " ", "*", "_", "~", "[", "]", `\`, "&", ";", "#", "`", "-", ">", "<", "/", "!"}
 	const maxLen = 4
 
 	converter := markdown.New()

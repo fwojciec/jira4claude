@@ -33,6 +33,10 @@ import (
 //     "]" only inside link text.
 //   - "&" that starts something shaped like an entity reference
 //     ("&name;", "&#123;", "&#x1F;"), or that ends the text node.
+//   - "<" that could open HTML (an inline tag, closing tag, comment,
+//     processing instruction, declaration or CDATA, or an HTML block) or an
+//     autolink: followed by a letter, "/", "!" or "?", by an email address
+//     and ">", or by the end of the text node. "a < b" and "x<5" stay bare.
 //   - A run of "*" unless both neighbours are known whitespace; a run of "_"
 //     unless both neighbours are known whitespace or both are letters or
 //     digits (snake_case). The start and end of a text node, and the start
@@ -47,7 +51,9 @@ import (
 //   - In a heading only: a "#" run that ends the text after a blank (an ATX
 //     closing sequence).
 //
-// Everything else, including "<", is written as is.
+// Everything else is written as is. A hardBreak between text nodes is
+// written as a CommonMark hard break, "\" and a newline (see
+// adfInlineLineToGFM), so the next line starts a line of the same paragraph.
 //
 // One exception: a span that goldmark's Linkify would turn into an autolink
 // (a bare "http://", "https://", "ftp://" or "www." URL, or an email
@@ -170,6 +176,7 @@ func linkHref(mark jira4claude.ADFMark) string {
 func escapeText(s string, lineStart, inLink, bareStart bool) string {
 	var b strings.Builder
 	atLineStart := lineStart
+	afterEncodedBlank := false
 	for i := 0; i < len(s); {
 		c := s[i]
 		if c == '\n' {
@@ -178,7 +185,17 @@ func escapeText(s string, lineStart, inLink, bareStart bool) string {
 			atLineStart = true
 			continue
 		}
-		if !inLink && linkifyMayStart(s, i, bareStart) {
+		// A paragraph line loses its leading blanks on parse, so they are
+		// written as character references, which decodeText turns back.
+		// Marked text is left to applyMarks, which moves its blanks outside
+		// the delimiters.
+		if atLineStart && (bareStart || i > 0) && (c == ' ' || c == '\t') {
+			b.WriteString("&#" + strconv.Itoa(int(c)) + ";")
+			i++
+			afterEncodedBlank = true
+			continue
+		}
+		if !inLink && !afterEncodedBlank && linkifyMayStart(s, i, bareStart) {
 			if n := autolinkLen(s[i:]); n > 0 {
 				b.WriteString(s[i : i+n])
 				i += n
@@ -186,7 +203,8 @@ func escapeText(s string, lineStart, inLink, bareStart bool) string {
 				continue
 			}
 		}
-		if atLineStart && c != ' ' && c != '\t' {
+		afterEncodedBlank = false
+		if atLineStart {
 			atLineStart = false
 			if n := escapeLineStart(&b, s, i); n > 0 {
 				i += n
@@ -214,6 +232,10 @@ func escapeText(s string, lineStart, inLink, bareStart bool) string {
 			if i+1 == len(s) || looksLikeEntity(s[i:]) {
 				b.WriteByte('\\')
 			}
+		case '<':
+			if mayOpenHTML(s[i:]) {
+				b.WriteByte('\\')
+			}
 		case '*', '_', '~':
 			i += escapeRun(&b, s, i, false)
 			continue
@@ -222,6 +244,24 @@ func escapeText(s string, lineStart, inLink, bareStart bool) string {
 		i++
 	}
 	return b.String()
+}
+
+// mayOpenHTML reports whether s, which starts with "<", could be parsed as
+// HTML or an autolink. goldmark's inline raw HTML parser (parser/raw_html.go)
+// and HTML block parser (parser/html_block.go) need a letter, "/", "!" or "?"
+// after the "<"; its autolink parser (parser/auto_link.go) needs a URL, which
+// starts with a letter, or an email address closed by ">". A "<" at the end of
+// the text node is escaped too, since the next node may supply the rest.
+func mayOpenHTML(s string) bool {
+	if len(s) == 1 {
+		return true
+	}
+	switch c := s[1]; {
+	case c >= 'a' && c <= 'z', c >= 'A' && c <= 'Z', c == '/', c == '!', c == '?':
+		return true
+	}
+	stop := util.FindEmailIndex([]byte(s[1:]))
+	return stop >= 0 && 1+stop < len(s) && s[1+stop] == '>'
 }
 
 // linkifyMayStart reports whether goldmark's Linkify parser is tried at s[i]

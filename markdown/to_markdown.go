@@ -99,7 +99,7 @@ func adfHeadingToGFM(node *jira4claude.ADFNode, skipped *skippedCollector) strin
 		}
 	}
 
-	text := escapeHeadingClose(adfInlineToGFM(node, skipped))
+	text := escapeHeadingClose(adfInlineLineToGFM(node, skipped, true))
 	return strings.Repeat("#", level) + " " + text
 }
 
@@ -379,7 +379,13 @@ func adfTableCellToGFM(node *jira4claude.ADFNode, skipped *skippedCollector) str
 	var parts []string
 	for i := range node.Content {
 		child := &node.Content[i]
-		part := adfNodeToGFM(child, skipped)
+		var part string
+		if child.Type == "paragraph" {
+			// A GFM table row is one line, so a hard break becomes a space.
+			part = adfInlineLineToGFM(child, skipped, true)
+		} else {
+			part = adfNodeToGFM(child, skipped)
+		}
 		if part != "" {
 			parts = append(parts, part)
 		}
@@ -470,6 +476,21 @@ func adfDecisionListToGFM(node *jira4claude.ADFNode, skipped *skippedCollector) 
 
 // adfInlineToGFM converts inline content to markdown.
 func adfInlineToGFM(node *jira4claude.ADFNode, skipped *skippedCollector) string {
+	return adfInlineLineToGFM(node, skipped, false)
+}
+
+// hardBreakDetail explains the degraded issue reported when a hardBreak has
+// no Markdown form where it stands.
+const hardBreakDetail = "a line break at the end of a paragraph, or inside a heading or table cell, " +
+	"cannot be written in Markdown: it is left out at the end and read as a space elsewhere"
+
+// adfInlineLineToGFM converts inline content to markdown. A hardBreak becomes
+// a CommonMark hard break (a backslash before the newline). singleLine is for
+// content that must stay on one line (a heading, a table cell): there a
+// hardBreak becomes a space. A hardBreak with nothing but hardBreaks after it
+// is left out, because a backslash at the end of a paragraph is literal text.
+// Both changes are reported as degraded.
+func adfInlineLineToGFM(node *jira4claude.ADFNode, skipped *skippedCollector, singleLine bool) string {
 	if len(node.Content) == 0 {
 		return ""
 	}
@@ -487,7 +508,30 @@ func adfInlineToGFM(node *jira4claude.ADFNode, skipped *skippedCollector) string
 				result.WriteString(applyMarks(text, child.Marks))
 			}
 		case "hardBreak":
-			result.WriteString("\n")
+			switch {
+			case onlyHardBreaksFrom(node.Content, i):
+				if skipped != nil {
+					skipped.degrade("hardBreak", hardBreakDetail)
+				}
+			case singleLine:
+				result.WriteString(" ")
+				if skipped != nil {
+					skipped.degrade("hardBreak", hardBreakDetail)
+				}
+			default:
+				// goldmark does not take "\\\" before a newline as an
+				// escaped backslash and a hard break, so a plain text that
+				// ends in a backslash writes it as a character reference.
+				if prev := i - 1; prev >= 0 && node.Content[prev].Type == "text" &&
+					len(node.Content[prev].Marks) == 0 && strings.HasSuffix(node.Content[prev].Text, `\`) {
+					out := result.String()
+					if strings.HasSuffix(out, `\\`) {
+						result.Reset()
+						result.WriteString(out[:len(out)-2] + "&#92;")
+					}
+				}
+				result.WriteString("\\\n")
+			}
 		case "mediaInline":
 			result.WriteString(adfMediaInlineToGFM(child))
 		case "mention":
@@ -518,6 +562,16 @@ func adfInlineToGFM(node *jira4claude.ADFNode, skipped *skippedCollector) string
 	}
 
 	return result.String()
+}
+
+// onlyHardBreaksFrom reports whether nodes[i:] holds nothing but hardBreaks.
+func onlyHardBreaksFrom(nodes []jira4claude.ADFNode, i int) bool {
+	for _, n := range nodes[i:] {
+		if n.Type != "hardBreak" {
+			return false
+		}
+	}
+	return true
 }
 
 // applyMarks wraps text with the appropriate markdown syntax for its marks.

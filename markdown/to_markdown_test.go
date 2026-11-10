@@ -954,8 +954,11 @@ func TestConverter_ToMarkdown(t *testing.T) {
 
 		result, warnings := converter.ToMarkdown(adfDoc)
 
-		assert.Empty(t, warnings)
-		// Newlines in cell content should be replaced with spaces to preserve table structure
+		// A GFM table row is one line, so the hard break becomes a space and
+		// is reported as degraded rather than lost silently.
+		require.Len(t, warnings, 1)
+		assert.Equal(t, jira4claude.ConversionDegraded, warnings[0].Kind)
+		assert.Equal(t, "hardBreak", warnings[0].Node)
 		assert.Equal(t, "| Col |\n| --- |\n| line1 line2 |", result)
 	})
 
