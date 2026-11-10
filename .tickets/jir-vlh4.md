@@ -1,6 +1,6 @@
 ---
 id: jir-vlh4
-status: open
+status: in_progress
 deps: []
 links: []
 created: 2026-11-10T07:47:17Z
