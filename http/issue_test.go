@@ -3,6 +3,7 @@ package http_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -1175,6 +1176,86 @@ func TestIssueService_List(t *testing.T) {
 		require.NoError(t, err)
 		assert.Contains(t, receivedJQL, "project = \"TEST\"")
 		assert.Contains(t, receivedJQL, "assignee = \"john.doe\"")
+	})
+
+	t.Run("maps assignee me to currentUser in JQL filter", func(t *testing.T) {
+		t.Parallel()
+
+		for _, assignee := range []string{"me", "ME", "Me"} {
+			t.Run(assignee, func(t *testing.T) {
+				t.Parallel()
+
+				var receivedJQL string
+				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					receivedJQL = r.URL.Query().Get("jql")
+					w.Header().Set("Content-Type", "application/json")
+					_, _ = w.Write([]byte(`{"issues": []}`))
+				}))
+				defer server.Close()
+
+				client := newTestClient(t, server.URL, "user@example.com", "api-token")
+				svc := jirahttp.NewIssueService(client)
+
+				_, _, err := svc.List(context.Background(), jira4claude.IssueFilter{
+					Project:  "TEST",
+					Assignee: assignee,
+				})
+
+				require.NoError(t, err)
+				assert.Equal(t, "project = \"TEST\" AND assignee = currentUser()", receivedJQL)
+			})
+		}
+	})
+
+	t.Run("quotes assignee values that are not exactly me", func(t *testing.T) {
+		t.Parallel()
+
+		for _, assignee := range []string{"meg", "me.smith", " me"} {
+			t.Run(assignee, func(t *testing.T) {
+				t.Parallel()
+
+				var receivedJQL string
+				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					receivedJQL = r.URL.Query().Get("jql")
+					w.Header().Set("Content-Type", "application/json")
+					_, _ = w.Write([]byte(`{"issues": []}`))
+				}))
+				defer server.Close()
+
+				client := newTestClient(t, server.URL, "user@example.com", "api-token")
+				svc := jirahttp.NewIssueService(client)
+
+				_, _, err := svc.List(context.Background(), jira4claude.IssueFilter{
+					Assignee: assignee,
+				})
+
+				require.NoError(t, err)
+				assert.Equal(t, fmt.Sprintf("assignee = %q", assignee), receivedJQL)
+			})
+		}
+	})
+
+	t.Run("passes raw JQL through untouched when assignee is me", func(t *testing.T) {
+		t.Parallel()
+
+		var receivedJQL string
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			receivedJQL = r.URL.Query().Get("jql")
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"issues": []}`))
+		}))
+		defer server.Close()
+
+		client := newTestClient(t, server.URL, "user@example.com", "api-token")
+		svc := jirahttp.NewIssueService(client)
+
+		_, _, err := svc.List(context.Background(), jira4claude.IssueFilter{
+			JQL:      `project = CUSTOM AND assignee = "me"`,
+			Assignee: "me",
+		})
+
+		require.NoError(t, err)
+		assert.Equal(t, `project = CUSTOM AND assignee = "me"`, receivedJQL)
 	})
 
 	t.Run("combines all filter fields in JQL", func(t *testing.T) {

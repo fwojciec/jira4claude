@@ -193,7 +193,9 @@ func buildJQL(filter jira4claude.IssueFilter) string {
 	} else if filter.ExcludeStatus != "" {
 		clauses = append(clauses, fmt.Sprintf("status != %q", filter.ExcludeStatus))
 	}
-	if filter.Assignee != "" {
+	if strings.EqualFold(filter.Assignee, "me") {
+		clauses = append(clauses, "assignee = currentUser()")
+	} else if filter.Assignee != "" {
 		clauses = append(clauses, fmt.Sprintf("assignee = %q", filter.Assignee))
 	}
 	if filter.Parent != "" {
