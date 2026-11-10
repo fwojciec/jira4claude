@@ -800,15 +800,27 @@ func (c *IssueAssignCmd) Run(ctx *IssueContext) error {
 // IssueCommentCmd adds a comment.
 type IssueCommentCmd struct {
 	Key      string  `arg:"" help:"Issue key"`
-	Body     string  `help:"Comment body (Markdown)" placeholder:"TEXT" short:"b" required:"" xor:"body"`
-	BodyFile *string `name:"body-file" placeholder:"PATH" help:"Read the comment body from this file, or from standard input for -: UTF-8, at most 1 MiB; a leading byte order mark and one trailing newline are removed, so the output of a command can be passed back as it is" required:"" xor:"body"`
+	// Body is a pointer, as BodyFile is, so that Validate can tell a missing
+	// body from an empty one, which Run refuses with its own message.
+	Body     *string `help:"Comment body (Markdown). One of --body and --body-file is required" placeholder:"TEXT" short:"b" xor:"body"`
+	BodyFile *string `name:"body-file" placeholder:"PATH" help:"Read the comment body from this file, or from standard input for -: UTF-8, at most 1 MiB; a leading byte order mark and one trailing newline are removed, so the output of a command can be passed back as it is. One of --body and --body-file is required" xor:"body"`
 	Force    bool    `help:"Write even if Markdown conversion drops content (e.g. images); dropped content is reported as a warning"`
 	DryRun   bool    `name:"dry-run" help:"Add nothing: print the body as Jira would hold it (as issue view would print it), with the local checks, warnings and refusals of a real run. Nothing is read from Jira, so it does not prove the issue exists or that you may comment on it"`
 }
 
+// Validate requires one of --body and --body-file; kong's xor group makes
+// them exclusive. Marking both required would make kong's usage line list
+// both as required.
+func (c *IssueCommentCmd) Validate() error {
+	if c.Body == nil && c.BodyFile == nil {
+		return invalid("one of --body or --body-file is required")
+	}
+	return nil
+}
+
 // Run executes the comment command.
 func (c *IssueCommentCmd) Run(ctx *IssueContext) error {
-	text, source, err := textInput{"body", &c.Body, "body-file", c.BodyFile}.read(ctx.Stdin)
+	text, source, err := textInput{"body", c.Body, "body-file", c.BodyFile}.read(ctx.Stdin)
 	if err != nil {
 		return err
 	}

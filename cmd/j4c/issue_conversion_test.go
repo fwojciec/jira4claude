@@ -286,7 +286,7 @@ func TestIssueCommentCmd_DroppedContent(t *testing.T) {
 			Converter: markdown.New(),
 			Config:    &jira4claude.Config{Project: "TEST"},
 		}
-		cmd := main.IssueCommentCmd{Key: "TEST-1", Body: imageMarkdown}
+		cmd := main.IssueCommentCmd{Key: "TEST-1", Body: ptr(imageMarkdown)}
 
 		err := cmd.Run(ctx)
 
@@ -312,7 +312,7 @@ func TestIssueCommentCmd_DroppedContent(t *testing.T) {
 			Converter: markdown.New(),
 			Config:    &jira4claude.Config{Project: "TEST"},
 		}
-		cmd := main.IssueCommentCmd{Key: "TEST-1", Body: imageMarkdown, Force: true}
+		cmd := main.IssueCommentCmd{Key: "TEST-1", Body: ptr(imageMarkdown), Force: true}
 
 		err := cmd.Run(ctx)
 
@@ -338,7 +338,7 @@ func TestIssueCommentCmd_DroppedContent(t *testing.T) {
 			Converter: degradedConverter(),
 			Config:    &jira4claude.Config{Project: "TEST"},
 		}
-		cmd := main.IssueCommentCmd{Key: "TEST-1", Body: "text :smile:"}
+		cmd := main.IssueCommentCmd{Key: "TEST-1", Body: ptr("text :smile:")}
 
 		err := cmd.Run(ctx)
 
@@ -368,7 +368,7 @@ func TestIssueCommentCmd_DroppedContent(t *testing.T) {
 		body := "<details><summary>Outer</summary>\n\nbody\n\n" +
 			"<details><summary>Inner</summary>\n\ninner\n\n</details>\n\n" +
 			"tail\n\n</details>\n\nafter"
-		cmd := main.IssueCommentCmd{Key: "TEST-1", Body: body}
+		cmd := main.IssueCommentCmd{Key: "TEST-1", Body: ptr(body)}
 
 		err := cmd.Run(ctx)
 

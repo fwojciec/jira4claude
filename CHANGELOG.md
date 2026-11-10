@@ -304,6 +304,10 @@ Jira; to keep an inline comment, leave its paragraph unchanged.
   applied, not to repeat it, and how to find it. A write answered with a
   2xx other than the documented one (200 for 201) counted as failed; any
   2xx now counts as done.
+- The usage line of `issue comment` listed both `--body` and `--body-file`
+  as required; it is now `j4c issue comment <key> [flags]`, each flag's
+  help says one of the two is required, and giving neither fails with
+  `one of --body or --body-file is required` (exit 1, as before).
 - A server URL with a port (`https://jira.example.com:8443`) found
   credentials only under `machine jira.example.com:8443` in `.netrc`. It now
   falls back to `machine jira.example.com`, as curl and git do; an entry
@@ -331,8 +335,6 @@ Jira; to keep an inline comment, leave its paragraph unchanged.
   not name the issue.
 - In text mode, values printed after `==> KEY FIELD <==` headers are not
   escaped; use `--json` for free text.
-- The usage line of `issue comment` lists both `--body` and `--body-file` as
-  required; exactly one of them is.
 
 ## v0.3.0 (unreleased): write safety
 

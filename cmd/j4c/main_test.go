@@ -158,8 +158,48 @@ func TestIssueCommentCmd_RequiredFlags(t *testing.T) {
 		_, err = parser.Parse([]string{"issue", "comment", "TEST-1", "--body=A comment"})
 		require.NoError(t, err)
 		assert.Equal(t, "TEST-1", cli.Issue.Comment.Key)
-		assert.Equal(t, "A comment", cli.Issue.Comment.Body)
+		require.NotNil(t, cli.Issue.Comment.Body)
+		assert.Equal(t, "A comment", *cli.Issue.Comment.Body)
 	})
+
+	// jir-3rwv: exactly one of the two is required, and usage and help say
+	// "one of", not both.
+	t.Run("usage does not list both body flags as required; help says one of them is", func(t *testing.T) {
+		t.Parallel()
+
+		res := runCLI(t, unreachableDeps(t), "issue", "comment", "--help")
+
+		require.Equal(t, 0, res.code)
+		assert.Contains(t, res.stdout, "Usage: j4c issue comment <key> [flags]")
+		assert.NotContains(t, res.stdout, "--body=TEXT --body-file=PATH")
+		assert.Equal(t, 2, strings.Count(strings.Join(strings.Fields(res.stdout), " "), "One of --body and --body-file is required"))
+	})
+
+	for _, tc := range []struct {
+		name   string
+		args   []string
+		stderr string
+	}{
+		{"neither", nil, "j4c: error: issue comment: one of --body or --body-file is required\n"},
+		{"both", []string{"--body=x", "--body-file=-"}, "j4c: error: --body and --body-file can't be used together\n"},
+		{"an empty --body is refused as empty, not as missing", []string{"--body="}, "[error] --body cannot be empty\n"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			// A zero-value service panics on any call: none may happen.
+			res := runCLI(t, testDeps(&mock.IssueService{}, &mock.UserService{}), append([]string{"issue", "comment", "TEST-1"}, tc.args...)...)
+
+			assert.Equal(t, 1, res.code)
+			assert.Empty(t, res.stdout)
+			assert.True(t, strings.HasSuffix(res.stderr, tc.stderr), "stderr: %q", res.stderr)
+		})
+	}
+}
+
+// ptr returns a pointer to v.
+func ptr[T any](v T) *T {
+	return &v
 }
 
 func TestIssueListCmd_DefaultLimit(t *testing.T) {

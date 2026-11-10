@@ -1250,7 +1250,7 @@ func TestIssueCommentCmd(t *testing.T) {
 			Converter: mockConverter(),
 			Config:    &jira4claude.Config{Project: "TEST", Server: "https://test.atlassian.net"},
 		}
-		cmd := main.IssueCommentCmd{Key: "TEST-1", Body: "**bold** and *italic*"}
+		cmd := main.IssueCommentCmd{Key: "TEST-1", Body: ptr("**bold** and *italic*")}
 		err := cmd.Run(ctx)
 
 		require.NoError(t, err)
@@ -1281,7 +1281,7 @@ func TestIssueCommentCmd(t *testing.T) {
 			Converter: mockConverter(),
 			Config:    &jira4claude.Config{Project: "TEST", Server: "https://test.atlassian.net"},
 		}
-		cmd := main.IssueCommentCmd{Key: "TEST-1", Body: "plain text without formatting"}
+		cmd := main.IssueCommentCmd{Key: "TEST-1", Body: ptr("plain text without formatting")}
 		err := cmd.Run(ctx)
 
 		require.NoError(t, err)
