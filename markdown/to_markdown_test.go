@@ -2,6 +2,7 @@ package markdown_test
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 
 	jira4claude "github.com/fwojciec/jira4claude"
@@ -1838,7 +1839,7 @@ func TestConverter_ToMarkdown(t *testing.T) {
 		assert.Equal(t, "Due: {{date:1 2024-04-10}}", result)
 	})
 
-	t.Run("drops placeholder silently", func(t *testing.T) {
+	t.Run("reads a placeholder as a token", func(t *testing.T) {
 		t.Parallel()
 
 		converter := markdown.New()
@@ -1863,7 +1864,7 @@ func TestConverter_ToMarkdown(t *testing.T) {
 		result, warnings := converter.ToMarkdown(adfDoc)
 
 		assert.Empty(t, warnings)
-		assert.Equal(t, "Enter text here please.", result)
+		assert.Equal(t, "Enter text here{{placeholder:1 Type something here}} please.", result)
 	})
 
 	t.Run("converts inlineExtension to a token without warning", func(t *testing.T) {
@@ -2249,7 +2250,7 @@ func TestConverter_ToMarkdown(t *testing.T) {
 		assert.Equal(t, "[***~~text~~***](https://example.com)", result)
 	})
 
-	t.Run("drops textColor and backgroundColor marks silently", func(t *testing.T) {
+	t.Run("reads textColor as plain text; a write keeps it or reports it", func(t *testing.T) {
 		t.Parallel()
 
 		converter := markdown.New()
@@ -2276,8 +2277,21 @@ func TestConverter_ToMarkdown(t *testing.T) {
 
 		result, warnings := converter.ToMarkdown(adfDoc)
 
+		// A read is a view: it shows the text without its colour and warns
+		// about nothing.
 		assert.Empty(t, warnings)
 		assert.Equal(t, "**colored text**", result)
+
+		// The write keeps the colour on text the edit leaves unchanged, and
+		// reports it where the edit changed the text (jir-h44x).
+		_, got, issues := readEditWrite(t, adfDoc, nil)
+		assert.Empty(t, issues)
+		assert.Equal(t, jsonOf(t, adfDoc), jsonOf(t, got))
+		_, _, issues = readEditWrite(t, adfDoc, func(md string) string { return strings.Replace(md, "colored", "coloured", 1) })
+		require.Len(t, issues, 1)
+		assert.Equal(t, jira4claude.ConversionDegraded, issues[0].Kind)
+		assert.Equal(t, "textColor", issues[0].Node)
+		assert.True(t, issues[0].Existing)
 	})
 
 	t.Run("converts decisionList to plain bullet list", func(t *testing.T) {

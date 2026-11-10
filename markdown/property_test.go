@@ -329,15 +329,27 @@ func FuzzToADFFixedPoint(f *testing.F) {
 	})
 }
 
-// P3, protected nodes (#149): for an ADF document, ADF -> Markdown -> ADF
-// followed by Reattach against the original gives back every protected node
-// (media, mention, status, date, extension, ...) unchanged and in order, and
-// Reattach reports nothing but emoji and inline cards that become text and
-// links. Other unprotected nodes may change form; a change in the number of
-// emoji or inline cards must be reported (jir-fajf). A difference is excused
-// only when the read itself reports a dropped node, the reader saying "this
-// does not round-trip". The fixture identity for media.adf.json (the whole
-// document comes back identical) is TestReattach_FixtureIdentity.
+// P3, rewrites (#149, jir-fajf, jir-h44x): for an ADF document, read as
+// Markdown, written back with ToADF and re-attached against the original:
+//
+//   - unchanged, the result is the original, identical, and nothing is
+//     reported. Reattach puts back the original wherever the edited
+//     document holds what the unchanged read writes back, so this holds by
+//     construction, for any document, schema-valid or not;
+//   - with a paragraph appended to the Markdown, the result is the original
+//     plus that paragraph, or the write reports an issue. For a schema-valid
+//     original the result is schema-valid, and when the write reports no
+//     dropped node every protected node comes back unchanged and in order.
+//
+// Excused in the second comparison, as changing nothing in Jira: the order
+// of a text node's marks, how text with the same marks is split into nodes,
+// a hardBreak's attribute text "\n" (see comparable), and a document
+// without a version, which the write gives the version 1 ADF requires. A difference is
+// also excused by any issue at all, as in P2: issues carry no position.
+// Reading itself never excuses one: a read that reports content as dropped
+// is a view, and the write must still report or restore it. The whole-
+// document identity of every fixture is TestReattach_FixtureIdentity; each
+// node, mark and attribute is in TestRewriteInventory.
 //
 // The seeds are the ADF fixtures in testdata and reattachSeeds.
 
@@ -368,118 +380,78 @@ var reattachSeeds = []string{
 		`{"type":"text","text":"https://a.test","marks":[{"type":"link","attrs":{"href":"https://a.test"}}]}]},` +
 		`{"type":"heading","attrs":{"level":2},"content":[{"type":"inlineCard","attrs":{"url":"https://b.test/x_y"}},` +
 		`{"type":"emoji","attrs":{"shortName":":custom:"}}]}]}`,
+	// Attributes and marks Markdown cannot show, a layout, a decision list
+	// and an empty paragraph (jir-h44x).
+	`{"type":"doc","version":1,"content":[{"type":"panel","attrs":{"panelType":"custom","panelColor":"#fff"},"content":[` +
+		`{"type":"paragraph","content":[{"type":"text","text":"a","marks":[{"type":"textColor","attrs":{"color":"#ff0000"}}]}]}]},` +
+		`{"type":"paragraph"},{"type":"layoutSection","content":[{"type":"layoutColumn","attrs":{"width":50},"content":[` +
+		`{"type":"paragraph","content":[{"type":"text","text":"b"}]}]},{"type":"layoutColumn","attrs":{"width":50},"content":[` +
+		`{"type":"decisionList","attrs":{"localId":"d"},"content":[{"type":"decisionItem","attrs":{"localId":"i","state":"DECIDED"},"content":[` +
+		`{"type":"text","text":"c","marks":[{"type":"annotation","attrs":{"id":"x","annotationType":"inlineComment"}}]}]}]}]}]},` +
+		`{"type":"table","attrs":{"layout":"wide","localId":"t"},"content":[{"type":"tableRow","content":[{"type":"tableCell","attrs":{"colspan":2},"content":[` +
+		`{"type":"paragraph","content":[{"type":"text","text":"d"}]}]}]},{"type":"tableRow","content":[{"type":"tableCell","content":[` +
+		`{"type":"paragraph"}]},{"type":"tableCell","content":[{"type":"paragraph","content":[{"type":"text","text":"e"}]}]}]}]}]}`,
 }
+
+// appendedText is the paragraph P3 appends to the Markdown.
+const appendedText = "Appended by the property."
 
 func checkReattach(data []byte) string {
 	var doc jira4claude.ADFNode
-	if err := json.Unmarshal(data, &doc); err != nil {
+	if err := json.Unmarshal(data, &doc); err != nil || doc.Type != "doc" {
+		// Only a document is a description; the writer always makes one.
 		return ""
 	}
 	conv := propertyConverter()
-	md, readIssues := conv.ToMarkdown(&doc)
+	md, _ := conv.ToMarkdown(&doc)
 	adf, _ := conv.ToADF(md)
 	got, issues := conv.Reattach(&doc, adf)
+	if mustJSON(got) != mustJSON(&doc) || len(issues) > 0 {
+		return fmt.Sprintf("an unchanged rewrite does not give the original back, with nothing reported\n"+
+			"input:  %s\nread:   %q\nissues: %v\nhave:   %s", data, md, issueStrings(issues), mustJSON(got))
+	}
 
-	valid := validateADF(&doc) == nil
-	if valid {
+	edited, _ := conv.ToADF(md + "\n\n" + appendedText)
+	if n := len(edited.Content); n == 0 || mustJSON(edited.Content[n-1]) != mustJSON(paraOf(plainText(appendedText))) {
+		// The paragraph did not read back on its own (it continued a
+		// construct of the read), so the edit is not the one P3 checks.
+		return ""
+	}
+	got, issues = conv.Reattach(&doc, edited)
+	if validateADF(&doc) == nil {
 		// What a guarded update sends must be what Jira accepts.
 		if err := validateADF(got); err != nil {
-			return fmt.Sprintf("Reattach of a schema-valid document is not schema-valid\n"+
+			return fmt.Sprintf("Reattach of a schema-valid document, edited, is not schema-valid\n"+
 				"input: %s\nread:  %q\ngot:   %s\n%s", data, md, mustJSON(got), truncate(err.Error(), 400))
 		}
 	}
-	if len(jira4claude.DroppedIssues(readIssues)) > 0 || hasUnreadStructure(&doc) {
-		return ""
+	if len(jira4claude.DroppedIssues(issues)) == 0 && mustJSON(protectedNodes(&doc)) != mustJSON(protectedNodes(got)) {
+		return fmt.Sprintf("protected nodes do not survive an edit elsewhere, and no loss is reported\n"+
+			"input:  %s\nread:   %q\nissues: %v\nhave:   %s", data, md, issueStrings(issues), mustJSON(got))
 	}
-	if !valid && len(jira4claude.DroppedIssues(issues)) > 0 {
-		// Invalid ADF (a block in a legacy task item, say) may hold a node
-		// that has no valid place in the document written back. Reattach
-		// reports it, so the loss is not silent.
-		return ""
-	}
-	want, have := mustJSON(protectedNodes(&doc)), mustJSON(protectedNodes(got))
-	if want != have || !onlyRichNodeIssues(issues) {
-		return fmt.Sprintf("protected nodes do not survive ADF -> Markdown -> ADF with Reattach\n"+
-			"input:  %s\nread:   %q\nissues: %v\nwant:   %s\nhave:   %s",
-			data, md, issueStrings(issues), want, have)
-	}
-	// Emoji and inline cards are not protected; a write that turns one into
-	// text or a link must say so (jir-fajf).
-	for _, nodeType := range []string{"emoji", "inlineCard"} {
-		// Protected nodes are restored whole (checked above), so the nodes
-		// inside them count the same on both sides.
-		before, after := countNodes(&doc, nodeType), countNodes(got, nodeType)
-		if after != before && !hasIssueFor(issues, nodeType) {
-			return fmt.Sprintf("%s nodes change on an unchanged rewrite without a report (%d before, %d after)\n"+
-				"input:  %s\nread:   %q\nissues: %v\nhave:   %s",
-				nodeType, before, after, data, md, issueStrings(issues), mustJSON(got))
-		}
+	want := doc
+	want.Version = 1 // the writer always writes the version ADF requires
+	want.Content = append(append([]jira4claude.ADFNode{}, doc.Content...), paraOf(plainText(appendedText)))
+	if canonical(&want) != canonical(got) && len(issues) == 0 {
+		return fmt.Sprintf("a rewrite with a paragraph appended changes the original, and nothing is reported\n"+
+			"input: %s\nread:  %q\nwant:  %s\nhave:  %s", data, md, canonical(&want), canonical(got))
 	}
 	return ""
 }
 
-// onlyRichNodeIssues reports whether every issue of a Reattach is the
-// degraded report of emoji or inline cards that the write turns into text and
-// links.
-func onlyRichNodeIssues(issues []jira4claude.ConversionIssue) bool {
-	for _, i := range issues {
-		if i.Kind != jira4claude.ConversionDegraded || (i.Node != "emoji" && i.Node != "inlineCard") {
-			return false
-		}
+// canonical is comparable for property checks: doc as JSON with the
+// differences that change nothing in Jira left out.
+func canonical(doc *jira4claude.ADFNode) string {
+	data, err := json.Marshal(normalizeText(*doc))
+	if err != nil {
+		return "marshal error: " + err.Error()
 	}
-	return true
-}
-
-func hasIssueFor(issues []jira4claude.ConversionIssue, node string) bool {
-	for _, i := range issues {
-		if i.Node == node {
-			return true
-		}
+	var generic any
+	if err := json.Unmarshal(data, &generic); err != nil {
+		return "unmarshal error: " + err.Error()
 	}
-	return false
-}
-
-// countNodes counts the nodes of type nodeType in doc.
-func countNodes(doc *jira4claude.ADFNode, nodeType string) int {
-	n := 0
-	if doc.Type == nodeType {
-		n++
-	}
-	for i := range doc.Content {
-		n += countNodes(&doc.Content[i], nodeType)
-	}
-	return n
-}
-
-// hasUnreadStructure reports whether doc holds content the reader never
-// looks at, so a protected node inside it is lost without a word: children
-// of a leaf node (text, hardBreak, emoji, status, date, inlineCard,
-// placeholder, rule), or anything but text in a code block. No valid ADF has
-// either, and neither has a Markdown form; P3 excuses such documents so
-// fuzzing can go past them. Misplaced children of lists, tables, rows and
-// decision lists are tokens, and those of task lists are reported (#149).
-func hasUnreadStructure(doc *jira4claude.ADFNode) bool {
-	leaves := map[string]bool{
-		"text": true, "hardBreak": true, "emoji": true, "status": true, "date": true,
-		"inlineCard": true, "placeholder": true, "rule": true,
-	}
-	var walk func(n *jira4claude.ADFNode) bool
-	walk = func(n *jira4claude.ADFNode) bool {
-		if leaves[n.Type] && len(n.Content) > 0 {
-			return true
-		}
-		for i := range n.Content {
-			c := &n.Content[i]
-			if n.Type == "codeBlock" && c.Type != "text" {
-				return true
-			}
-			if walk(c) {
-				return true
-			}
-		}
-		return false
-	}
-	return walk(doc)
+	out, _ := json.Marshal(generic)
+	return string(out)
 }
 
 func FuzzReattachProtectedNodes(f *testing.F) {

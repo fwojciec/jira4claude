@@ -66,14 +66,22 @@ func TestRichNodes_UnchangedRewrite(t *testing.T) {
 		assert.Equal(t, jsonOf(t, doc), jsonOf(t, got))
 	})
 
-	t.Run("an emoji reads as its text, quietly, and the write reports it as degraded", func(t *testing.T) {
+	t.Run("an emoji reads as its text, quietly, and comes back while its paragraph is unchanged", func(t *testing.T) {
 		t.Parallel()
 		doc := docOf(paraOf(plainText("great "), rawNode(t, emojiJSON), plainText(" "), rawNode(t, emojiJSON)))
 		md, readIssues := markdown.New().ToMarkdown(doc)
 		assert.Equal(t, "great 😄 😄", md)
 		assert.Empty(t, readIssues, "a read reports nothing")
 		_, got, issues := readEditWrite(t, doc, nil)
-		assert.Equal(t, jsonOf(t, docOf(paraOf(plainText("great 😄 😄")))), jsonOf(t, got))
+		assert.Empty(t, issues)
+		assert.Equal(t, jsonOf(t, doc), jsonOf(t, got))
+	})
+
+	t.Run("an edit of an emoji's paragraph turns it into text and reports it as degraded", func(t *testing.T) {
+		t.Parallel()
+		doc := docOf(paraOf(plainText("great "), rawNode(t, emojiJSON), plainText(" "), rawNode(t, emojiJSON)))
+		_, got, issues := readEditWrite(t, doc, func(md string) string { return strings.Replace(md, "great", "good", 1) })
+		assert.Equal(t, jsonOf(t, docOf(paraOf(plainText("good 😄 😄")))), jsonOf(t, got))
 		require.Len(t, issues, 1)
 		assert.Equal(t, jira4claude.ConversionDegraded, issues[0].Kind)
 		assert.Equal(t, "emoji", issues[0].Node)
@@ -93,6 +101,12 @@ func TestRichNodes_UnchangedRewrite(t *testing.T) {
 		assert.Empty(t, issues)
 		assert.Equal(t, jsonOf(t, doc), jsonOf(t, got))
 	})
+}
+
+// editEveryLink edits the text after every link of md, so the paragraphs
+// holding them are not the ones read.
+func editEveryLink(md string) string {
+	return strings.ReplaceAll(md, ")", ") now")
 }
 
 func TestRichNodes_InlineCardRestore(t *testing.T) {
@@ -130,6 +144,15 @@ func TestRichNodes_InlineCardRestore(t *testing.T) {
 		assert.Equal(t, jsonOf(t, doc), jsonOf(t, got))
 	})
 
+	t.Run("in a paragraph the edit leaves unchanged, whatever its link reads as", func(t *testing.T) {
+		t.Parallel()
+		// jir-h44x: a paragraph the edit does not touch comes back whole.
+		doc := docOf(paraOf(card(t), card(t)), paraOf(card(t), plainText(" "), linkText(cardURL, cardURL)))
+		_, got, issues := readEditWrite(t, doc, func(md string) string { return md + "\n\nnew" })
+		assert.Empty(t, issues)
+		assert.Equal(t, jsonOf(t, docOf(append(doc.Content, paraOf(plainText("new")))...)), jsonOf(t, got))
+	})
+
 	t.Run("not restored, and reported, when", func(t *testing.T) {
 		t.Parallel()
 		tests := []struct {
@@ -159,11 +182,13 @@ func TestRichNodes_InlineCardRestore(t *testing.T) {
 				doc: func(t *testing.T) *jira4claude.ADFNode {
 					return docOf(paraOf(card(t), plainText(" "), linkText(cardURL, cardURL)))
 				},
+				edit:  editEveryLink,
 				count: "1 smart link becomes a plain link",
 			},
 			{
 				name:  "adjacent cards read back as one link",
 				doc:   func(t *testing.T) *jira4claude.ADFNode { return docOf(paraOf(card(t), card(t))) },
+				edit:  editEveryLink,
 				count: "2 smart links become plain links",
 			},
 			{
@@ -180,6 +205,7 @@ func TestRichNodes_InlineCardRestore(t *testing.T) {
 					return docOf(paraOf(card(t), plainText(" ")),
 						paraOf(rawNode(t, `{"type":"inlineCard","attrs":{"url":"`+cardURL+`","localId":"c2"}}`)))
 				},
+				edit:  editEveryLink,
 				count: "2 smart links become plain links",
 			},
 		}

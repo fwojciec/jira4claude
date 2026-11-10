@@ -457,7 +457,10 @@ func TestRun_IssueUpdateRichNodes(t *testing.T) {
 		t.Parallel()
 		svc := newGuardedService(richNodeIssue())
 
-		res := runCLIStdin(t, testDeps(svc, &mock.UserService{}), read(t),
+		// The paragraph is edited: unchanged, it would come back whole, emoji
+		// and all (jir-h44x).
+		edited := strings.Replace(read(t), "Ship it", "Ship this", 1)
+		res := runCLIStdin(t, testDeps(svc, &mock.UserService{}), edited,
 			"issue", "update", "TEST-1", "--description-file", "-", "--dry-run")
 
 		require.Equal(t, 0, res.code, "stderr: %s", res.stderr)
@@ -481,7 +484,9 @@ func TestRun_IssueUpdateRichNodes(t *testing.T) {
 
 // readLossIssue returns an issue whose description holds content the read
 // reports as dropped: a smart link without a URL, and a paragraph directly in
-// a task list. Neither has a Markdown form, so no edit can keep them.
+// a task list. Neither has a Markdown form, so an edit of the paragraph or
+// the list that holds them cannot keep them; an unchanged rewrite gives them
+// back (jir-h44x).
 func readLossIssue() *jira4claude.Issue {
 	issue := guardedIssue()
 	issue.Description = &jira4claude.ADFNode{Type: "doc", Version: 1, Content: []jira4claude.ADFNode{
@@ -497,13 +502,23 @@ func readLossIssue() *jira4claude.Issue {
 	return issue
 }
 
+// editReadLoss returns the description of readLossIssue as read, with the
+// paragraph and the task list that hold the content it loses edited.
+func editReadLoss(t *testing.T) string {
+	t.Helper()
+	md, _ := viewJSON(t, readLossIssue())
+	edited := strings.Replace(strings.Replace(md, "Card:", "The card:", 1), "] task", "] the task", 1)
+	require.NotEqual(t, md, edited)
+	return edited
+}
+
 func TestRun_IssueUpdateReadTimeLosses(t *testing.T) {
 	t.Parallel()
 
 	t.Run("a set that would remove content the read could not show is refused", func(t *testing.T) {
 		t.Parallel()
 
-		md, _ := viewJSON(t, readLossIssue())
+		md := editReadLoss(t)
 		svc := newGuardedService(readLossIssue())
 
 		res := runCLI(t, testDeps(svc, &mock.UserService{}), "issue", "update", "TEST-1", "--description="+md)
@@ -519,7 +534,7 @@ func TestRun_IssueUpdateReadTimeLosses(t *testing.T) {
 	t.Run("--force writes it and warns", func(t *testing.T) {
 		t.Parallel()
 
-		md, _ := viewJSON(t, readLossIssue())
+		md := editReadLoss(t)
 		svc := newGuardedService(readLossIssue())
 
 		res := runCLI(t, testDeps(svc, &mock.UserService{}), "issue", "update", "TEST-1", "--force", "--description="+md)

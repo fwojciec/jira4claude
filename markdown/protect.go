@@ -79,19 +79,20 @@ type tokenRegistry struct {
 	// blocks holds the types of the blocks being rendered by adfNodeToGFM,
 	// innermost last, so a block token knows its container.
 	blocks []string
-	// emoji counts the emoji read as text, and cards holds the inline cards
-	// read as links, in document order. Neither is a token: the read keeps
-	// their content in readable form and reports nothing, and Reattach
-	// reports the write that turns them into text and links.
-	emoji int
+	// cards holds the inline cards read as links, in document order. They
+	// are not tokens: the read keeps their content in readable form and
+	// reports nothing, and Reattach puts back the cards it can match.
 	cards []jira4claude.ADFNode
 }
 
-// readEmoji records an emoji read as its text.
-func (s *skippedCollector) readEmoji() {
-	if s != nil && s.tokens != nil {
-		s.tokens.emoji++
+// within marks the start of the rendering of n, and the function it returns
+// the end: the issues of a node in quiet are left out (see Reattach).
+func (s *skippedCollector) within(n *jira4claude.ADFNode) func() {
+	if s == nil || !s.quiet[n] {
+		return func() {}
 	}
+	s.quietDepth++
+	return func() { s.quietDepth-- }
 }
 
 // readCard records an inline card read as a link.
@@ -144,6 +145,7 @@ func (s *skippedCollector) protectBlock(node *jira4claude.ADFNode, container str
 // Reattach restores the node, so the change of structure is reported as
 // degraded.
 func (s *skippedCollector) protectMisplaced(node *jira4claude.ADFNode, parent string) string {
+	defer s.within(node)()
 	if s != nil {
 		s.degrade(nodeName(node.Type), fmt.Sprintf("a %s directly inside a %s is kept, but in an item or cell of its own",
 			nodeName(node.Type), parent))
@@ -158,6 +160,7 @@ func (s *skippedCollector) dropMisplaced(node *jira4claude.ADFNode, parent strin
 	if s == nil {
 		return
 	}
+	defer s.within(node)()
 	s.record(jira4claude.ConversionIssue{
 		Kind: jira4claude.ConversionDropped,
 		Node: nodeName(node.Type),
@@ -424,7 +427,7 @@ func blockAllowedIn(nodeType, class string) bool {
 func readDocument(doc *jira4claude.ADFNode) (string, *skippedCollector) {
 	for k := 0; ; k++ {
 		salt := strings.Repeat(tokenSaltChar, k)
-		md, skipped := renderDocument(doc, salt)
+		md, skipped := renderDocument(doc, salt, nil)
 		want := make([]string, len(skipped.tokens.nodes))
 		for i, p := range skipped.tokens.nodes {
 			want[i] = p.token
@@ -452,10 +455,13 @@ func readDocument(doc *jira4claude.ADFNode) (string, *skippedCollector) {
 	}
 }
 
-// renderDocument renders the blocks of doc with the given token salt.
-func renderDocument(doc *jira4claude.ADFNode, salt string) (string, *skippedCollector) {
+// renderDocument renders the blocks of doc with the given token salt,
+// leaving out the issues of the nodes in quiet.
+func renderDocument(doc *jira4claude.ADFNode, salt string, quiet map[*jira4claude.ADFNode]bool) (string, *skippedCollector) {
 	skipped := newSkippedCollector()
 	skipped.tokens = &tokenRegistry{salt: salt}
+	skipped.quiet = quiet
+	defer skipped.within(doc)()
 	blocks := siblingBlocks{skipped: skipped}
 	var parts []string
 	for i := range doc.Content {
@@ -570,23 +576,15 @@ func scanTokens(doc *jira4claude.ADFNode, re *regexp.Regexp) []string {
 
 // reattach implements Converter.Reattach.
 func reattach(original, edited *jira4claude.ADFNode) (*jira4claude.ADFNode, []jira4claude.ConversionIssue) {
-	// A nil edited document clears the description: the emoji and inline
-	// cards go with the rest of its text, and are not reported as changing.
-	clearing := edited == nil
 	if original == nil {
 		original = &jira4claude.ADFNode{Type: "doc", Version: 1}
 	}
 	if edited == nil {
-		edited = &jira4claude.ADFNode{Type: "doc", Version: 1, Content: []jira4claude.ADFNode{}}
+		return clearDocument(original)
 	}
 	md, skipped := readDocument(original)
-	r := &reattacher{
-		re:    tokenPattern(skipped.tokens.salt),
-		nodes: skipped.tokens.nodes,
-		seen:  make([]bool, len(skipped.tokens.nodes)),
-		cards: planCards(skipped.tokens.cards, md, edited),
-	}
 
+	r := newReattacher(skipped, md, edited)
 	out := *edited
 	out.Content = r.content(edited.Type, edited.Content)
 	for i, p := range r.nodes {
@@ -594,25 +592,130 @@ func reattach(original, edited *jira4claude.ADFNode) (*jira4claude.ADFNode, []ji
 			r.lose(p.token, fmt.Sprintf("the token is not in the new text, so the %s would be removed", nodeName(p.node.Type)))
 		}
 	}
-	// Content the read left out has no token: no edit of the Markdown can
-	// keep it, so a write of the edited document would remove it. Tokens that
-	// do not read back are reported above, as missing. Degraded content was
-	// read in another form, which the Markdown keeps, so it is no loss here.
-	for _, d := range jira4claude.DroppedIssues(skipped.issues()) {
-		if d.Token != "" {
+
+	// The reference: the original's unchanged Markdown, written back.
+	ref, _ := toADF(md, noLocalID)
+	refR := newReattacher(skipped, md, ref)
+	refOut := *ref
+	refOut.Content = refR.content(ref.Type, ref.Content)
+
+	rs := newRestorer()
+	result := rs.node(original, &refOut, &out, false)
+
+	// Issues about the new text stand; a protected node reported lost is
+	// lost only if the result does not hold it after all.
+	present := protectedCounts(&result)
+	kept := make(map[string]bool)
+	for _, p := range r.nodes {
+		key := nodeJSON(&p.node)
+		if present[key] > 0 {
+			present[key]--
+			kept[p.token] = true
+		}
+	}
+	var issues []jira4claude.ConversionIssue
+	for _, i := range r.issues {
+		if i.Existing && kept[i.Token] {
 			continue
 		}
-		r.issues = append(r.issues, jira4claude.ConversionIssue{
-			Kind:     jira4claude.ConversionDropped,
-			Node:     d.Node,
-			Detail:   "existing content with no Markdown form (" + d.Detail + "); writing the description would remove it",
-			Existing: true,
-		})
+		issues = append(issues, i)
 	}
-	if !clearing {
-		r.reportRichNodes(skipped.tokens.emoji, len(skipped.tokens.cards))
+
+	// What of the original the result changes: forms the writer never
+	// makes (the census), containers the read reshapes, and what the read
+	// itself reports about the parts not put back whole.
+	changed := lostIssues(original, &result)
+	changed = append(changed, rs.shapeIssues()...)
+	_, reread := renderDocument(original, skipped.tokens.salt, rs.whole)
+	changed = append(changed, readIssues(reread.issues(), changed)...)
+	return &result, append(issues, changed...)
+}
+
+// clearDocument implements Reattach with a nil edited document, a clear:
+// every token is missing, and content the read leaves out is reported as
+// lost. Emoji and inline cards go with the rest of the text and are not
+// reported as changing.
+func clearDocument(original *jira4claude.ADFNode) (*jira4claude.ADFNode, []jira4claude.ConversionIssue) {
+	md, skipped := readDocument(original)
+	r := newReattacher(skipped, md, nil)
+	out := &jira4claude.ADFNode{Type: "doc", Version: 1, Content: []jira4claude.ADFNode{}}
+	for _, p := range r.nodes {
+		r.lose(p.token, fmt.Sprintf("the token is not in the new text, so the %s would be removed", nodeName(p.node.Type)))
 	}
-	return &out, r.issues
+	for _, d := range jira4claude.DroppedIssues(skipped.issues()) {
+		if d.Token == "" {
+			r.issues = append(r.issues, existingDropped(d))
+		}
+	}
+	return out, r.issues
+}
+
+// newReattacher returns a reattacher of the tokens that a read of the
+// original, skipped and md, wrote into edited.
+func newReattacher(skipped *skippedCollector, md string, edited *jira4claude.ADFNode) *reattacher {
+	return &reattacher{
+		re:    tokenPattern(skipped.tokens.salt),
+		nodes: skipped.tokens.nodes,
+		seen:  make([]bool, len(skipped.tokens.nodes)),
+		cards: planCards(skipped.tokens.cards, md, edited),
+	}
+}
+
+// existingDropped turns a dropped issue of a read of the original into one
+// about the write, which would remove that content.
+func existingDropped(d jira4claude.ConversionIssue) jira4claude.ConversionIssue {
+	return jira4claude.ConversionIssue{
+		Kind:     jira4claude.ConversionDropped,
+		Node:     d.Node,
+		Detail:   "existing content with no Markdown form (" + d.Detail + "); writing the description would remove it",
+		Existing: true,
+	}
+}
+
+// readIssues turns what a read of the original reports about the parts of it
+// not put back whole into issues about the write: content the read leaves
+// out is lost (dropped), and content it shows in another form is written back
+// in that form (degraded). Token issues are reported as missing tokens, a
+// code block's language is counted by the census, and a node an issue in
+// named already names is not named again as degraded.
+func readIssues(read, named []jira4claude.ConversionIssue) []jira4claude.ConversionIssue {
+	seen := make(map[string]bool)
+	for _, i := range named {
+		seen[i.Node] = true
+	}
+	var out []jira4claude.ConversionIssue
+	for _, d := range read {
+		switch {
+		case d.Token != "", d.Detail == codeLanguageDetail:
+		case d.Kind == jira4claude.ConversionDropped:
+			out = append(out, existingDropped(d))
+		case !seen[d.Node]:
+			out = append(out, jira4claude.ConversionIssue{
+				Kind:     jira4claude.ConversionDegraded,
+				Node:     d.Node,
+				Detail:   "existing content the edit touched is written back in another form: " + d.Detail,
+				Existing: true,
+			})
+		}
+	}
+	return out
+}
+
+// protectedCounts counts the outermost protected nodes of doc by their JSON.
+func protectedCounts(doc *jira4claude.ADFNode) map[string]int {
+	counts := make(map[string]int)
+	var walk func(n *jira4claude.ADFNode)
+	walk = func(n *jira4claude.ADFNode) {
+		if !readerKnows(n.Type) {
+			counts[nodeJSON(n)]++
+			return
+		}
+		for i := range n.Content {
+			walk(&n.Content[i])
+		}
+	}
+	walk(doc)
+	return counts
 }
 
 // noLocalID is the localId source of the conversions Reattach makes to
@@ -717,40 +820,6 @@ func countCardLinks(doc *jira4claude.ADFNode) map[string]int {
 	return counts
 }
 
-// reportRichNodes reports, as degraded, the emoji and the inline cards of the
-// original document that the read kept in readable form and that the result
-// holds as text and links: the original held emoji emoji and cards inline
-// cards, and r.restored of the cards were put back. The content is kept, as
-// far as the edit kept it; the node type is not.
-func (r *reattacher) reportRichNodes(emoji, cards int) {
-	if emoji > 0 {
-		verb := "become"
-		if emoji == 1 {
-			verb = "becomes"
-		}
-		r.issues = append(r.issues, jira4claude.ConversionIssue{
-			Kind: jira4claude.ConversionDegraded,
-			Node: "emoji",
-			Detail: fmt.Sprintf("%d emoji %s plain text: Markdown has no emoji, "+
-				"so each is written as its character or :shortName:", emoji, verb),
-			Existing: true,
-		})
-	}
-	if lost := cards - r.restored; lost > 0 {
-		what := fmt.Sprintf("%d smart links become plain links", lost)
-		if lost == 1 {
-			what = "1 smart link becomes a plain link"
-		}
-		r.issues = append(r.issues, jira4claude.ConversionIssue{
-			Kind: jira4claude.ConversionDegraded,
-			Node: "inlineCard",
-			Detail: what + ": an inline card is put back only where its link comes back " +
-				"unchanged, its URL as its text, and no other link in the text reads the same",
-			Existing: true,
-		})
-	}
-}
-
 // reattacher replaces tokens in an edited document by original nodes.
 type reattacher struct {
 	re     *regexp.Regexp
@@ -758,9 +827,8 @@ type reattacher struct {
 	seen   []bool // nodes whose token was met
 	issues []jira4claude.ConversionIssue
 	// cards maps the link a restorable inline card reads back as (see
-	// planCards) to the card; restored counts the cards put back.
-	cards    map[string]jira4claude.ADFNode
-	restored int
+	// planCards) to the card.
+	cards map[string]jira4claude.ADFNode
 }
 
 // piece is a node of rewritten inline content; block marks a restored block
@@ -1052,7 +1120,6 @@ func (r *reattacher) run(nodes []jira4claude.ADFNode, container string, mode blo
 			if lo == starts[k] && hi == starts[k]+len(nodes[k].Text) {
 				// A whole node, not a part a token split off.
 				if card, ok := r.cards[cardLinkKey(&part)]; ok {
-					r.restored++
 					part = cloneNode(card)
 				}
 			}

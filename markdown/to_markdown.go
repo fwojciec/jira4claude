@@ -30,6 +30,7 @@ func toMarkdown(adfDoc *jira4claude.ADFNode) (string, []jira4claude.ConversionIs
 // adfNodeToGFM converts a single ADF node to markdown. A node it does not
 // know is protected: it is written as a token on a line of its own.
 func adfNodeToGFM(node *jira4claude.ADFNode, skipped *skippedCollector) string {
+	defer skipped.within(node)()
 	container := skipped.blockContainer()
 	skipped.enterBlock(node.Type)
 	defer skipped.leaveBlock()
@@ -110,7 +111,7 @@ func adfCodeBlockToGFM(node *jira4claude.ADFNode, skipped *skippedCollector) str
 	// whitespace in it cannot be written whole.
 	if word := infoFirstWord(lang); word != lang {
 		if skipped != nil {
-			skipped.degrade("codeBlock", "a code block language containing whitespace cannot be written in Markdown; only its first word is kept")
+			skipped.degrade("codeBlock", codeLanguageDetail)
 		}
 		lang = word
 	}
@@ -242,6 +243,7 @@ type siblingBlocks struct {
 
 // render returns the Markdown of node, or "" when it renders empty.
 func (s *siblingBlocks) render(node *jira4claude.ADFNode) string {
+	defer s.skipped.within(node)()
 	var part, marker string
 	switch node.Type {
 	case "bulletList", "taskList", "decisionList", "orderedList":
@@ -368,6 +370,7 @@ const emptyLeadDetail = "an empty paragraph at the start of a list item, before 
 // single line break instead of a blank line: after an empty item, a blank
 // line ends the enclosing item, and the following block would escape it.
 func adfListItemToGFM(node *jira4claude.ADFNode, skipped *skippedCollector, marker string, width int) string {
+	defer skipped.within(node)()
 	blocks := siblingBlocks{skipped: skipped}
 	if content := node.Content; len(content) > 0 && isEmptyParagraph(content[0]) {
 		blocks.avoid = marker
@@ -579,17 +582,20 @@ func adfTableToGFM(node *jira4claude.ADFNode, skipped *skippedCollector) string 
 
 	var lines []string
 	hasHeader := false
+	headerAt, headerCells := 0, []string(nil)
 	firstRendered := true
 	maxCols := 0
 
 	for i := range node.Content {
 		rowNode := &node.Content[i]
+		done := skipped.within(rowNode)
 		if rowNode.Type != "tableRow" {
 			// Kept as a row of one cell holding its token.
 			token := strings.ReplaceAll(skipped.protectMisplaced(rowNode, node.Type), "|", "\\|")
 			firstRendered = false
 			maxCols = max(maxCols, 1)
 			lines = append(lines, "| "+token+" |")
+			done()
 			continue
 		}
 
@@ -611,15 +617,30 @@ func adfTableToGFM(node *jira4claude.ADFNode, skipped *skippedCollector) string 
 		}
 
 		lines = append(lines, "| "+strings.Join(cellTexts, " | ")+" |")
+		done()
 
 		if isHeaderRow {
 			hasHeader = true
+			headerAt, headerCells = len(lines)-1, cellTexts
 			seps := make([]string, len(cellTexts))
 			for j := range seps {
 				seps[j] = "---"
 			}
 			lines = append(lines, "| "+strings.Join(seps, " | ")+" |")
 		}
+	}
+
+	// A GFM table has as many columns as its header row: cells beyond them
+	// would be left out. A row wider than the header (a header cell
+	// spanning columns, say) widens the header with empty cells.
+	if hasHeader && maxCols > len(headerCells) {
+		cells := append(headerCells, make([]string, maxCols-len(headerCells))...)
+		seps := make([]string, maxCols)
+		for j := range seps {
+			seps[j] = "---"
+		}
+		lines[headerAt] = "| " + strings.Join(cells, " | ") + " |"
+		lines[headerAt+1] = "| " + strings.Join(seps, " | ") + " |"
 	}
 
 	// If no header row, synthesize an empty header + separator
@@ -639,6 +660,7 @@ func adfTableToGFM(node *jira4claude.ADFNode, skipped *skippedCollector) string 
 
 // adfTableCellToGFM extracts text from a table cell (tableHeader or tableCell).
 func adfTableCellToGFM(node *jira4claude.ADFNode, skipped *skippedCollector) string {
+	defer skipped.within(node)()
 	if node.Type != "tableCell" && node.Type != "tableHeader" {
 		// Kept as a cell holding its token.
 		return strings.ReplaceAll(skipped.protectMisplaced(node, "tableRow"), "|", "\\|")
@@ -678,6 +700,7 @@ func adfTaskListToGFM(node *jira4claude.ADFNode, skipped *skippedCollector) stri
 // item are adjacent lists there, so each takes a marker the one before it
 // does not use.
 func adfTaskListMarkerToGFM(node *jira4claude.ADFNode, skipped *skippedCollector, marker string) string {
+	defer skipped.within(node)()
 	var items []string
 	prevNested := "" // marker of the last list nested under the current item
 	for i := range node.Content {
@@ -702,7 +725,9 @@ func adfTaskListMarkerToGFM(node *jira4claude.ADFNode, skipped *skippedCollector
 		if taskItem.Type == "blockTaskItem" {
 			// Schema-valid: a task item holding paragraphs (or extensions),
 			// read as a task item. The writer makes a taskItem of it.
+			done := skipped.within(taskItem)
 			skipped.degrade("blockTaskItem", "a task item holding paragraphs is written back as a taskItem")
+			done()
 		} else if taskItem.Type != "taskItem" {
 			// An item without a checkbox would not read back as part of
 			// the task list.
@@ -754,6 +779,7 @@ func adfDecisionListToGFM(node *jira4claude.ADFNode, skipped *skippedCollector) 
 // adfDecisionListMarkerToGFM converts an ADF decisionList as
 // adfDecisionListToGFM does, using marker as the bullet character.
 func adfDecisionListMarkerToGFM(node *jira4claude.ADFNode, skipped *skippedCollector, marker string) string {
+	defer skipped.within(node)()
 	var items []string
 	for i := range node.Content {
 		child := &node.Content[i]
@@ -897,7 +923,6 @@ func emittingInline(content []jira4claude.ADFNode, skipped *skippedCollector) []
 			text := adfEmojiToGFM(child)
 			switch {
 			case text != "":
-				skipped.readEmoji()
 				label(text, nil)
 			case skipped != nil:
 				skipped.add("emoji")
@@ -909,8 +934,6 @@ func emittingInline(content []jira4claude.ADFNode, skipped *skippedCollector) []
 			} else if skipped != nil {
 				skipped.add("inlineCard")
 			}
-		case "placeholder":
-			// Drop silently — placeholder nodes produce no output.
 		default:
 			// mention, mediaInline, and any type this reader does not know.
 			items = append(items, skipped.protectInline(child))

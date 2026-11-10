@@ -36,6 +36,12 @@ type skippedCollector struct {
 	localIDs int                // number of localId values generated so far
 
 	tokens *tokenRegistry // read side only: protected-node tokens (protect.go)
+
+	// quiet holds nodes whose issues a read leaves out (read side only):
+	// Reattach reads the original again to report what of it a write
+	// changes, and the nodes it put back whole change nothing.
+	quiet      map[*jira4claude.ADFNode]bool
+	quietDepth int
 }
 
 // issueKey identifies one recorded issue, so a node type can be both dropped
@@ -76,6 +82,9 @@ func (s *skippedCollector) nextLocalID() string {
 }
 
 func (s *skippedCollector) record(issue jira4claude.ConversionIssue) {
+	if s.quietDepth > 0 {
+		return
+	}
 	s.types[issueKey{kind: issue.Kind, node: issue.Node}] = issue
 }
 

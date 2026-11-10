@@ -8,4 +8,4 @@ Status: {{status:2 IN PROGRESS}}
 
 Due: {{date:3 2024-04-10}}
 
-Enter text here please.
+Enter text here{{placeholder:4 Type something}} please.

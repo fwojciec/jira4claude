@@ -3,6 +3,7 @@ package markdown_test
 import (
 	"encoding/json"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
@@ -96,6 +97,7 @@ func TestToMarkdown_ProtectedNodesRenderAsDistinctTokens(t *testing.T) {
 			"{{mention:1 John Smith}}",
 			"{{status:2 IN PROGRESS}}",
 			"{{date:3 2024-04-10}}",
+			"{{placeholder:4 Type something}}",
 		}},
 	}
 	for _, tt := range tests {
@@ -149,25 +151,22 @@ func TestReattach_FixtureIdentity(t *testing.T) {
 		assert.JSONEq(t, string(raw), jsonOf(t, got))
 	})
 
-	t.Run("protected nodes and the inline card of inline_nodes.adf.json come back identical", func(t *testing.T) {
-		t.Parallel()
-		doc, _ := loadADF(t, "testdata/inline_nodes.adf.json")
-		_, got, issues := readEditWrite(t, doc, nil)
-		want := protectedNodes(doc)
-		require.Len(t, want, 3)
-		assert.Equal(t, jsonOf(t, want), jsonOf(t, protectedNodes(got)))
-		for i, what := range []string{"the mention's", "", "the inline card's", "the status's", "the date's"} {
-			if what != "" {
-				assert.Equal(t, jsonOf(t, doc.Content[i]), jsonOf(t, got.Content[i]), what+" paragraph")
-			}
-		}
-		// The emoji become text, which is reported; the placeholder, an
-		// editor hint with no content, is left out as it always was.
-		require.Len(t, issues, 1)
-		assert.Equal(t, jira4claude.ConversionDegraded, issues[0].Kind)
-		assert.Equal(t, "emoji", issues[0].Node)
-		assert.Contains(t, issues[0].Detail, "2 emoji become plain text")
-	})
+	// jir-h44x: an unchanged rewrite of every fixture gives it back as it
+	// was, with no warning. Before, inline_nodes.adf.json lost its emoji
+	// (one warning) and its placeholder (silently), and tasklist.adf.json
+	// its localIds (silently).
+	files, err := filepath.Glob("testdata/*.adf.json")
+	require.NoError(t, err)
+	require.NotEmpty(t, files)
+	for _, file := range files {
+		t.Run(file+" comes back identical, with no warning", func(t *testing.T) {
+			t.Parallel()
+			doc, raw := loadADF(t, file)
+			_, got, issues := readEditWrite(t, doc, nil)
+			assert.Empty(t, issues)
+			assert.JSONEq(t, string(raw), jsonOf(t, got))
+		})
+	}
 }
 
 func TestReattach_RestoresByteForByte(t *testing.T) {
@@ -295,7 +294,7 @@ func TestReattach_LiteralTokenTextDoesNotReattach(t *testing.T) {
 		doc := docOf(paraOf(plainText("{{"), plainText("mention:1 x}}"), plainText(" "), mention("u1", "Ann")))
 		md, got, issues := readEditWrite(t, doc, nil)
 		assert.Empty(t, issues)
-		want := docOf(paraOf(plainText("{{mention:1 x}} "), mention("u1", "Ann")))
+		want := doc // jir-h44x: the unchanged paragraph comes back as it was, text nodes and all
 		assert.Equal(t, jsonOf(t, want), jsonOf(t, got), "markdown was %q", md)
 	})
 
@@ -508,9 +507,18 @@ func TestReattach_MisplacedChildren(t *testing.T) {
 			require.Len(t, dropped, 1, "markdown was %q", md)
 			assert.Equal(t, tt.node, dropped[0].Node)
 		})
-		t.Run(tt.name+" is reported again by the write that would remove it", func(t *testing.T) {
+		t.Run(tt.name+" comes back from an unchanged write", func(t *testing.T) {
 			t.Parallel()
-			_, _, issues := readEditWrite(t, tt.doc, nil)
+			// jir-h44x: nothing was edited, so the original is written back.
+			_, got, issues := readEditWrite(t, tt.doc, nil)
+			assert.Empty(t, issues)
+			assert.Equal(t, jsonOf(t, tt.doc), jsonOf(t, got))
+		})
+		t.Run(tt.name+" is reported again by an edit of the list that would remove it", func(t *testing.T) {
+			t.Parallel()
+			_, _, issues := readEditWrite(t, tt.doc, func(md string) string {
+				return strings.Replace(md, "- [ ] a", "- [ ] b", 1)
+			})
 			dropped := jira4claude.DroppedIssues(issues)
 			require.Len(t, dropped, 1)
 			assert.Equal(t, tt.node, dropped[0].Node)
@@ -617,7 +625,10 @@ func TestReattach_BlockInTaskItem(t *testing.T) {
 			require.NotEmpty(t, token, "markdown was %q", md)
 			return "- [ ] first " + token + " and more"
 		})
-		assert.Empty(t, issues, "markdown was %q", md)
+		// The second item is gone, so the ids of the list's items cannot be
+		// matched and the blockTaskItem's form is not kept (jir-h44x):
+		// reported as degraded, nothing dropped.
+		assert.Empty(t, jira4claude.DroppedIssues(issues), "markdown was %q", md)
 		requireValidADF(t, got)
 		item := got.Content[0].Content[0]
 		assert.Equal(t, "blockTaskItem", item.Type)
@@ -630,7 +641,13 @@ func TestReattach_BlockInTaskItem(t *testing.T) {
 		t.Parallel()
 		// Legacy ADF: a task item holding paragraph-wrapped blocks.
 		doc := taskList(plainItem(paraOf(plainText("x")), rawNode(t, single)))
-		md, got, issues := readEditWrite(t, doc, nil)
+		// jir-h44x: an unchanged write gives the original back as it was.
+		_, unchanged, none := readEditWrite(t, doc, nil)
+		assert.Empty(t, none)
+		assert.Equal(t, jsonOf(t, doc), jsonOf(t, unchanged))
+		md, got, issues := readEditWrite(t, doc, func(md string) string {
+			return strings.Replace(md, "x", "y", 1)
+		})
 		require.Len(t, issues, 1, "markdown was %q", md)
 		assert.Equal(t, jira4claude.ConversionDropped, issues[0].Kind)
 		assert.Contains(t, issues[0].Node, "mediaSingle:1")

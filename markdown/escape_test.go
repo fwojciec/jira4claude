@@ -662,7 +662,9 @@ func TestRoundTrip_BareURLWithEntities(t *testing.T) {
 func TestRoundTrip_NeighbourRulesSkipNodesThatEmitNothing(t *testing.T) {
 	t.Parallel()
 
-	placeholder := jira4claude.ADFNode{Type: "placeholder", Attrs: []byte(`{"text":"type here"}`)}
+	// An emoji with neither text nor short name emits nothing (and is reported
+	// as dropped).
+	placeholder := jira4claude.ADFNode{Type: "emoji", Attrs: []byte(`{"id":"x"}`)}
 	plain := func(s string) jira4claude.ADFNode { return jira4claude.ADFNode{Type: "text", Text: s} }
 
 	for _, tc := range []struct {
