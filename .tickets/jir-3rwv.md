@@ -1,6 +1,6 @@
 ---
 id: jir-3rwv
-status: in_progress
+status: closed
 deps: []
 links: []
 created: 2026-11-10T12:10:34Z
@@ -17,3 +17,9 @@ parent: jir-5662
 
 Each is fixed with a test, or listed under Known limits in CHANGELOG.md with the reason.
 
+
+## Notes
+
+**2026-11-10T16:37:51Z**
+
+Merged to main at 4d9be07. 1: premise did not reproduce; the append dry-run text is what issue view prints after the write, pinned by a test. 2: inline text flags refuse invalid UTF-8 (breaking, in the changelog). 3: the test validator was exponential in depth (77 s at 20 levels); now a linear verdict with a bounded report. 4: comment usage reads as one of --body and --body-file.

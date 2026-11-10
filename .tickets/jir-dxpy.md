@@ -1,6 +1,6 @@
 ---
 id: jir-dxpy
-status: in_progress
+status: closed
 deps: []
 links: []
 created: 2026-11-10T11:30:36Z
@@ -17,3 +17,9 @@ Seen once in a full go test ./... run, not reproduced in 30 targeted runs. Proba
 
 The cause is identified; the test passes 200 runs under -race; if Stream can retry a chain, the documented cap says per attempt.
 
+
+## Notes
+
+**2026-11-10T16:37:51Z**
+
+Merged to main at 4d9be07. Cause reproduced: tests shared http.DefaultTransport and each httptest server Close broke another test's keep-alive connection mid-chain, so Stream retried the chain (5+6 requests). Tests now have their own transport; the cap is documented as per attempt and never retried itself. A second flake (dialling a closed port another test had taken) fixed with a refusing dialer.

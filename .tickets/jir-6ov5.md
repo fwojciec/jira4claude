@@ -1,6 +1,6 @@
 ---
 id: jir-6ov5
-status: in_progress
+status: closed
 deps: []
 links: []
 created: 2026-11-10T11:30:36Z
@@ -17,3 +17,9 @@ The client looks up the netrc machine as host:port when the server URL has a por
 
 A server URL with a port finds a netrc entry for the bare hostname when none exists for host:port; the more specific entry wins; README says so; credentials are still sent only to the configured scheme, host and port.
 
+
+## Notes
+
+**2026-11-10T16:37:51Z**
+
+Merged to main at 4d9be07. netrc lookup tries host:port, then the bare host name; the error names both and the file.
