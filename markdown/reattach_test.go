@@ -524,6 +524,28 @@ func TestReattach_BlockTaskItem(t *testing.T) {
 	assert.Equal(t, jsonOf(t, protectedNodes(doc)), jsonOf(t, protectedNodes(got)))
 }
 
+func TestReattach_TokensNextToEmphasis(t *testing.T) {
+	t.Parallel()
+
+	bold := jira4claude.ADFNode{Type: "text", Text: "bold", Marks: []jira4claude.ADFMark{{Type: "strong"}}}
+	em := jira4claude.ADFNode{Type: "text", Text: "em", Marks: []jira4claude.ADFMark{{Type: "em"}}}
+	for _, tt := range []struct {
+		name string
+		doc  *jira4claude.ADFNode
+	}{
+		{"a mention directly after bold", docOf(paraOf(bold, mention("u1", "Ann"), plainText(" x")))},
+		{"a mention directly before emphasis", docOf(paraOf(plainText("x "), mention("u1", "Ann"), em))},
+		{"a mention between bold and emphasis", docOf(paraOf(bold, mention("u1", "Ann"), em))},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			md, got, issues := readEditWrite(t, tt.doc, nil)
+			assert.Empty(t, issues, "markdown was %q", md)
+			assert.Equal(t, jsonOf(t, tt.doc), jsonOf(t, got), "markdown was %q", md)
+		})
+	}
+}
+
 func TestFindTokens(t *testing.T) {
 	t.Parallel()
 
