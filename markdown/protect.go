@@ -370,9 +370,13 @@ func readDocument(doc *jira4claude.ADFNode) (string, *skippedCollector) {
 		for i, p := range skipped.tokens.nodes {
 			want[i] = p.token
 		}
-		if len(want) == 0 && !strings.Contains(md, "{{") {
-			// Every token starts with "{{", and the writer only drops
-			// characters from the Markdown, so none can appear.
+		if len(want) == 0 && strings.Count(md, "{") < 2 {
+			// Every token holds "{{" in its text. Each "{" of the text the
+			// writer reads back is a "{" of the Markdown: the reader never
+			// escapes it or writes it as a character reference, and an
+			// escaped "&" keeps "&#123;" literal. The two may be apart in
+			// the Markdown ("**{**{"), so the count is what is sound, not a
+			// search for "{{".
 			return md, skipped
 		}
 		adf, _ := toADF(md, func(int) string { return "" })

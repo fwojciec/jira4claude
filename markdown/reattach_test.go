@@ -281,6 +281,17 @@ func TestReattach_LiteralTokenTextDoesNotReattach(t *testing.T) {
 		assert.Equal(t, jsonOf(t, want), jsonOf(t, got), "markdown was %q", md)
 	})
 
+	t.Run("a token split across marks", func(t *testing.T) {
+		t.Parallel()
+		doc := docOf(paraOf(
+			jira4claude.ADFNode{Type: "text", Text: "{", Marks: []jira4claude.ADFMark{{Type: "strong"}}},
+			plainText("{mention:1 Ann}}"),
+		))
+		md, got, issues := readEditWrite(t, doc, nil)
+		assert.Empty(t, issues, "markdown was %q", md)
+		assert.Equal(t, jsonOf(t, doc), jsonOf(t, got), "markdown was %q", md)
+	})
+
 	t.Run("a token inside code is not recognised", func(t *testing.T) {
 		t.Parallel()
 		doc := docOf(paraOf(mention("u1", "Ann")))
