@@ -125,6 +125,7 @@ Found while fixing the above or by the fuzz properties, all in the same mileston
 | #160 | Code: backticks in spans and fences, language with trailing tab, newline in a code span. |
 | #161 | Links: hrefs needing escapes, text equal to href, empty href, autolinks re-gained on read. |
 | #162 | Unusual input: lone CR, control-character entities, invalid UTF-8, table delimiter row after a hard break. |
+| #163 | A blank-only line of a fenced code block in a list item keeps its blanks (write side). |
 
 `TestPropertyKnownFailures` holds the minimised inputs for #158 to #162 as
 skipped cases (`J4C_KNOWN_FAILURES=1` runs them). Each fix moves its cases into
@@ -133,7 +134,9 @@ the fuzz seed corpus. The milestone is done when the table is empty and
 
 Visible consequences for the release notes: more writes are refused (raw
 constructs that used to be dropped silently); `\<` and `&#32;` can appear in
-`issue view`; `<br>` and HTML comments appear as text; a table in a list item is
+`issue view`, as can `&#10;` and letter references such as `&#97;` next to
+emphasis delimiters, because marks and edge blanks read back exactly; media,
+mentions and unknown nodes appear as `{{...}}` tokens; `<br>` and HTML comments appear as text; a table in a list item is
 flattened with a `degraded` warning; `list --json` and `ready --json` return
 `{"issues": [...], "truncated": bool}`.
 
@@ -169,6 +172,17 @@ Related changes:
 - **`--append-description`:** appends converted nodes to the current ADF. Existing content is never converted, so this is the safest partial edit.
 - **`--description ""` (F9):** a validation error. `--clear-description` is the explicit form.
 - `IssueUpdate`'s nil/empty/value pointers are replaced for description by a small sum type (`keep`, `set`, `append`, `clear`).
+
+As built (#149, #150):
+
+- **Token syntax.** `{{kind:number label}}`, for example `{{mediaSingle:1 error dialog}}`. One token per outermost protected node. On write the number and the kind are checked; the label is never trusted. A kind that no longer matches its number means the description changed since it was read, and the token is refused.
+- **Literal token-looking text in Jira is never altered.** Escaping cannot work, because the write side decodes every escape before re-attachment. Instead the reader adds `!` after `{{` (`{{!mention:1 x}}`) until the document's own text cannot be read as one of its tokens. `Reattach` derives the same salt from the original document.
+- **`Converter.Reattach(original, edited)`** restores the nodes and returns `dropped` for a token that is missing, duplicated, unknown, of the wrong kind, or placed where its node is not allowed. A block token inside a paragraph splits the paragraph; a block restored into a task item makes it a `blockTaskItem`.
+- **Content the reader cannot tokenise** (reported as `dropped` on read) makes a set or a clear refuse without `--force`; the error points to `--append-description`.
+- **`--clear-description`** on a description holding protected nodes needs `--force`.
+- **Create, comment and append** have no original document. Token text there is written as plain text and reported as `degraded` (`Converter.FindTokens`).
+- **`--if-updated`** is honoured on every update, accepts RFC 3339 and Jira's own form, and compares instants at millisecond precision. Only `updated` gained milliseconds in the JSON view.
+- **Not built yet:** step 4's re-read and report, which belongs with the mutation results of milestone 2. Without `--if-updated`, nodes of the same kind that moved between read and write are not detected.
 
 #### 1.5 Retry policy (F7)
 
@@ -282,6 +296,7 @@ Referencing an uploaded file from Markdown, for example
 | Does `"description": null` clear a description? | `--clear-description` | Send an empty ADF document |
 | Does Jira accept the empty-paragraph placeholder in empty list items, table cells and panels? | 1.3 | Emit a paragraph holding one space |
 | Do comments or transitions change an issue's `updated` value? | 1.4 | Document that `--if-updated` can report a conflict after any activity |
+| Does Jira accept a `taskItem` rewritten as `blockTaskItem`, and task items with new `localId`s? | 1.4 | Refuse block tokens in task items |
 | Redirect status and auth of `/attachment/content/{id}` | M3 | Use `redirect=false` |
 | Do ADF media IDs match attachment IDs? | Follow-up | Join by filename |
 | Are API tokens available on the Free plan? | All live testing | Paid trial for the smoke test |
