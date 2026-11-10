@@ -486,16 +486,17 @@ func TestConverter_ToADF(t *testing.T) {
 		t.Parallel()
 
 		converter := markdown.New()
-		// Multiple unsupported block elements: raw HTML blocks
-		result, warnings := converter.ToADF("Start\n\n<div>html block one</div>\n\n<section>html block two</section>\n\nEnd")
+		// Multiple unsupported elements of one type: images. (Raw HTML blocks
+		// used to serve here but are now kept as literal text.)
+		result, warnings := converter.ToADF("Start\n\n![one](http://x/1.png)\n\n![two](http://x/2.png)\n\nEnd")
 
 		// Should still return converted content (best effort)
 		require.NotNil(t, result)
 		assert.Equal(t, "doc", result.Type)
 
-		// Both HTML blocks produce the same skipped type, so only one warning
+		// Both images produce the same skipped type, so only one warning
 		require.Len(t, warnings, 1)
-		assert.Equal(t, "HTMLBlock", warnings[0].Node)
+		assert.Equal(t, "Image", warnings[0].Node)
 	})
 
 	t.Run("returns empty warnings slice when no content is skipped", func(t *testing.T) {

@@ -181,6 +181,8 @@ func nodeToADF(node ast.Node, source []byte, skipped *skippedCollector) (jira4cl
 		return jira4claude.ADFNode{Type: "rule"}, true
 	case *extast.Table:
 		return convertTable(n, source, skipped), true
+	case *ast.HTMLBlock:
+		return convertHTMLBlock(n, source, skipped)
 	default:
 		// Record the skipped node type
 		typeName := reflect.TypeOf(node).Elem().Name()
@@ -559,6 +561,79 @@ func htmlBlockText(node ast.Node, source []byte) (string, bool) {
 		text.Write(line.Value(source))
 	}
 	return strings.TrimSpace(text.String()), true
+}
+
+// convertHTMLBlock keeps a raw HTML block that is not part of a <details>
+// construct as a paragraph of literal text, so nothing is lost and nothing is
+// interpreted. Each source line becomes a text node, with one hard break
+// between lines (a blank line inside the block is two consecutive hard
+// breaks), so the line structure survives and reads back as the same block.
+// A block that mentions <details> or </details> reached here only because the
+// details handling could not pair it; it stays dropped so a write refuses.
+func convertHTMLBlock(node *ast.HTMLBlock, source []byte, skipped *skippedCollector) (jira4claude.ADFNode, bool) {
+	lines := htmlBlockLines(node, source)
+	if isDetailsConstruct(lines) {
+		skipped.add("HTMLBlock")
+		return jira4claude.ADFNode{}, false
+	}
+	// Trim blank lines at either end so the paragraph never starts or ends
+	// with a hard break.
+	for len(lines) > 0 && strings.TrimSpace(lines[0]) == "" {
+		lines = lines[1:]
+	}
+	for len(lines) > 0 && strings.TrimSpace(lines[len(lines)-1]) == "" {
+		lines = lines[:len(lines)-1]
+	}
+	if len(lines) == 0 {
+		return jira4claude.ADFNode{}, false
+	}
+	var content []jira4claude.ADFNode
+	for i, line := range lines {
+		if i > 0 {
+			content = append(content, jira4claude.ADFNode{Type: "hardBreak"})
+		}
+		if line != "" {
+			content = append(content, jira4claude.ADFNode{Type: "text", Text: line})
+		}
+	}
+	return jira4claude.ADFNode{Type: "paragraph", Content: content}, true
+}
+
+// htmlBlockLines returns every source line of an HTMLBlock, including the
+// closing line goldmark stores apart from the others, without line endings.
+func htmlBlockLines(node *ast.HTMLBlock, source []byte) []string {
+	segments := node.Lines()
+	lines := make([]string, 0, segments.Len()+1)
+	for i := range segments.Len() {
+		segment := segments.At(i)
+		lines = append(lines, string(segment.Value(source)))
+	}
+	if node.HasClosure() {
+		lines = append(lines, string(node.ClosureLine.Value(source)))
+	}
+	for i, line := range lines {
+		lines[i] = strings.TrimRight(line, "\r\n")
+	}
+	return lines
+}
+
+// isDetailsConstruct reports whether the lines of an HTMLBlock contain a
+// <details> opening tag or a </details> closing tag, in any letter case.
+func isDetailsConstruct(lines []string) bool {
+	text := strings.ToLower(strings.Join(lines, "\n"))
+	if strings.Contains(text, "</details") {
+		return true
+	}
+	for rest := text; ; {
+		i := strings.Index(rest, "<details")
+		if i == -1 {
+			return false
+		}
+		rest = rest[i+len("<details"):]
+		if rest == "" || strings.ContainsRune("> \t\n/", rune(rest[0])) {
+			return true
+		}
+	}
 }
 
 // detailsOpener is an HTMLBlock that opens a <details> element.
