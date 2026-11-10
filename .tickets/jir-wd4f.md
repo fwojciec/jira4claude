@@ -1,6 +1,6 @@
 ---
 id: jir-wd4f
-status: in_progress
+status: closed
 deps: []
 links: []
 created: 2026-11-10T12:08:27Z
@@ -20,3 +20,9 @@ Found by Codex on h44x-rewrite-property after 9d139c2; none is a regression.
 
 A failing test for each case first; case 1 writes with no dropped issue and keeps the annotation; case 2 returns the swapped order; case 3 gives no warning; inventory, property and fuzz targets still pass.
 
+
+## Notes
+
+**2026-11-10T16:18:22Z**
+
+Merged to main at 5300970 (branch wd4f-restore-edges). One card plan serves the edit and the reference (false refusal gone); a node that came through a token is marked by provenance, not type (swap of misplaced paragraphs kept); the empty-lead warning is quiet when the paragraph is restored; a block paired by type must sit between the same exactly-paired neighbours, else its hidden values are reported lost. Still unreported and documented: a block replaced in place by another of its type between the same unchanged neighbours. New deterministic property TestReattach_MechanicalEdits. Codex: no findings.
