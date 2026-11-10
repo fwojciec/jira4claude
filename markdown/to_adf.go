@@ -15,6 +15,7 @@ import (
 	extast "github.com/yuin/goldmark/extension/ast"
 	"github.com/yuin/goldmark/parser"
 	"github.com/yuin/goldmark/text"
+	"github.com/yuin/goldmark/util"
 )
 
 // skippedCollector tracks content that a conversion could not carry over.
@@ -65,9 +66,11 @@ func toADF(markdown string) (*jira4claude.ADFNode, []jira4claude.ConversionIssue
 	markdown = NormalizeUnicode(markdown)
 
 	md := goldmark.New(
-		goldmark.WithExtensions(extension.GFM),
+		// GFM minus its strikethrough, which also strikes on a single tilde.
+		goldmark.WithExtensions(extension.Linkify, extension.Table, extension.TaskList),
 		goldmark.WithParserOptions(
 			parser.WithAutoHeadingID(),
+			parser.WithInlineParsers(util.Prioritized(newStrikethroughParser(), 500)),
 		),
 	)
 
