@@ -251,6 +251,24 @@ func TestIssueService_Get_Attachments(t *testing.T) {
 		assert.Equal(t, int32(1), calls.Load(), "one request serves the issue and its attachments")
 	})
 
+	t.Run("an attachment id that is neither string nor number fails the read", func(t *testing.T) {
+		t.Parallel()
+
+		// Deliberate: an attachment the tool cannot identify is not shown with
+		// an empty ID, which download and delete could not use.
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			_, _ = w.Write([]byte(`{"key":"TEST-1","fields":{"attachment":[{"id":true,"filename":"a"}]}}`))
+		}))
+		defer server.Close()
+
+		svc := jirahttp.NewIssueService(newTestClient(t, server.URL, "user@example.com", "api-token"))
+
+		_, err := svc.Get(context.Background(), "TEST-1")
+
+		require.Error(t, err)
+		assert.Equal(t, jira4claude.EInternal, jira4claude.ErrorCode(err))
+	})
+
 	t.Run("an issue without the field has no attachments", func(t *testing.T) {
 		t.Parallel()
 

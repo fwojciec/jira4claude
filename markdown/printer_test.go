@@ -1008,6 +1008,19 @@ func TestPrinter_Attachments(t *testing.T) {
 		assert.Equal(t, "1\t1\ttext/plain\ta\\tb\\nc\\rd\\x1be\n", out.String())
 	})
 
+	t.Run("escapes a backslash, so a literal backslash-t differs from a tab", func(t *testing.T) {
+		t.Parallel()
+		var out bytes.Buffer
+		p := markdown.NewPrinter(&out)
+
+		p.Attachments("J4C-100", []jira4claude.AttachmentView{
+			{ID: "1", Filename: `a\tb`, MimeType: "text/plain", Size: 1},
+			{ID: "2", Filename: "a\tb", MimeType: "text/plain", Size: 1},
+		})
+
+		assert.Equal(t, "1\t1\ttext/plain\ta\\\\tb\n2\t1\ttext/plain\ta\\tb\n", out.String())
+	})
+
 	t.Run("no attachments prints nothing on stdout and a notice on stderr", func(t *testing.T) {
 		t.Parallel()
 		var out, errOut bytes.Buffer

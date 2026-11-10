@@ -390,15 +390,17 @@ func humanSize(n int64) string {
 }
 
 // escapeControl replaces control characters (tab, newline, escape and the
-// like) with their Go escape sequences, so that a server-supplied string
-// stays on one line and in one column.
+// like) with their Go escape sequences, and a backslash with two, so that a
+// server-supplied string stays on one line and in one column and the escaping
+// can be undone (strconv.Unquote of the value in double quotes).
 func escapeControl(s string) string {
-	if !strings.ContainsFunc(s, unicode.IsControl) {
+	needsEscape := func(r rune) bool { return r == '\\' || unicode.IsControl(r) }
+	if !strings.ContainsFunc(s, needsEscape) {
 		return s
 	}
 	var b strings.Builder
 	for _, r := range s {
-		if !unicode.IsControl(r) {
+		if !needsEscape(r) {
 			b.WriteRune(r)
 			continue
 		}
