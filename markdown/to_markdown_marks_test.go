@@ -333,7 +333,10 @@ func TestToMarkdown_ManyMarkedNodes(t *testing.T) {
 			md, readIssues := markdown.New().ToMarkdown(paragraphDoc(inline...))
 			elapsed := time.Since(start)
 			assert.Empty(t, readIssues)
-			assert.Less(t, elapsed, 4*time.Second, "markdown was %d bytes", len(md))
+			// Linear work takes well under a second; the bound is wide because the
+			// clock also counts every other test and fuzz worker on the machine
+			// (5 to 7 s was seen at a load average of 40). Quadratic work is minutes.
+			assert.Less(t, elapsed, 60*time.Second, "markdown was %d bytes", len(md))
 		})
 	}
 }
@@ -366,7 +369,7 @@ func TestToMarkdown_LongToken(t *testing.T) {
 				}
 				start := time.Now()
 				md, _ := markdown.New().ToMarkdown(paragraphDoc(textNode("see "), node))
-				assert.Less(t, time.Since(start), 4*time.Second, "markdown was %d bytes", len(md))
+				assert.Less(t, time.Since(start), 60*time.Second, "markdown was %d bytes", len(md))
 			})
 		}
 	}
