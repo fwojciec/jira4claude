@@ -185,10 +185,10 @@ To Do
 
 Values are not escaped, so a description that contains a line shaped like a
 header would confuse a split on headers. Use `--json` when values are
-free text:
+free text (it may also follow the command):
 
 ```bash
-j4c --json issue view PROJ-123 PROJ-124 --field status,updated
+j4c issue view PROJ-123 PROJ-124 --field status,updated --json
 ```
 
 ```json
@@ -695,8 +695,8 @@ markers. Leave them as they are. A hard line break reads as a backslash at the
 end of the line.
 
 **Warnings.** Conversion problems are reported on stderr as `dropped` (content
-lost) or `degraded` (content kept in another form, for example an emoji
-written as text). Reading only warns. Writing refuses on `dropped` unless
+lost) or `degraded` (content kept in another form, for example a `<details>`
+block inside another, flattened into it). Reading only warns. Writing refuses on `dropped` unless
 `--force`.
 
 ## Refusals
@@ -732,8 +732,8 @@ The code column is the `code` of a `--json` error line.
 
 ## Not verified against a live Jira site
 
-The current behaviour is tested against recorded and simulated Jira
-responses only; it has not been run against a live site. Open questions
+The current behaviour is tested against simulated Jira responses only (test
+servers and mocks); it has not been run against a live site. Open questions
 include whether Jira accepts an image or other media node sent back unchanged
 (which every description edit with a `{{media...}}` token relies on), whether
 `"description": null` clears a description, whether a create accepts the

@@ -1,6 +1,7 @@
 package main_test
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -9,10 +10,12 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/alecthomas/kong"
 	"github.com/fwojciec/jira4claude"
 	main "github.com/fwojciec/jira4claude/cmd/j4c"
+	"github.com/fwojciec/jira4claude/mock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -26,8 +29,12 @@ import (
 //     (TestReadme_FlagsExist);
 //   - its exit-code table matches jira4claude.ExitCode (TestReadme_ExitCodes).
 //
-// Commands are parsed, not run: parsing needs no Jira, no config and no files,
-// so an example that names a file or a directory is checked like any other.
+// Commands are parsed: parsing needs no Jira, no config and no files, so an
+// example that names a file or a directory is checked like any other. The
+// issue view examples, which read nothing but Jira, are also run through
+// main.Run against a mock that serves any key but PROJ-999, so that a field
+// name the parser accepts but the command rejects fails the test
+// (TestReadme_ViewExamplesRun).
 //
 // How commands are found. Only fenced blocks tagged bash, sh or shell are
 // read. Within one:
@@ -398,6 +405,40 @@ func TestReadme_CommandsParse(t *testing.T) {
 	for path, found := range want {
 		assert.True(t, found, "README.md has no example of j4c %s", path)
 	}
+}
+
+func TestReadme_ViewExamplesRun(t *testing.T) {
+	t.Parallel()
+
+	svc := &mock.IssueService{GetFn: func(_ context.Context, key string) (*jira4claude.Issue, error) {
+		if key == "PROJ-999" {
+			return nil, &jira4claude.Error{Code: jira4claude.ENotFound, Message: "issue not found"}
+		}
+		return &jira4claude.Issue{Key: key, Summary: "Example", Status: "To Do", Type: "Task",
+			Updated: time.Date(2026, 11, 9, 10, 15, 30, 123_000_000, time.UTC)}, nil
+	}}
+
+	commands, _ := readmeCommands(t)
+	ran := 0
+	for _, cmd := range commands {
+		if len(cmd.args) < 2 || !slices.Contains(cmd.args, "issue") || !slices.Contains(cmd.args, "view") {
+			continue
+		}
+		parser := newReadmeParser(t)
+		ctx, err := parser.Parse(cmd.args)
+		if err != nil || ctx.Selected().Path() != "issue view" {
+			continue
+		}
+		ran++
+		res := runCLI(t, testDeps(svc, &mock.UserService{}), cmd.args...)
+		want := 0
+		if slices.Contains(cmd.args, "PROJ-999") {
+			want = jira4claude.ExitCode(&jira4claude.Error{Code: jira4claude.ENotFound})
+		}
+		assert.Equal(t, want, res.code, "README.md:%d: j4c %s\nstderr: %s",
+			cmd.line, strings.Join(cmd.args, " "), res.stderr)
+	}
+	assert.GreaterOrEqual(t, ran, 5, "too few issue view examples found in README.md")
 }
 
 func TestReadme_FlagsExist(t *testing.T) {

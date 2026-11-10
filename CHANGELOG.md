@@ -257,8 +257,9 @@ company-managed project.
   or edit (`--key`), with `--all` and `--filter`.
 - `--field-json ID=JSON` on `issue create` and `issue update` sets any field,
   including custom fields; `issue view` shows custom fields.
-- `--assignee` on `issue create`; `issue assign` and `issue update --assignee`
-  accept `me`, an email address or an account ID.
+- `--assignee` on `issue create`, resolved before the issue is created and
+  sent with it; `issue assign` and `issue update --assignee` accept `me`, an
+  email address or an account ID.
 - `--parent` on `issue update` and `issue ready`; `--clear-parent` on
   `issue update`.
 - `issue list --exclude-status` and `--order-by`.
@@ -275,19 +276,15 @@ company-managed project.
 
 - A soft line break in Markdown became nothing (`line one` + `line two` gave
   `line oneline two`); it is now a space.
-- A single `~` struck text through; only `~~` does now.
+- Single `~` characters were deleted on write (`5~10 and 20~30` reached Jira
+  as `510 and 2030`); they are kept, and only `~~` strikes through.
 - Unknown, unclosed or stray inline HTML tags were deleted; they are kept as
   text.
-- A `<details>` inside a `<details>` closed the outer block early.
 - A create or comment request was retried after a server error and could be
   applied twice. Writes by POST are now retried only on a rate limit.
-- `issue create --assignee` could fail after creating the issue; the assignee
-  is now resolved first and sent with the create.
 - `issue list --assignee=me` searched for a user named "me"; it now means the
   current user.
 - `issue ready` listed issues in Won't Do.
-- Printable non-ASCII characters (dashes, arrows, quotes) were removed from
-  descriptions and comments.
 - Backslash escapes and HTML entities reached Jira as literal text.
 - Many round-trip losses in lists, quotes, task items, marks, code spans,
   code blocks and links.
