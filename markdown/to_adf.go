@@ -311,7 +311,7 @@ func convertList(node *ast.List, source []byte, skipped *skippedCollector) jira4
 // convertListItem converts a goldmark list item to an ADF listItem.
 func convertListItem(node *ast.ListItem, source []byte, skipped *skippedCollector) jira4claude.ADFNode {
 	content := convertNode(node, source, skipped)
-	content = constrainChildren(content, isListItemAllowedChild, skipped)
+	content = constrainChildren(content, "listItem", isListItemAllowedChild, skipped)
 	return jira4claude.ADFNode{
 		Type:    "listItem",
 		Content: content,
@@ -351,7 +351,7 @@ func convertBlockquote(node *ast.Blockquote, source []byte, skipped *skippedColl
 	}
 
 	content := convertNode(node, source, skipped)
-	content = constrainChildren(content, isBlockquoteAllowedChild, skipped)
+	content = constrainChildren(content, "blockquote", isBlockquoteAllowedChild, skipped)
 	return jira4claude.ADFNode{
 		Type:    "blockquote",
 		Content: content,
@@ -436,11 +436,14 @@ func isListItemAllowedChild(nodeType string) bool {
 	}
 }
 
-// constrainChildren filters ADF children to only allowed types for a container node.
+// constrainChildren filters ADF children to only the types allowed inside
+// container (an ADF node type such as "listItem", used in issue details).
 // Headings are downgraded to paragraphs (same inline content, different type).
-// Other disallowed containers have their children extracted and recursively constrained.
-// Truly incompatible leaf nodes are skipped with a warning.
-func constrainChildren(children []jira4claude.ADFNode, allowed func(string) bool, skipped *skippedCollector) []jira4claude.ADFNode {
+// Other disallowed containers have their children extracted and recursively
+// constrained; an expand's title is kept as a plain paragraph before its body.
+// Each such change keeps the content but not its form, so it is reported as
+// degraded. Disallowed leaf nodes are skipped and reported as dropped.
+func constrainChildren(children []jira4claude.ADFNode, container string, allowed func(string) bool, skipped *skippedCollector) []jira4claude.ADFNode {
 	var result []jira4claude.ADFNode
 	for _, child := range children {
 		if allowed(child.Type) {
@@ -449,6 +452,7 @@ func constrainChildren(children []jira4claude.ADFNode, allowed func(string) bool
 		}
 		// Downgrade heading → paragraph (preserve inline content)
 		if child.Type == "heading" {
+			skipped.degrade(child.Type, child.Type+" is not allowed inside "+container+"; downgraded to a paragraph")
 			result = append(result, jira4claude.ADFNode{
 				Type:    "paragraph",
 				Content: child.Content,
@@ -457,12 +461,32 @@ func constrainChildren(children []jira4claude.ADFNode, allowed func(string) bool
 		}
 		// Extract content from disallowed containers (blockquote, panel, etc.)
 		if len(child.Content) > 0 {
-			result = append(result, constrainChildren(child.Content, allowed, skipped)...)
+			detail := child.Type + " is not allowed inside " + container + "; unwrapped into its content"
+			if child.Type == "expand" {
+				detail += ", its title kept as a paragraph"
+				if title := expandTitle(child); title != "" {
+					result = append(result, textParagraph(title))
+				}
+			}
+			skipped.degrade(child.Type, detail)
+			result = append(result, constrainChildren(child.Content, container, allowed, skipped)...)
 			continue
 		}
 		skipped.add(child.Type)
 	}
 	return result
+}
+
+// expandTitle returns the trimmed title attribute of an expand node, or ""
+// if it has none.
+func expandTitle(node jira4claude.ADFNode) string {
+	var attrs struct {
+		Title string `json:"title"`
+	}
+	if len(node.Attrs) == 0 || json.Unmarshal(node.Attrs, &attrs) != nil {
+		return ""
+	}
+	return strings.TrimSpace(attrs.Title)
 }
 
 // convertPanelContent converts the children of a blockquote that has been identified

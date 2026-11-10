@@ -1698,8 +1698,13 @@ func TestConverter_ToADF(t *testing.T) {
 		converter := markdown.New()
 		result, warnings := converter.ToADF("> # Heading inside quote")
 
-		// ADF blockquote cannot contain heading — it should be downgraded to paragraph
-		assert.Empty(t, warnings)
+		// ADF blockquote cannot contain heading — it should be downgraded to
+		// paragraph, which keeps the text but not its form: degraded only.
+		assert.Equal(t, []jira4claude.ConversionIssue{{
+			Kind:   jira4claude.ConversionDegraded,
+			Node:   "heading",
+			Detail: "heading is not allowed inside blockquote; downgraded to a paragraph",
+		}}, warnings)
 		requireValidADF(t, result)
 		assert.Equal(t, "doc", result.Type)
 
