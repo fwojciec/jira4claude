@@ -123,6 +123,30 @@ after:  **Bob Jones** (2026-11-08 14:02, id 10042):
 
 Migration: adjust any pattern matching the header.
 
+**Statuses and dates in a description read as tokens.** A status lozenge read
+as bold text and a date as plain text, and writing the description back
+turned them into that text, losing the lozenge's colour and the date's
+timestamp. They are now tokens like mentions, re-attached on write, and the
+token numbers of the nodes after them shift.
+
+```text
+before: Now **IN PROGRESS**, due 2026-11-20. Ping {{mention:1 Jane Doe}}
+after:  Now {{status:1 IN PROGRESS}}, due {{date:2 2026-11-20}}. Ping {{mention:3 Jane Doe}}
+```
+
+Writing a description back now warns, as `degraded`, about the emoji it turns
+into text and the smart links it turns into plain links; a smart link that
+comes back unchanged is restored. An emoji with neither a character nor a
+short name, which read as nothing and was lost on a rewrite, is reported as
+`dropped`, so a rewrite of its description is refused unless `--force`.
+
+Migration: read the description again before editing. Markdown saved from an
+earlier read of a description holding a status or date is refused: it lacks
+their tokens, and its token numbers may name other kinds of node now.
+Keep status and date tokens as you keep mentions; leaving one out is refused
+unless `--force`, and so is `--clear-description` on a description holding
+one.
+
 ### Added
 
 - `issue view KEY...` takes several keys. Text pages are a blank line apart;
@@ -299,3 +323,8 @@ company-managed project.
   check and the write is not caught. Without `--if-updated`, two nodes of the
   same kind that moved between the read and the write are not detected.
 - New images cannot be placed in a description.
+- Rewriting a description changes four kinds of node without a warning: a
+  status becomes bold text, a date becomes text, an emoji becomes its
+  character, and a smart link becomes a plain link. v0.4.0 protects statuses
+  and dates as tokens, restores a smart link that comes back unchanged, and
+  warns about the emoji and smart links a rewrite still changes.

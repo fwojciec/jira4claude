@@ -14,7 +14,8 @@ import (
 )
 
 // Protected nodes (#149): media, mediaSingle, mediaGroup, mediaInline,
-// mention and node types the reader does not know render as numbered tokens,
+// mention, status and date (jir-fajf) and node types the reader does not know
+// render as numbered tokens,
 // and Reattach puts the original nodes back in place of the tokens.
 
 func loadADF(t *testing.T, path string) (*jira4claude.ADFNode, []byte) {
@@ -91,7 +92,11 @@ func TestToMarkdown_ProtectedNodesRenderAsDistinctTokens(t *testing.T) {
 			"{{mediaGroup:2 server.log, client.log}}",
 			"{{mediaInline:3 report.pdf}}",
 		}},
-		{"testdata/inline_nodes.adf.json", []string{"{{mention:1 John Smith}}"}},
+		{"testdata/inline_nodes.adf.json", []string{
+			"{{mention:1 John Smith}}",
+			"{{status:2 IN PROGRESS}}",
+			"{{date:3 2024-04-10}}",
+		}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.fixture, func(t *testing.T) {
@@ -144,15 +149,24 @@ func TestReattach_FixtureIdentity(t *testing.T) {
 		assert.JSONEq(t, string(raw), jsonOf(t, got))
 	})
 
-	t.Run("protected nodes of inline_nodes.adf.json come back identical", func(t *testing.T) {
+	t.Run("protected nodes and the inline card of inline_nodes.adf.json come back identical", func(t *testing.T) {
 		t.Parallel()
 		doc, _ := loadADF(t, "testdata/inline_nodes.adf.json")
 		_, got, issues := readEditWrite(t, doc, nil)
-		assert.Empty(t, issues)
 		want := protectedNodes(doc)
-		require.Len(t, want, 1)
+		require.Len(t, want, 3)
 		assert.Equal(t, jsonOf(t, want), jsonOf(t, protectedNodes(got)))
-		assert.Equal(t, jsonOf(t, doc.Content[0]), jsonOf(t, got.Content[0]), "the mention's paragraph")
+		for i, what := range []string{"the mention's", "", "the inline card's", "the status's", "the date's"} {
+			if what != "" {
+				assert.Equal(t, jsonOf(t, doc.Content[i]), jsonOf(t, got.Content[i]), what+" paragraph")
+			}
+		}
+		// The emoji become text, which is reported; the placeholder, an
+		// editor hint with no content, is left out as it always was.
+		require.Len(t, issues, 1)
+		assert.Equal(t, jira4claude.ConversionDegraded, issues[0].Kind)
+		assert.Equal(t, "emoji", issues[0].Node)
+		assert.Contains(t, issues[0].Detail, "2 emoji become plain text")
 	})
 }
 
@@ -895,7 +909,7 @@ func protectedNodes(doc *jira4claude.ADFNode) []jira4claude.ADFNode {
 	var walk func(n jira4claude.ADFNode)
 	walk = func(n jira4claude.ADFNode) {
 		switch n.Type {
-		case "media", "mediaSingle", "mediaGroup", "mediaInline", "mention",
+		case "media", "mediaSingle", "mediaGroup", "mediaInline", "mention", "status", "date",
 			"extension", "inlineExtension", "bodiedExtension", "multiBodiedExtension", "extensionFrame",
 			"blockCard", "embedCard":
 			out = append(out, n)

@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 	"unicode"
 	"unicode/utf8"
 
@@ -13,12 +14,19 @@ import (
 )
 
 // Protected nodes (#149) are those whose content or behaviour plain text
-// would lose: media, mediaSingle, mediaGroup, mediaInline, mention, and any
-// node type the reader does not know. The reader writes each as a token,
-// numbered in document order:
+// would lose: media, mediaSingle, mediaGroup, mediaInline, mention, status (a
+// lozenge's colour and style), date (a timestamp, of which the text shows
+// only the day), and any node type the reader does not know. The reader
+// writes each as a token, numbered in document order:
 //
 //	{{mediaSingle:1 shot.png}}   a block node, on a line of its own
 //	{{mention:2 Jane Doe}}       an inline node, in the text
+//	{{date:3 2026-11-10}}        a date, labelled with its UTC day
+//
+// Emoji and inline cards are not protected: their content reads as text (the
+// character or :shortName:) and as a link to the card's URL. Reattach
+// reports the write that turns them into text and links, and puts back an
+// inline card whose link can only be that card (see planCards).
 //
 // The word before the colon is the node type and the text after the number
 // is a label; both are for whoever reads the Markdown. Reattach trusts only
@@ -71,6 +79,26 @@ type tokenRegistry struct {
 	// blocks holds the types of the blocks being rendered by adfNodeToGFM,
 	// innermost last, so a block token knows its container.
 	blocks []string
+	// emoji counts the emoji read as text, and cards holds the inline cards
+	// read as links, in document order. Neither is a token: the read keeps
+	// their content in readable form and reports nothing, and Reattach
+	// reports the write that turns them into text and links.
+	emoji int
+	cards []jira4claude.ADFNode
+}
+
+// readEmoji records an emoji read as its text.
+func (s *skippedCollector) readEmoji() {
+	if s != nil && s.tokens != nil {
+		s.tokens.emoji++
+	}
+}
+
+// readCard records an inline card read as a link.
+func (s *skippedCollector) readCard(node *jira4claude.ADFNode) {
+	if s != nil && s.tokens != nil {
+		s.tokens.cards = append(s.tokens.cards, *node)
+	}
 }
 
 // enterBlock and leaveBlock track the block adfNodeToGFM is rendering.
@@ -237,6 +265,10 @@ func tokenLabel(node *jira4claude.ADFNode) string {
 		label = strings.Join(names, ", ")
 	case "media", "mediaInline":
 		label = mediaLabel(node)
+	case "status":
+		label = attrString(node, "text")
+	case "date":
+		label = dateLabel(node)
 	default:
 		label = attrString(node, "text")
 		if label == "" {
@@ -244,6 +276,24 @@ func tokenLabel(node *jira4claude.ADFNode) string {
 		}
 	}
 	return sanitizeLabel(label)
+}
+
+// dateLabel returns the label of a date node: the UTC day of its timestamp,
+// which ADF holds as milliseconds since the epoch, in a string. A timestamp
+// that does not parse, or whose day has no four-digit year, is shown as it
+// is; one that is not a string gives no label. The label is never read back:
+// the node is restored as it was read either way.
+func dateLabel(node *jira4claude.ADFNode) string {
+	ts := attrString(node, "timestamp")
+	ms, err := strconv.ParseInt(ts, 10, 64)
+	if err != nil {
+		return ts
+	}
+	t := time.UnixMilli(ms).UTC()
+	if t.Year() < 0 || t.Year() > 9999 {
+		return ts
+	}
+	return t.Format("2006-01-02")
 }
 
 // mediaLabel returns the alt text of a media node, or its file name.
@@ -520,17 +570,21 @@ func scanTokens(doc *jira4claude.ADFNode, re *regexp.Regexp) []string {
 
 // reattach implements Converter.Reattach.
 func reattach(original, edited *jira4claude.ADFNode) (*jira4claude.ADFNode, []jira4claude.ConversionIssue) {
+	// A nil edited document clears the description: the emoji and inline
+	// cards go with the rest of its text, and are not reported as changing.
+	clearing := edited == nil
 	if original == nil {
 		original = &jira4claude.ADFNode{Type: "doc", Version: 1}
 	}
 	if edited == nil {
 		edited = &jira4claude.ADFNode{Type: "doc", Version: 1, Content: []jira4claude.ADFNode{}}
 	}
-	_, skipped := readDocument(original)
+	md, skipped := readDocument(original)
 	r := &reattacher{
 		re:    tokenPattern(skipped.tokens.salt),
 		nodes: skipped.tokens.nodes,
 		seen:  make([]bool, len(skipped.tokens.nodes)),
+		cards: planCards(skipped.tokens.cards, md, edited),
 	}
 
 	out := *edited
@@ -555,7 +609,146 @@ func reattach(original, edited *jira4claude.ADFNode) (*jira4claude.ADFNode, []ji
 			Existing: true,
 		})
 	}
+	if !clearing {
+		r.reportRichNodes(skipped.tokens.emoji, len(skipped.tokens.cards))
+	}
 	return &out, r.issues
+}
+
+// noLocalID is the localId source of the conversions Reattach makes to
+// compare documents, where localIds play no part.
+func noLocalID(int) string { return "" }
+
+// planCards returns the inline cards of the original document, cards (as
+// the read found them), that Reattach puts back, keyed by the link each reads
+// back as (cardLinkKey). The Markdown of a card is a link whose text is its
+// URL, so a card is put back only where that link can be nothing else: for
+// each such link, the original's unchanged Markdown, md, read back, holds it
+// exactly as many times as there are cards it stands for (no plain link reads
+// the same, and no two cards merged into one link), those cards are the same
+// node, and edited holds it the same number of times. Otherwise the cards of
+// that link stay links, and Reattach reports them.
+func planCards(cards []jira4claude.ADFNode, md string, edited *jira4claude.ADFNode) map[string]jira4claude.ADFNode {
+	if len(cards) == 0 || edited == nil {
+		return nil
+	}
+	type group struct {
+		card jira4claude.ADFNode
+		n    int
+		same bool
+	}
+	groups := make(map[string]*group)
+	for i := range cards {
+		key := cardKey(&cards[i])
+		if key == "" {
+			continue
+		}
+		g := groups[key]
+		if g == nil {
+			groups[key] = &group{card: cards[i], n: 1, same: true}
+			continue
+		}
+		g.n++
+		g.same = g.same && nodeJSON(&g.card) == nodeJSON(&cards[i])
+	}
+	if len(groups) == 0 {
+		return nil
+	}
+	ref, _ := toADF(md, noLocalID)
+	read, written := countCardLinks(ref), countCardLinks(edited)
+	plan := make(map[string]jira4claude.ADFNode)
+	for key, g := range groups {
+		if g.same && read[key] == g.n && written[key] == g.n {
+			plan[key] = g.card
+		}
+	}
+	return plan
+}
+
+// cardKey returns the key (cardLinkKey) of the link an inline card's
+// Markdown reads back as on its own, or "" when that is not a single link
+// whose text is the card's URL.
+func cardKey(card *jira4claude.ADFNode) string {
+	url := inlineCardURL(card)
+	doc, _ := toADF(adfInlineCardToGFM(card, true, nil), noLocalID)
+	if len(doc.Content) != 1 || doc.Content[0].Type != "paragraph" || len(doc.Content[0].Content) != 1 {
+		return ""
+	}
+	link := doc.Content[0].Content[0]
+	if link.Text != url {
+		return ""
+	}
+	return cardLinkKey(&link)
+}
+
+// cardLinkKey returns a key that identifies n if n is text carrying a link
+// and no other mark, or "".
+func cardLinkKey(n *jira4claude.ADFNode) string {
+	if n.Type != "text" || len(n.Marks) != 1 || n.Marks[0].Type != "link" {
+		return ""
+	}
+	return nodeJSON(n)
+}
+
+// nodeJSON returns n as JSON, or "" when it cannot be encoded.
+func nodeJSON(n *jira4claude.ADFNode) string {
+	data, err := json.Marshal(n)
+	if err != nil {
+		return ""
+	}
+	return string(data)
+}
+
+// countCardLinks counts the text of doc outside code blocks by cardLinkKey.
+func countCardLinks(doc *jira4claude.ADFNode) map[string]int {
+	counts := make(map[string]int)
+	var walk func(nodes []jira4claude.ADFNode)
+	walk = func(nodes []jira4claude.ADFNode) {
+		for i := range nodes {
+			if key := cardLinkKey(&nodes[i]); key != "" {
+				counts[key]++
+			}
+			if nodes[i].Type != "codeBlock" {
+				walk(nodes[i].Content)
+			}
+		}
+	}
+	walk(doc.Content)
+	return counts
+}
+
+// reportRichNodes reports, as degraded, the emoji and the inline cards of the
+// original document that the read kept in readable form and that the result
+// holds as text and links: the original held emoji emoji and cards inline
+// cards, and r.restored of the cards were put back. The content is kept, as
+// far as the edit kept it; the node type is not.
+func (r *reattacher) reportRichNodes(emoji, cards int) {
+	if emoji > 0 {
+		verb := "become"
+		if emoji == 1 {
+			verb = "becomes"
+		}
+		r.issues = append(r.issues, jira4claude.ConversionIssue{
+			Kind: jira4claude.ConversionDegraded,
+			Node: "emoji",
+			Detail: fmt.Sprintf("%d emoji %s plain text: Markdown has no emoji, "+
+				"so each is written as its character or :shortName:", emoji, verb),
+			Existing: true,
+		})
+	}
+	if lost := cards - r.restored; lost > 0 {
+		what := fmt.Sprintf("%d smart links become plain links", lost)
+		if lost == 1 {
+			what = "1 smart link becomes a plain link"
+		}
+		r.issues = append(r.issues, jira4claude.ConversionIssue{
+			Kind: jira4claude.ConversionDegraded,
+			Node: "inlineCard",
+			Detail: what + ": an inline card is put back only where its link comes back " +
+				"unchanged, its URL as its text, and no other link in the text reads the same",
+			Existing: true,
+		})
+	}
 }
 
 // reattacher replaces tokens in an edited document by original nodes.
@@ -564,6 +757,10 @@ type reattacher struct {
 	nodes  []protectedNode
 	seen   []bool // nodes whose token was met
 	issues []jira4claude.ConversionIssue
+	// cards maps the link a restorable inline card reads back as (see
+	// planCards) to the card; restored counts the cards put back.
+	cards    map[string]jira4claude.ADFNode
+	restored int
 }
 
 // piece is a node of rewritten inline content; block marks a restored block
@@ -852,6 +1049,13 @@ func (r *reattacher) run(nodes []jira4claude.ADFNode, container string, mode blo
 			}
 			part := nodes[k]
 			part.Text = nodes[k].Text[lo-starts[k] : hi-starts[k]]
+			if lo == starts[k] && hi == starts[k]+len(nodes[k].Text) {
+				// A whole node, not a part a token split off.
+				if card, ok := r.cards[cardLinkKey(&part)]; ok {
+					r.restored++
+					part = cloneNode(card)
+				}
+			}
 			out = append(out, piece{node: part})
 		}
 	}

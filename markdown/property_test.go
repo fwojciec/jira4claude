@@ -331,8 +331,10 @@ func FuzzToADFFixedPoint(f *testing.F) {
 
 // P3, protected nodes (#149): for an ADF document, ADF -> Markdown -> ADF
 // followed by Reattach against the original gives back every protected node
-// (media, mention, extension, ...) unchanged and in order, and Reattach
-// reports nothing. Unprotected nodes may change form. A difference is excused
+// (media, mention, status, date, extension, ...) unchanged and in order, and
+// Reattach reports nothing but emoji and inline cards that become text and
+// links. Other unprotected nodes may change form; a change in the number of
+// emoji or inline cards must be reported (jir-fajf). A difference is excused
 // only when the read itself reports a dropped node, the reader saying "this
 // does not round-trip". The fixture identity for media.adf.json (the whole
 // document comes back identical) is TestReattach_FixtureIdentity.
@@ -349,6 +351,23 @@ var reattachSeeds = []string{
 		`{"type":"paragraph","content":[{"type":"text","text":"x"}]},{"type":"mediaSingle","content":[{"type":"media","attrs":{"id":"m","type":"file","collection":"c"}}]}]}]}]}]}`,
 	// Found by fuzzing: an unknown block that is all of a task item.
 	`{"type":"doc","version":1,"content":[{"type":"taskList","attrs":{"localId":"l"},"content":[{"type":"taskItem","attrs":{"localId":"i","state":"TODO"},"content":[{"type":"futureBlock"}]}]}]}`,
+	// Status and date tokens (jir-fajf) in a heading, a table cell and a task
+	// item, next to marks, links and each other, with literal token text.
+	`{"type":"doc","version":1,"content":[{"type":"heading","attrs":{"level":1},"content":[` +
+		`{"type":"status","attrs":{"text":"*DONE*","color":"green","localId":"s"}},{"type":"date","attrs":{"timestamp":"0"}}]},` +
+		`{"type":"paragraph","content":[{"type":"text","text":"x","marks":[{"type":"strong"}]},` +
+		`{"type":"date","attrs":{"timestamp":"1762732800000"}},{"type":"text","text":"y {{status:1 a}}","marks":[{"type":"link","attrs":{"href":"https://a.test"}}]}]},` +
+		`{"type":"table","content":[{"type":"tableRow","content":[{"type":"tableCell","content":[` +
+		`{"type":"paragraph","content":[{"type":"status","attrs":{"text":"Blocked","color":"red"}}]}]}]}]},` +
+		`{"type":"taskList","attrs":{"localId":"l"},"content":[{"type":"taskItem","attrs":{"localId":"i","state":"TODO"},"content":[` +
+		`{"type":"text","text":"due "},{"type":"date","attrs":{"timestamp":"x"}}]}]}]}`,
+	// Emoji and inline cards beside links that read the same.
+	`{"type":"doc","version":1,"content":[{"type":"paragraph","content":[` +
+		`{"type":"emoji","attrs":{"shortName":":a:","text":"😄"}},{"type":"inlineCard","attrs":{"url":"https://a.test"}},` +
+		`{"type":"text","text":" "},{"type":"inlineCard","attrs":{"url":"https://a.test"}},{"type":"text","text":" "},` +
+		`{"type":"text","text":"https://a.test","marks":[{"type":"link","attrs":{"href":"https://a.test"}}]}]},` +
+		`{"type":"heading","attrs":{"level":2},"content":[{"type":"inlineCard","attrs":{"url":"https://b.test/x_y"}},` +
+		`{"type":"emoji","attrs":{"shortName":":custom:"}}]}]}`,
 }
 
 func checkReattach(data []byte) string {
@@ -379,12 +398,57 @@ func checkReattach(data []byte) string {
 		return ""
 	}
 	want, have := mustJSON(protectedNodes(&doc)), mustJSON(protectedNodes(got))
-	if len(issues) == 0 && want == have {
-		return ""
+	if want != have || !onlyRichNodeIssues(issues) {
+		return fmt.Sprintf("protected nodes do not survive ADF -> Markdown -> ADF with Reattach\n"+
+			"input:  %s\nread:   %q\nissues: %v\nwant:   %s\nhave:   %s",
+			data, md, issueStrings(issues), want, have)
 	}
-	return fmt.Sprintf("protected nodes do not survive ADF -> Markdown -> ADF with Reattach\n"+
-		"input:  %s\nread:   %q\nissues: %v\nwant:   %s\nhave:   %s",
-		data, md, issueStrings(issues), want, have)
+	// Emoji and inline cards are not protected; a write that turns one into
+	// text or a link must say so (jir-fajf).
+	for _, nodeType := range []string{"emoji", "inlineCard"} {
+		// Protected nodes are restored whole (checked above), so the nodes
+		// inside them count the same on both sides.
+		before, after := countNodes(&doc, nodeType), countNodes(got, nodeType)
+		if after != before && !hasIssueFor(issues, nodeType) {
+			return fmt.Sprintf("%s nodes change on an unchanged rewrite without a report (%d before, %d after)\n"+
+				"input:  %s\nread:   %q\nissues: %v\nhave:   %s",
+				nodeType, before, after, data, md, issueStrings(issues), mustJSON(got))
+		}
+	}
+	return ""
+}
+
+// onlyRichNodeIssues reports whether every issue of a Reattach is the
+// degraded report of emoji or inline cards that the write turns into text and
+// links.
+func onlyRichNodeIssues(issues []jira4claude.ConversionIssue) bool {
+	for _, i := range issues {
+		if i.Kind != jira4claude.ConversionDegraded || (i.Node != "emoji" && i.Node != "inlineCard") {
+			return false
+		}
+	}
+	return true
+}
+
+func hasIssueFor(issues []jira4claude.ConversionIssue, node string) bool {
+	for _, i := range issues {
+		if i.Node == node {
+			return true
+		}
+	}
+	return false
+}
+
+// countNodes counts the nodes of type nodeType in doc.
+func countNodes(doc *jira4claude.ADFNode, nodeType string) int {
+	n := 0
+	if doc.Type == nodeType {
+		n++
+	}
+	for i := range doc.Content {
+		n += countNodes(&doc.Content[i], nodeType)
+	}
+	return n
 }
 
 // hasUnreadStructure reports whether doc holds content the reader never

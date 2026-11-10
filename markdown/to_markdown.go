@@ -6,7 +6,6 @@ import (
 	"slices"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/fwojciec/jira4claude"
 )
@@ -858,13 +857,13 @@ func joinInline(items []jira4claude.ADFNode, texts []string, singleLine bool, sk
 }
 
 // emittingInline returns the inline nodes that produce output, in order.
-// Nodes whose output is a plain label (mention, emoji, date, status) become
-// text nodes holding that label, so it is escaped like any other text; a
-// status keeps its bold. Protected nodes (mention, mediaInline and inline
-// nodes this reader does not know) become token items (tokenItemType), which
-// hold their own Markdown and are never merged with text. Nodes that emit
-// nothing are left out, and an inlineCard without a URL is recorded as
-// dropped.
+// An emoji becomes a text node holding its character or :shortName:, so it is
+// escaped like any other text; the registry counts it, so that Reattach can
+// report the write that turns it into text. Protected nodes (mention, status,
+// date, mediaInline and inline nodes this reader does not know) become token
+// items (tokenItemType), which hold their own Markdown and are never merged
+// with text. Nodes that emit nothing are left out; an emoji with no text and
+// an inlineCard without a URL are recorded as dropped.
 func emittingInline(content []jira4claude.ADFNode, skipped *skippedCollector) []jira4claude.ADFNode {
 	items := make([]jira4claude.ADFNode, 0, len(content))
 	// label appends text, merging it into the previous item when that is
@@ -895,13 +894,17 @@ func emittingInline(content []jira4claude.ADFNode, skipped *skippedCollector) []
 		case "hardBreak":
 			items = append(items, *child)
 		case "emoji":
-			label(adfEmojiToGFM(child), nil)
-		case "date":
-			label(adfDateToGFM(child), nil)
-		case "status":
-			label(adfStatusToGFM(child), []jira4claude.ADFMark{{Type: "strong"}})
+			text := adfEmojiToGFM(child)
+			switch {
+			case text != "":
+				skipped.readEmoji()
+				label(text, nil)
+			case skipped != nil:
+				skipped.add("emoji")
+			}
 		case "inlineCard":
 			if inlineCardURL(child) != "" {
+				skipped.readCard(child)
 				items = append(items, *child)
 			} else if skipped != nil {
 				skipped.add("inlineCard")
@@ -1051,37 +1054,4 @@ func adfInlineCardToGFM(node *jira4claude.ADFNode, lineStart bool, skipped *skip
 		skipped.degrade("inlineCard", hrefDetail)
 	}
 	return bracketedLink(url, url, lineStart)
-}
-
-// adfStatusToGFM returns the label of an ADF status node, which is read out
-// in bold.
-func adfStatusToGFM(node *jira4claude.ADFNode) string {
-	if node.Attrs == nil {
-		return ""
-	}
-	var attrs map[string]any
-	if err := json.Unmarshal(node.Attrs, &attrs); err != nil {
-		return ""
-	}
-	text, _ := attrs["text"].(string)
-	return text
-}
-
-// adfDateToGFM converts an ADF date node to a human-readable date string.
-func adfDateToGFM(node *jira4claude.ADFNode) string {
-	if node.Attrs == nil {
-		return ""
-	}
-	var attrs map[string]any
-	if err := json.Unmarshal(node.Attrs, &attrs); err != nil {
-		return ""
-	}
-	if ts, ok := attrs["timestamp"].(string); ok && ts != "" {
-		ms, err := strconv.ParseInt(ts, 10, 64)
-		if err != nil {
-			return ts
-		}
-		return time.UnixMilli(ms).UTC().Format("2006-01-02")
-	}
-	return ""
 }

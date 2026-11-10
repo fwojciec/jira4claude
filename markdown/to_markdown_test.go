@@ -1784,7 +1784,7 @@ func TestConverter_ToMarkdown(t *testing.T) {
 		assert.Equal(t, "See [https://jira.example.com/browse/PROJ-123](https://jira.example.com/browse/PROJ-123) for details.", result)
 	})
 
-	t.Run("converts status to bold text", func(t *testing.T) {
+	t.Run("converts status to a token labelled with its text", func(t *testing.T) {
 		t.Parallel()
 
 		converter := markdown.New()
@@ -1808,10 +1808,10 @@ func TestConverter_ToMarkdown(t *testing.T) {
 		result, warnings := converter.ToMarkdown(adfDoc)
 
 		assert.Empty(t, warnings)
-		assert.Equal(t, "Status: **IN PROGRESS**", result)
+		assert.Equal(t, "Status: {{status:1 IN PROGRESS}}", result)
 	})
 
-	t.Run("converts date to human-readable format", func(t *testing.T) {
+	t.Run("converts date to a token labelled with its UTC day", func(t *testing.T) {
 		t.Parallel()
 
 		converter := markdown.New()
@@ -1835,7 +1835,7 @@ func TestConverter_ToMarkdown(t *testing.T) {
 		result, warnings := converter.ToMarkdown(adfDoc)
 
 		assert.Empty(t, warnings)
-		assert.Equal(t, "Due: 2024-04-10", result)
+		assert.Equal(t, "Due: {{date:1 2024-04-10}}", result)
 	})
 
 	t.Run("drops placeholder silently", func(t *testing.T) {

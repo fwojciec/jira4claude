@@ -26,8 +26,10 @@ as Markdown; the tool converts them to and from Jira's document format.
   printed), and `issue assign` whose read-back failed.
 - **A write that would lose content is refused**, with exit 1 and nothing
   written, unless you pass `--force`. This covers Markdown that has no Jira
-  form (an image), existing images and mentions left out of an edited
-  description, and existing content the tool cannot show as Markdown.
+  form (an image), existing images, mentions, statuses and dates left out of
+  an edited description, and existing content the tool cannot show as
+  Markdown. Emoji and smart links that a rewrite turns into text and plain
+  links are reported as warnings.
 - **Every write prints what it did**: the key, the action, each field's old and
   new value, and the issue's `updated` time after an update.
 
@@ -643,18 +645,23 @@ Sessions expire after 5 minutes. Screenshot:
 
 Ping {{mention:2 Jane Doe}} before merging.
 
+Now {{status:3 In Review}}, due {{date:4 2026-11-20}} 🚀
+
 Logs at &#104;ttps://logs.example.test/run/42
 
 &#32;Indented by one space in Jira.
 ```
 
-**Tokens.** Images and other media, mentions, and node types the reader does
-not know are each written as a token `{{kind:number label}}`, numbered in
-document order. A block token such as `{{mediaSingle:1 shot.png}}` stands on a
-line of its own; an inline token such as `{{mention:2 Jane Doe}}` sits in the
-text. When you write the description back with `issue update --description`
-or `--description-file`, each token is replaced by the original node,
-unchanged. Rules:
+**Tokens.** Images and other media, mentions, status lozenges, dates, and
+node types the reader does not know are each written as a token
+`{{kind:number label}}`, numbered in document order. A block token such as
+`{{mediaSingle:1 shot.png}}` stands on a line of its own; an inline token such
+as `{{mention:2 Jane Doe}}` sits in the text. A status is labelled with its
+text and a date with its day in UTC (`{{date:4 2026-11-20}}`); the colour of
+a status and the exact timestamp of a date live in the node, not the label.
+When you write the description back with `issue update --description` or
+`--description-file`, each token is replaced by the original node, unchanged.
+Rules:
 
 - Keep each token exactly as printed. The number and the kind are checked; the
   label is only for reading and is ignored.
@@ -679,6 +686,14 @@ Template text: {{mention:1 x}} and {{!mention:1 Jane Doe}}
 
 Here `{{mention:1 x}}` is text in Jira and `{{!mention:1 Jane Doe}}` is the
 token. Keep the `!`.
+
+**Emoji and smart links.** An emoji reads as its character (or `:shortname:`
+for a custom one) and a smart link (inline card) as a link whose text is its
+URL. They are not tokens. Writing the description back turns each emoji into
+plain text, reported as one `degraded` warning with the count (`2 emoji become
+plain text`). A smart link is restored when its link comes back unchanged, URL
+as its text, and no other link in the description reads the same; any other
+becomes a plain link, also reported as `degraded`.
 
 **Character references.** Text is escaped only where Markdown would otherwise
 change it, so that writing back what you read leaves Jira's text exactly as it
@@ -708,7 +723,7 @@ Every refusal writes nothing. Each error message says what to do.
 | New Markdown has no Jira form, for example an image: `description would drop unsupported content (Image)` | 1 | Remove it, or pass `--force` to write without it. An image can be attached with `attachment upload`, but not placed in the text. |
 | A token from the current description is missing: `description would lose existing content ({{mention:2 Jane Doe}})` | 1 | Put the token back, unchanged (a block token on its own line). Pass `--force` to delete the node on purpose. |
 | The current description holds content with no Markdown form: `rewriting the description would remove existing content that has no Markdown form` | 1 | Use `--append-description`, which keeps the existing content. `--force` deletes it. |
-| `--clear-description` on a description with images or mentions | 1 | Pass `--force` to clear it anyway. |
+| `--clear-description` on a description with tokens (images, mentions, statuses, dates) | 1 | Pass `--force` to clear it anyway. |
 | `--if-updated` does not match: `PROJ-123 was updated at ..., not at ...` | 5 | Read the issue again and redo the edit on the current text. |
 | `--field-json` names a field a typed flag also sets: `--field-json priority and --priority both set priority` | 1 | Give one of them. |
 | `--field-json description=...` | 1 | Use `--description` or `--description-file`. |

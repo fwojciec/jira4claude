@@ -107,10 +107,12 @@ type Converter interface {
 	// If adf is nil, returns an empty string.
 	//
 	// Protected nodes, whose content or behaviour plain text would lose
-	// (media, mediaSingle, mediaGroup, mediaInline, mention, and node types
-	// the converter does not know), are written as tokens numbered in
-	// document order, such as {{mention:2 Jane Doe}}. The label after the
-	// number is for the reader only.
+	// (media, mediaSingle, mediaGroup, mediaInline, mention, status, date,
+	// and node types the converter does not know), are written as tokens
+	// numbered in document order, such as {{mention:2 Jane Doe}}. The label
+	// after the number is for the reader only. Emoji and inline cards are
+	// written as their text and as links; reading reports nothing about
+	// them.
 	ToMarkdown(adf *ADFNode) (string, []ConversionIssue)
 
 	// Reattach puts protected nodes back into an edited document. original
@@ -133,6 +135,12 @@ type Converter interface {
 	// Content of original that ToMarkdown reports as dropped has no token, so
 	// no edit keeps it: each is reported again as ConversionDropped with
 	// Existing set.
+	//
+	// Emoji and inline cards of original that the result holds as text and
+	// plain links are reported as ConversionDegraded with Existing set, one
+	// issue per node type with the count. An inline card whose link comes
+	// back in a form only that card can take is restored instead. A nil
+	// edited (a clear) reports neither.
 	//
 	// edited is not modified. A nil document counts as an empty one. Always
 	// returns a non-nil *ADFNode.

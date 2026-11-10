@@ -394,6 +394,91 @@ func TestRun_IssueUpdateReattachesDescription(t *testing.T) {
 	})
 }
 
+// richNodeIssue returns an issue whose description holds an emoji, a date,
+// a status and an inline card (jir-fajf).
+func richNodeIssue() *jira4claude.Issue {
+	issue := guardedIssue()
+	issue.Description = &jira4claude.ADFNode{Type: "doc", Version: 1, Content: []jira4claude.ADFNode{
+		{Type: "paragraph", Content: []jira4claude.ADFNode{
+			{Type: "text", Text: "Ship it "},
+			{Type: "emoji", Attrs: json.RawMessage(`{"shortName":":rocket:","id":"1f680","text":"🚀"}`)},
+			{Type: "text", Text: " on "},
+			{Type: "date", Attrs: json.RawMessage(`{"timestamp":"1762732800000"}`)},
+			{Type: "text", Text: ", now "},
+			{Type: "status", Attrs: json.RawMessage(`{"text":"In Progress","color":"blue","localId":"s1"}`)},
+			{Type: "text", Text: ". See "},
+			{Type: "inlineCard", Attrs: json.RawMessage(`{"url":"https://test.atlassian.net/browse/TEST-2"}`)},
+			{Type: "text", Text: "."},
+		}},
+	}}
+	return issue
+}
+
+func TestRun_IssueUpdateRichNodes(t *testing.T) {
+	t.Parallel()
+
+	read := func(t *testing.T) string {
+		t.Helper()
+		res := runCLI(t, testDeps(newGuardedService(richNodeIssue()), &mock.UserService{}),
+			"issue", "view", "TEST-1", "--field", "description")
+		require.Equal(t, 0, res.code, "stderr: %s", res.stderr)
+		assert.Empty(t, res.stderr, "a read reports nothing")
+		return res.stdout
+	}
+
+	t.Run("the description reads with status and date tokens", func(t *testing.T) {
+		t.Parallel()
+		assert.Equal(t, "Ship it 🚀 on {{date:1 2025-11-10}}, now {{status:2 In Progress}}. "+
+			"See [https://test.atlassian.net/browse/TEST-2](https://test.atlassian.net/browse/TEST-2).\n", read(t))
+	})
+
+	t.Run("an edited rewrite keeps the date, status and card, and warns about the emoji", func(t *testing.T) {
+		t.Parallel()
+		edited := strings.Replace(read(t), "Ship it", "Ship this", 1)
+		svc := newGuardedService(richNodeIssue())
+
+		res := runCLIStdin(t, testDeps(svc, &mock.UserService{}), edited,
+			"--json", "issue", "update", "TEST-1", "--description-file", "-")
+
+		require.Equal(t, 0, res.code, "stderr: %s", res.stderr)
+		assert.Contains(t, res.stderr, `"kind":"degraded","node":"emoji","detail":"1 emoji becomes plain text`)
+		assert.Equal(t, 1, strings.Count(res.stderr, "\n"), "one warning, nothing about the date, status or card: %s", res.stderr)
+		assert.NotContains(t, res.stdout, "removed")
+		orig := richNodeIssue().Description.Content[0].Content
+		para := svc.Sent().Description.Document().Content[0].Content
+		require.Len(t, para, 7)
+		assert.Equal(t, "Ship this 🚀 on ", para[0].Text)
+		assert.Equal(t, marshal(t, orig[3]), marshal(t, para[1]), "date")
+		assert.Equal(t, marshal(t, orig[5]), marshal(t, para[3]), "status")
+		assert.Equal(t, marshal(t, orig[7]), marshal(t, para[5]), "inline card")
+	})
+
+	t.Run("--dry-run warns the same way and writes nothing", func(t *testing.T) {
+		t.Parallel()
+		svc := newGuardedService(richNodeIssue())
+
+		res := runCLIStdin(t, testDeps(svc, &mock.UserService{}), read(t),
+			"issue", "update", "TEST-1", "--description-file", "-", "--dry-run")
+
+		require.Equal(t, 0, res.code, "stderr: %s", res.stderr)
+		assert.Contains(t, res.stderr, "[warn] degraded emoji: 1 emoji becomes plain text")
+		assert.Equal(t, []string{"get TEST-1"}, svc.Calls())
+	})
+
+	t.Run("a rewrite without the date token is refused", func(t *testing.T) {
+		t.Parallel()
+		svc := newGuardedService(richNodeIssue())
+
+		res := runCLIStdin(t, testDeps(svc, &mock.UserService{}), "Ship it on Monday.",
+			"issue", "update", "TEST-1", "--description-file", "-")
+
+		assert.Equal(t, 1, res.code)
+		assert.Contains(t, res.stderr, "{{date:1 2025-11-10}}")
+		assert.Contains(t, res.stderr, "{{status:2 In Progress}}")
+		assert.Equal(t, []string{"get TEST-1"}, svc.Calls())
+	})
+}
+
 // readLossIssue returns an issue whose description holds content the read
 // reports as dropped: a smart link without a URL, and a paragraph directly in
 // a task list. Neither has a Markdown form, so no edit can keep them.

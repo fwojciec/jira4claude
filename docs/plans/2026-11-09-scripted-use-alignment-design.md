@@ -65,7 +65,7 @@ trap, it is on Jira's side.
 | Default output | Breaking output changes allowed, shipped together in one release (milestone 2) | Approved |
 | Lossy writes | Refuse by default; `--force` overrides | Approved |
 | Attachments | List, download, upload first; new embeds are a follow-up | Approved |
-| What counts as lossy | Content or behaviour would be lost (media, mentions, unknown nodes). A node that changes type but keeps its content (emoji, status, date, inline card) only warns | Proposed |
+| What counts as lossy | Content or behaviour would be lost (media, mentions, unknown nodes). A node that changes type but keeps its content (emoji, inline card) only warns. Status and date carry data their text does not, so they are protected (jir-fajf) | Proposed |
 | Removing an existing rich node | Counts as lossy: refused unless `--force`, because the tool cannot tell a deliberate deletion from a script that never read the ticket | Proposed |
 | Milestone 1 release | Ships on its own. It also breaks scripts (refusals, the `""` error), but the fixes should not wait for milestone 2 | Proposed |
 | Refactors | No standalone refactor milestone. Each lands inside the fix that needs it, test seam first | Proposed |
@@ -153,12 +153,13 @@ explicit four-step sequence, designed as one unit with the concurrency guard:
 
 Re-attachment works on **protected nodes**: those where plain text would lose
 content or behaviour (`media`, `mediaSingle`, `mediaGroup`, `mediaInline`,
-`mention`, and any node type the reader does not know).
+`mention`, and any node type the reader does not know; `status` and `date`
+since jir-fajf).
 
 - **Read side changes.** Today these render as text that is indistinguishable from prose (`@John Doe`, `[image: shot.png]`), or not at all (extensions are skipped). Each protected node will render as a unique token that survives conversion as plain text, numbered in document order, for example `{{media:1 shot.png}}` and `{{mention:2 John Doe}}`. The exact syntax is an implementation choice; uniqueness is the requirement.
 - **Write side.** Each token still present in the new text is replaced by the original node, verbatim.
 - **A token that is missing from the new text is a loss.** The write is refused unless `--force`, and the error names the missing nodes. This covers the script that writes a fresh description without reading first.
-- **Unprotected rich nodes** (`emoji`, `status`, `date`, `inlineCard`) keep their current readable rendering and come back as text or links. That is reported as `degraded`.
+- **Unprotected rich nodes** (`emoji`, `status`, `date`, `inlineCard`) keep their current readable rendering and come back as text or links. That is reported as `degraded`. (Revised as built, jir-fajf: `status` and `date` became protected; see below.)
 
 Consequences:
 
@@ -183,6 +184,11 @@ As built (#149, #150):
 - **Create, comment and append** have no original document. Token text there is written as plain text and reported as `degraded` (`Converter.FindTokens`).
 - **`--if-updated`** is honoured on every update, accepts RFC 3339 and Jira's own form, and compares instants at millisecond precision. Only `updated` gained milliseconds in the JSON view.
 - **Step 4** came with the mutation results of milestone 2 (jir-mi82): every update now reads first; the result reports the `updated` time Jira holds after the write, and `removed` names what `--force` deleted. Without `--if-updated`, nodes of the same kind that moved between read and write are still not detected.
+- **Unprotected rich nodes (jir-fajf).** The bullet above about `emoji`, `status`, `date` and `inlineCard` did not hold as built: all four came back as text or a plain link with no issue on read, write or re-attach. The rule now, per type:
+  - `status` and `date` are protected nodes: the text cannot carry a lozenge's colour and style or a date's timestamp. They read as `{{status:2 In Progress}}` and `{{date:3 2026-11-10}}` and follow every token rule. The date label is the timestamp's UTC day; a timestamp that does not parse, or falls outside four-digit years, is shown raw, one that is not a string gives no label. The label is never read back.
+  - `emoji` reads as its character or `:shortName:`, and the read reports nothing. `Reattach` reports a write over a document holding N emoji as one `degraded` issue, `Existing`, "N emoji become plain text". Emoji are not restored: the text merges with its neighbours, so a match is a substring search that overlapping short names, grapheme sequences and marks make unsafe. An emoji with neither text nor short name has no readable form and is `dropped` on read.
+  - `inlineCard` reads as a link whose text is its URL. `Reattach` puts a card back when its link can only be that card: the link, as the card's own Markdown reads back, appears in the original's unchanged read exactly as many times as there are cards with that link (no plain link reads the same, no adjacent cards merged), those cards are identical nodes, the edited document holds that link (text and href, no other mark) the same number of times, and the link is a whole text node. The rest are reported as one `degraded` issue, `Existing`, "N smart links become plain links". A card without a URL is still `dropped` on read.
+  - Emoji and cards inside a tokenised node are restored with it and not counted. A clear reports neither. Append converts no existing content, and create and comment have no original.
 
 #### 1.5 Retry policy (F7)
 

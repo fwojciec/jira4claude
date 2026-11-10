@@ -699,15 +699,11 @@ func TestRoundTrip_InlineNodeLabels(t *testing.T) {
 	t.Parallel()
 
 	labels := []string{"A &amp; B", "*x*", "a_b_ _c_", `a\*b`, "<b>bold</b>", "~~x~~", "[x](y)", "`c`"}
-	strong := []jira4claude.ADFMark{{Type: "strong"}}
-
 	type kind struct {
 		name string
 		node func(label string) jira4claude.ADFNode
-		// text is the label as written back, marks what main gives a
-		// harmless label.
-		text  func(label string) string
-		marks []jira4claude.ADFMark
+		// text is the paragraph as written back, all of it unmarked.
+		text func(label string) string
 	}
 	attrs := func(m map[string]any) []byte {
 		b, err := json.Marshal(m)
@@ -720,8 +716,8 @@ func TestRoundTrip_InlineNodeLabels(t *testing.T) {
 			node: func(l string) jira4claude.ADFNode {
 				return jira4claude.ADFNode{Type: "status", Attrs: attrs(map[string]any{"text": l})}
 			},
-			text:  func(l string) string { return l },
-			marks: strong,
+			// A status reads as a token (jir-fajf); Reattach turns it back.
+			text: func(l string) string { return "see {{status:1 " + l + "}} now" },
 		},
 		{
 			name: "mention",
@@ -752,11 +748,8 @@ func TestRoundTrip_InlineNodeLabels(t *testing.T) {
 			t.Run(k.name+"/"+label, func(t *testing.T) {
 				t.Parallel()
 
-				inline := []jira4claude.ADFNode{k.node(label)}
-				if k.name != "status" {
-					inline = []jira4claude.ADFNode{
-						{Type: "text", Text: "see "}, k.node(label), {Type: "text", Text: " now"},
-					}
+				inline := []jira4claude.ADFNode{
+					{Type: "text", Text: "see "}, k.node(label), {Type: "text", Text: " now"},
 				}
 
 				converter := markdown.New()
@@ -766,11 +759,7 @@ func TestRoundTrip_InlineNodeLabels(t *testing.T) {
 				var got string
 				for _, n := range result.Content[0].Content {
 					got += n.Text
-					if k.marks == nil {
-						assert.Empty(t, n.Marks, "markdown was %q", md)
-					} else {
-						assert.Equal(t, k.marks, n.Marks, "markdown was %q", md)
-					}
+					assert.Empty(t, n.Marks, "markdown was %q", md)
 				}
 				assert.Equal(t, k.text(label), got, "markdown was %q", md)
 			})
