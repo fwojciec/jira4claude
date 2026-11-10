@@ -583,6 +583,63 @@ func TestRoundTrip_HardBreaksInContainers(t *testing.T) {
 	}
 }
 
+func TestRoundTrip_HardBreaksInListTaskAndQuote(t *testing.T) {
+	t.Parallel()
+
+	doc := func(block jira4claude.ADFNode) jira4claude.ADFNode {
+		return jira4claude.ADFNode{Type: "doc", Version: 1, Content: []jira4claude.ADFNode{block}}
+	}
+	para := func(inline ...jira4claude.ADFNode) jira4claude.ADFNode {
+		return jira4claude.ADFNode{Type: "paragraph", Content: inline}
+	}
+
+	tests := []struct {
+		name     string
+		original func(t *testing.T) jira4claude.ADFNode
+	}{
+		{"list item paragraph", func(t *testing.T) jira4claude.ADFNode {
+			return doc(jira4claude.ADFNode{Type: "bulletList", Content: []jira4claude.ADFNode{
+				{Type: "listItem", Content: []jira4claude.ADFNode{
+					para(txt("first"), hardBreak(), txt("second")),
+					para(txt("after")),
+				}},
+				{Type: "listItem", Content: []jira4claude.ADFNode{para(txt("next item"))}},
+			}})
+		}},
+		{"task item with task-looking text after a break", func(t *testing.T) jira4claude.ADFNode {
+			return doc(taskList(
+				taskItem(t, "TODO", txt("task"), hardBreak(), txt("- [x] example")),
+				taskItem(t, "DONE", txt("other")),
+			))
+		}},
+		{"task item with two consecutive breaks", func(t *testing.T) jira4claude.ADFNode {
+			return doc(taskList(taskItem(t, "TODO", txt("a"), hardBreak(), hardBreak(), txt("b"))))
+		}},
+		{"blockquote with quote-looking text after a break", func(t *testing.T) jira4claude.ADFNode {
+			return doc(jira4claude.ADFNode{Type: "blockquote", Content: []jira4claude.ADFNode{
+				para(txt("quoted"), hardBreak(), txt("> nested")),
+			}})
+		}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			original := tt.original(t)
+
+			converter := markdown.New()
+			md, w1 := converter.ToMarkdown(&original)
+			assert.Empty(t, w1)
+
+			result, w2 := converter.ToADF(md)
+			assert.Empty(t, w2)
+			requireValidADF(t, result)
+			assert.Equal(t, original, stripLocalIDs(t, *result), "markdown was %q", md)
+		})
+	}
+}
+
 func TestToMarkdown_HardBreakWithoutMarkdownForm(t *testing.T) {
 	t.Parallel()
 
