@@ -630,7 +630,9 @@ func escapeTextWith(s string, ctx textContext, keepAutolinks bool) (string, bool
 				// An email address has no scheme; a URL may hold "@" too.
 				email := strings.Contains(span, "@") && !hasURLScheme(span) && !strings.HasPrefix(span, "www.")
 				switch {
-				case !referenceBeforeBlank(s, i+n, ctx) && !backslashAfter || email || strings.Contains(span, ">"):
+				// email comes first: it needs no scan of the rest of the text,
+				// which would be quadratic over a run of addresses.
+				case email || strings.Contains(span, ">") || !backslashAfter && !referenceBeforeBlank(s, i+n, ctx):
 					// Linkify ends an email address at the "&". A URL
 					// holding ">" has no closed form: escapeText finds it
 					// does not read back and keeps it from being linked.
