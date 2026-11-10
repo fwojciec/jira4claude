@@ -195,6 +195,16 @@ Semantic exit codes for programmatic error handling:
 | 6 | Rate limit exceeded |
 | 7 | Internal/unexpected error |
 
+Usage errors (unknown flag, missing argument, bad flag value) are validation errors and exit 1.
+
+stdout carries only the data a command prints, so `out=$(j4c ... --json)` holds either that data or nothing. Errors and warnings go to stderr. With `--json`, each is one JSON object per line on stderr:
+
+```json
+{"level":"error","error":true,"code":"not_found","message":"issue not found"}
+{"level":"warning","message":"showing the first 50 issues; more match (raise --limit to see them)"}
+{"level":"warning","message":"dropped Image: skipped unsupported node type 'Image'","kind":"dropped","node":"Image","detail":"skipped unsupported node type 'Image'"}
+```
+
 ## Error Messages
 
 Errors include actionable context so AI agents can self-correct without additional API calls:

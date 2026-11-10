@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/fwojciec/jira4claude"
@@ -402,40 +403,83 @@ func TestPrinter_Success_NoKeys(t *testing.T) {
 	assert.False(t, hasKeys, "keys should not be present when no keys provided")
 }
 
+// assertJSONLines checks that got is exactly one compact JSON object per line,
+// each newline-terminated, equal in order to want.
+func assertJSONLines(t *testing.T, got string, want ...string) {
+	t.Helper()
+	require.True(t, strings.HasSuffix(got, "\n"), "output must end in a newline: %q", got)
+	lines := strings.Split(strings.TrimSuffix(got, "\n"), "\n")
+	require.Len(t, lines, len(want), "output: %q", got)
+	for i, line := range lines {
+		assert.True(t, strings.HasPrefix(line, "{") && strings.HasSuffix(line, "}"), "line %d: %q", i, line)
+		assert.JSONEq(t, want[i], line)
+	}
+}
+
 func TestPrinter_Error(t *testing.T) {
 	t.Parallel()
 
-	var out bytes.Buffer
-	p := jsonpkg.NewPrinter(&out)
+	t.Run("writes one JSON line to stderr and nothing to stdout", func(t *testing.T) {
+		t.Parallel()
 
-	p.Error(errors.New("something went wrong"))
+		var out, errOut bytes.Buffer
+		p := jsonpkg.NewPrinterWithIO(&out, &errOut)
 
-	var result map[string]any
-	err := json.Unmarshal(out.Bytes(), &result)
-	require.NoError(t, err)
-	assert.Equal(t, true, result["error"])
-	assert.Equal(t, "something went wrong", result["message"])
-}
+		p.Error(errors.New("something went wrong"))
 
-func TestPrinter_Error_WithCode(t *testing.T) {
-	t.Parallel()
+		assert.Empty(t, out.String(), "errors must not go to stdout")
+		assertJSONLines(t, errOut.String(),
+			`{"level":"error","error":true,"code":"internal","message":"something went wrong"}`)
+	})
 
-	var out bytes.Buffer
-	p := jsonpkg.NewPrinter(&out)
+	t.Run("carries the error code", func(t *testing.T) {
+		t.Parallel()
 
-	appErr := &jira4claude.Error{
-		Code:    jira4claude.ENotFound,
-		Message: "Issue not found",
-	}
+		var out, errOut bytes.Buffer
+		p := jsonpkg.NewPrinterWithIO(&out, &errOut)
 
-	p.Error(appErr)
+		p.Error(&jira4claude.Error{Code: jira4claude.ENotFound, Message: "Issue not found"})
 
-	var result map[string]any
-	err := json.Unmarshal(out.Bytes(), &result)
-	require.NoError(t, err)
-	assert.Equal(t, true, result["error"])
-	assert.Equal(t, jira4claude.ENotFound, result["code"])
-	assert.Equal(t, "Issue not found", result["message"])
+		assert.Empty(t, out.String())
+		assertJSONLines(t, errOut.String(),
+			`{"level":"error","error":true,"code":"not_found","message":"Issue not found"}`)
+	})
+
+	t.Run("a multi-line message stays on one line", func(t *testing.T) {
+		t.Parallel()
+
+		var out, errOut bytes.Buffer
+		p := jsonpkg.NewPrinterWithIO(&out, &errOut)
+
+		p.Error(errors.New("first\nsecond"))
+
+		assertJSONLines(t, errOut.String(),
+			`{"level":"error","error":true,"code":"internal","message":"first\nsecond"}`)
+	})
+
+	t.Run("angle brackets are not escaped", func(t *testing.T) {
+		t.Parallel()
+
+		var out, errOut bytes.Buffer
+		p := jsonpkg.NewPrinterWithIO(&out, &errOut)
+
+		p.Error(&jira4claude.Error{Code: jira4claude.EValidation, Message: `expected "<key>"`})
+
+		assert.Contains(t, errOut.String(), `"<key>`)
+		assertJSONLines(t, errOut.String(),
+			`{"level":"error","error":true,"code":"validation","message":"expected \"<key>\""}`)
+	})
+
+	t.Run("NewPrinter discards errors", func(t *testing.T) {
+		t.Parallel()
+
+		var out bytes.Buffer
+		p := jsonpkg.NewPrinter(&out)
+
+		p.Error(errors.New("something went wrong"))
+
+		assert.Empty(t, out.String())
+	})
 }
 
 func TestPrinter_Issue_WithURL(t *testing.T) {
@@ -589,51 +633,41 @@ func TestPrinter_Comment_WithoutAuthor(t *testing.T) {
 	assert.Empty(t, result["author"])
 }
 
-func TestPrinter_Warning_WritesToStderr(t *testing.T) {
+func TestPrinter_Warning(t *testing.T) {
 	t.Parallel()
 
-	var out, errOut bytes.Buffer
-	p := jsonpkg.NewPrinterWithIO(&out, &errOut)
+	t.Run("writes one JSON line to stderr and nothing to stdout", func(t *testing.T) {
+		t.Parallel()
 
-	p.Warning("unsupported element skipped")
+		var out, errOut bytes.Buffer
+		p := jsonpkg.NewPrinterWithIO(&out, &errOut)
 
-	// Warning should go to stderr, not stdout
-	assert.Empty(t, out.String(), "warnings should not go to stdout")
-	assert.Contains(t, errOut.String(), "warning:")
-	assert.Contains(t, errOut.String(), "unsupported element skipped")
-}
+		p.Warning("showing the first 2 issues; more match")
 
-func TestPrinter_Warning_NotInJSONFormat(t *testing.T) {
-	t.Parallel()
+		assert.Empty(t, out.String(), "warnings must not go to stdout")
+		assertJSONLines(t, errOut.String(),
+			`{"level":"warning","message":"showing the first 2 issues; more match"}`)
+	})
 
-	var out, errOut bytes.Buffer
-	p := jsonpkg.NewPrinterWithIO(&out, &errOut)
+	t.Run("each warning is its own line", func(t *testing.T) {
+		t.Parallel()
 
-	p.Warning("unsupported element skipped")
+		var out, errOut bytes.Buffer
+		p := jsonpkg.NewPrinterWithIO(&out, &errOut)
 
-	// Warning should be plain text, not JSON
-	errOutput := errOut.String()
-	assert.NotContains(t, errOutput, "{", "warnings should be plain text, not JSON")
-}
+		p.Warning("first warning")
+		p.Warning("second warning")
 
-func TestPrinter_Warning_MultipleWarnings(t *testing.T) {
-	t.Parallel()
-
-	var out, errOut bytes.Buffer
-	p := jsonpkg.NewPrinterWithIO(&out, &errOut)
-
-	p.Warning("first warning")
-	p.Warning("second warning")
-
-	errOutput := errOut.String()
-	assert.Contains(t, errOutput, "first warning")
-	assert.Contains(t, errOutput, "second warning")
+		assertJSONLines(t, errOut.String(),
+			`{"level":"warning","message":"first warning"}`,
+			`{"level":"warning","message":"second warning"}`)
+	})
 }
 
 func TestPrinter_ConversionIssue(t *testing.T) {
 	t.Parallel()
 
-	t.Run("renders kind, node and detail to stderr", func(t *testing.T) {
+	t.Run("writes a JSON warning with kind, node and detail to stderr", func(t *testing.T) {
 		t.Parallel()
 
 		var out, errOut bytes.Buffer
@@ -645,11 +679,13 @@ func TestPrinter_ConversionIssue(t *testing.T) {
 			Detail: "skipped unsupported node type 'Image'",
 		})
 
-		assert.Empty(t, out.String(), "conversion issues should not go to stdout")
-		assert.Equal(t, "warning: dropped Image: skipped unsupported node type 'Image'\n", errOut.String())
+		assert.Empty(t, out.String(), "conversion issues must not go to stdout")
+		assertJSONLines(t, errOut.String(),
+			`{"level":"warning","message":"dropped Image: skipped unsupported node type 'Image'",`+
+				`"kind":"dropped","node":"Image","detail":"skipped unsupported node type 'Image'"}`)
 	})
 
-	t.Run("renders degraded issues", func(t *testing.T) {
+	t.Run("writes degraded issues", func(t *testing.T) {
 		t.Parallel()
 
 		var out, errOut bytes.Buffer
@@ -661,7 +697,27 @@ func TestPrinter_ConversionIssue(t *testing.T) {
 			Detail: "rendered as text",
 		})
 
-		assert.Equal(t, "warning: degraded emoji: rendered as text\n", errOut.String())
+		assertJSONLines(t, errOut.String(),
+			`{"level":"warning","message":"degraded emoji: rendered as text",`+
+				`"kind":"degraded","node":"emoji","detail":"rendered as text"}`)
+	})
+
+	t.Run("marks an issue about existing content", func(t *testing.T) {
+		t.Parallel()
+
+		var out, errOut bytes.Buffer
+		p := jsonpkg.NewPrinterWithIO(&out, &errOut)
+
+		p.ConversionIssue(jira4claude.ConversionIssue{
+			Kind:     jira4claude.ConversionDropped,
+			Node:     "media",
+			Detail:   "removed",
+			Existing: true,
+		})
+
+		assertJSONLines(t, errOut.String(),
+			`{"level":"warning","message":"dropped media: removed",`+
+				`"kind":"dropped","node":"media","detail":"removed","existing":true}`)
 	})
 }
 

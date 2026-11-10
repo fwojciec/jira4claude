@@ -14,7 +14,10 @@ type LinkPrinter interface {
 	Links(key string, links []RelatedIssueView)
 }
 
-// MessagePrinter handles success/error/warning output.
+// MessagePrinter handles success/error/warning output. Success is written
+// with the data, to stdout. Warning, ConversionIssue and Error are diagnostics:
+// an implementation writes them to stderr, never stdout, so that stdout holds
+// only data.
 type MessagePrinter interface {
 	Success(msg string, keys ...string)
 	Warning(msg string)

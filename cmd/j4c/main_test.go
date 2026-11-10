@@ -318,21 +318,32 @@ func TestRun_IssueCreateAssigneeFallbackAssignFails(t *testing.T) {
 		assert.Contains(t, res.stderr, "created TEST-7, assignment failed")
 	})
 
-	t.Run("json prints the created key and the failure and exits non-zero", func(t *testing.T) {
+	// The issue exists, so stdout still names it: this partial success is the
+	// one case where a failing command prints data. The failure is on stderr.
+	t.Run("json prints the created key on stdout, the failure on stderr, and exits non-zero", func(t *testing.T) {
 		t.Parallel()
 
 		issueSvc, userSvc := newServices()
 		res := runCLI(t, testDeps(issueSvc, userSvc), "--json", "issue", "create", "-s", "Test issue", "-A", "me")
 
-		assert.NotEqual(t, 0, res.code)
+		assert.Equal(t, 3, res.code)
 		var success struct {
 			Success bool     `json:"success"`
 			Keys    []string `json:"keys"`
 		}
-		require.NoError(t, json.NewDecoder(strings.NewReader(res.stdout)).Decode(&success))
+		require.NoError(t, json.Unmarshal([]byte(res.stdout), &success), "stdout must be one JSON value: %q", res.stdout)
 		assert.True(t, success.Success)
 		assert.Equal(t, []string{"TEST-7"}, success.Keys)
-		assert.Contains(t, res.stdout+res.stderr, "created TEST-7, assignment failed")
+		lines := strings.Split(strings.TrimSuffix(res.stderr, "\n"), "\n")
+		require.Len(t, lines, 2, "stderr: %q", res.stderr)
+		var warning, failure map[string]any
+		require.NoError(t, json.Unmarshal([]byte(lines[0]), &warning))
+		require.NoError(t, json.Unmarshal([]byte(lines[1]), &failure))
+		assert.Equal(t, "warning", warning["level"])
+		assert.Contains(t, warning["message"], "Jira rejected the assignee on create")
+		assert.Equal(t, "error", failure["level"])
+		assert.Equal(t, "forbidden", failure["code"])
+		assert.Contains(t, failure["message"], "created TEST-7, assignment failed")
 	})
 }
 
@@ -425,9 +436,8 @@ func TestLinkDeleteCmd_ReturnsServiceError(t *testing.T) {
 // Run entry point tests
 //
 // These drive the whole CLI through main.Run and pin what goes to stdout, what
-// goes to stderr and which exit code is returned. Some of the pinned behaviour
-// is deliberately odd (errors on stdout in --json mode, usage on stdout with
-// exit 80); it is pinned so that changing it later is a visible decision.
+// goes to stderr and which exit code is returned. stdout carries data only;
+// errors and warnings go to stderr in both modes (see also streams_test.go).
 
 type runResult struct {
 	stdout string
@@ -549,17 +559,14 @@ func TestRun_NotFoundError(t *testing.T) {
 		assert.Equal(t, "[error] issue not found\n", res.stderr)
 	})
 
-	// Pins current behaviour: in --json mode errors are written to stdout.
-	t.Run("JSON mode prints the error to stdout and exits 4", func(t *testing.T) {
+	t.Run("JSON mode prints the error as a JSON line on stderr and exits 4", func(t *testing.T) {
 		t.Parallel()
 
 		res := runCLI(t, testDeps(issueGetter(nil, notFound), &mock.UserService{}), "--json", "issue", "view", "TEST-999")
 
 		assert.Equal(t, 4, res.code)
-		assert.Empty(t, res.stderr)
-		var got map[string]any
-		require.NoError(t, json.Unmarshal([]byte(res.stdout), &got))
-		assert.Equal(t, map[string]any{"error": true, "code": "not_found", "message": "issue not found"}, got)
+		assert.Empty(t, res.stdout)
+		assertJSONError(t, res.stderr, jira4claude.ENotFound, "issue not found")
 	})
 }
 
@@ -577,67 +584,142 @@ func TestRun_ValidationError(t *testing.T) {
 		assert.Contains(t, res.stderr, "either --status or --id is required")
 	})
 
-	// Pins current behaviour: in --json mode errors are written to stdout.
-	t.Run("JSON mode prints the error to stdout and exits 1", func(t *testing.T) {
+	t.Run("JSON mode prints the error as a JSON line on stderr and exits 1", func(t *testing.T) {
 		t.Parallel()
 
 		res := runCLI(t, testDeps(&mock.IssueService{}, &mock.UserService{}), "--json", "issue", "transition", "TEST-1")
 
 		assert.Equal(t, 1, res.code)
-		assert.Empty(t, res.stderr)
-		var got map[string]any
-		require.NoError(t, json.Unmarshal([]byte(res.stdout), &got))
-		assert.Equal(t, true, got["error"])
-		assert.Equal(t, "validation", got["code"])
-		assert.Contains(t, got["message"], "either --status or --id is required")
+		assert.Empty(t, res.stdout)
+		assertJSONError(t, res.stderr, jira4claude.EValidation, "either --status or --id is required")
 	})
 }
 
-// TestRun_UsageError pins kong's current usage-error behaviour: the usage text
-// goes to stdout, the error line goes to stderr and the exit code is 80. A later
-// milestone changes this to exit 1 with usage on stderr.
+// TestRun_UsageError pins usage errors (what the argument parser rejects):
+// they are validation errors, so they exit 1. stdout stays empty. In text mode
+// the usage text and the parser's message go to stderr; in --json mode stderr
+// holds only the parser's message, as one JSON error line.
 func TestRun_UsageError(t *testing.T) {
 	t.Parallel()
 
-	t.Run("missing argument prints usage to stdout and exits 80", func(t *testing.T) {
+	t.Run("missing argument prints usage to stderr and exits 1", func(t *testing.T) {
 		t.Parallel()
 
 		res := runCLI(t, unreachableDeps(t), "issue", "view")
 
-		assert.Equal(t, 80, res.code)
-		assert.True(t, strings.HasPrefix(res.stdout, "Usage: j4c issue view <key>"), "stdout: %q", res.stdout)
-		assert.Equal(t, "j4c: error: expected \"<key>\"\n", res.stderr)
+		assert.Equal(t, 1, res.code)
+		assert.Empty(t, res.stdout)
+		assert.True(t, strings.HasPrefix(res.stderr, "Usage: j4c issue view <key>"), "stderr: %q", res.stderr)
+		assert.True(t, strings.HasSuffix(res.stderr, "\nj4c: error: expected \"<key>\"\n"), "stderr: %q", res.stderr)
 	})
 
-	t.Run("JSON mode does not change usage error output", func(t *testing.T) {
+	t.Run("JSON mode prints the parser's message as one JSON line on stderr", func(t *testing.T) {
 		t.Parallel()
 
 		res := runCLI(t, unreachableDeps(t), "--json", "issue", "view")
 
-		assert.Equal(t, 80, res.code)
-		assert.True(t, strings.HasPrefix(res.stdout, "Usage: j4c issue view <key>"), "stdout: %q", res.stdout)
-		assert.Equal(t, "j4c: error: expected \"<key>\"\n", res.stderr)
+		assert.Equal(t, 1, res.code)
+		assert.Empty(t, res.stdout)
+		assertJSONError(t, res.stderr, jira4claude.EValidation, `expected "<key>"`)
 	})
 
-	t.Run("no command prints full usage to stdout and exits 80", func(t *testing.T) {
+	t.Run("no command prints full usage to stderr and exits 1", func(t *testing.T) {
 		t.Parallel()
 
 		res := runCLI(t, unreachableDeps(t))
 
-		assert.Equal(t, 80, res.code)
-		assert.True(t, strings.HasPrefix(res.stdout, "Usage: j4c <command> [flags]"), "stdout: %q", res.stdout)
-		assert.Equal(t, "j4c: error: expected one of \"issue\", \"link\", \"init\"\n", res.stderr)
+		assert.Equal(t, 1, res.code)
+		assert.Empty(t, res.stdout)
+		assert.True(t, strings.HasPrefix(res.stderr, "Usage: j4c <command> [flags]"), "stderr: %q", res.stderr)
+		assert.True(t, strings.HasSuffix(res.stderr, "\nj4c: error: expected one of \"issue\", \"link\", \"init\"\n"), "stderr: %q", res.stderr)
 	})
 
-	t.Run("mutually exclusive flags exit 80", func(t *testing.T) {
+	t.Run("mutually exclusive flags exit 1", func(t *testing.T) {
 		t.Parallel()
 
 		res := runCLI(t, unreachableDeps(t), "issue", "transition", "TEST-1", "--status=Done", "--id=31")
 
-		assert.Equal(t, 80, res.code)
-		assert.Contains(t, res.stdout, "Usage: j4c issue transition <key>")
-		assert.Equal(t, "j4c: error: --status and --id can't be used together\n", res.stderr)
+		assert.Equal(t, 1, res.code)
+		assert.Empty(t, res.stdout)
+		assert.True(t, strings.HasPrefix(res.stderr, "Usage: j4c issue transition <key>"), "stderr: %q", res.stderr)
+		assert.True(t, strings.HasSuffix(res.stderr, "\nj4c: error: --status and --id can't be used together\n"), "stderr: %q", res.stderr)
 	})
+
+	for _, tc := range []struct {
+		name    string
+		args    []string
+		message string
+	}{
+		{"unknown flag", []string{"issue", "view", "TEST-1", "--bogus"}, "unknown flag --bogus"},
+		{"bad flag value", []string{"issue", "list", "--limit=abc"}, "--limit: expected a valid 64 bit int but got \"abc\""},
+		{"missing required flag", []string{"issue", "create"}, "missing flags: --summary=STRING"},
+		{"unknown command", []string{"issue", "frobnicate"}, "unexpected argument frobnicate"},
+	} {
+		t.Run(tc.name+" exits 1 with usage on stderr", func(t *testing.T) {
+			t.Parallel()
+
+			res := runCLI(t, unreachableDeps(t), tc.args...)
+
+			assert.Equal(t, 1, res.code)
+			assert.Empty(t, res.stdout)
+			assert.True(t, strings.HasPrefix(res.stderr, "Usage: j4c "), "stderr: %q", res.stderr)
+			assert.True(t, strings.HasSuffix(res.stderr, "\nj4c: error: "+tc.message+"\n"), "stderr: %q", res.stderr)
+		})
+
+		t.Run(tc.name+" in JSON mode exits 1 with one JSON line on stderr", func(t *testing.T) {
+			t.Parallel()
+
+			res := runCLI(t, unreachableDeps(t), append([]string{"--json"}, tc.args...)...)
+
+			assert.Equal(t, 1, res.code)
+			assert.Empty(t, res.stdout)
+			assertJSONError(t, res.stderr, jira4claude.EValidation, tc.message)
+		})
+	}
+
+	// The parser stops at the first bad token, so a --json after it is never
+	// parsed; Run still honours it.
+	t.Run("--json after an unknown flag still gives a JSON error", func(t *testing.T) {
+		t.Parallel()
+
+		res := runCLI(t, unreachableDeps(t), "issue", "view", "TEST-1", "--bogus", "--json")
+
+		assert.Equal(t, 1, res.code)
+		assert.Empty(t, res.stdout)
+		assertJSONError(t, res.stderr, jira4claude.EValidation, "unknown flag --bogus")
+	})
+
+	t.Run("-j counts as --json", func(t *testing.T) {
+		t.Parallel()
+
+		res := runCLI(t, unreachableDeps(t), "-j", "issue", "view")
+
+		assert.Equal(t, 1, res.code)
+		assert.Empty(t, res.stdout)
+		assertJSONError(t, res.stderr, jira4claude.EValidation, `expected "<key>"`)
+	})
+
+	t.Run("--json after -- is an argument, not the flag", func(t *testing.T) {
+		t.Parallel()
+
+		res := runCLI(t, unreachableDeps(t), "issue", "view", "--bogus", "--", "--json")
+
+		assert.Equal(t, 1, res.code)
+		assert.Empty(t, res.stdout)
+		assert.True(t, strings.HasPrefix(res.stderr, "Usage: j4c "), "stderr: %q", res.stderr)
+	})
+}
+
+// assertJSONError checks that stderr is exactly one JSON error line with the
+// given code and message.
+func assertJSONError(t *testing.T, stderr, code, message string) {
+	t.Helper()
+	require.True(t, strings.HasSuffix(stderr, "\n"), "stderr must end in a newline: %q", stderr)
+	lines := strings.Split(strings.TrimSuffix(stderr, "\n"), "\n")
+	require.Len(t, lines, 1, "stderr: %q", stderr)
+	var got map[string]any
+	require.NoError(t, json.Unmarshal([]byte(lines[0]), &got), "stderr: %q", stderr)
+	assert.Equal(t, map[string]any{"level": "error", "error": true, "code": code, "message": message}, got)
 }
 
 func TestRun_IssueUpdateDescriptionFlags(t *testing.T) {
@@ -664,7 +746,8 @@ func TestRun_IssueUpdateDescriptionFlags(t *testing.T) {
 
 			res := runCLI(t, unreachableDeps(t), append([]string{"issue", "update", "TEST-1"}, args...)...)
 
-			assert.Equal(t, 80, res.code)
+			assert.Equal(t, 1, res.code)
+			assert.Empty(t, res.stdout)
 			assert.Contains(t, res.stderr, "can't be used together")
 		})
 	}
@@ -698,6 +781,28 @@ func TestRun_HelpAndVersion(t *testing.T) {
 		t.Parallel()
 
 		res := runCLI(t, unreachableDeps(t), "--version")
+
+		assert.Equal(t, 0, res.code)
+		assert.Equal(t, "test-version\n", res.stdout)
+		assert.Empty(t, res.stderr)
+	})
+
+	// Help and version are the output asked for, so they are data: stdout,
+	// exit 0, plain text even with --json.
+	t.Run("help with --json is still text on stdout and exits 0", func(t *testing.T) {
+		t.Parallel()
+
+		res := runCLI(t, unreachableDeps(t), "--json", "issue", "view", "--help")
+
+		assert.Equal(t, 0, res.code)
+		assert.True(t, strings.HasPrefix(res.stdout, "Usage: j4c issue view <key>"), "stdout: %q", res.stdout)
+		assert.Empty(t, res.stderr)
+	})
+
+	t.Run("version with --json is still text on stdout and exits 0", func(t *testing.T) {
+		t.Parallel()
+
+		res := runCLI(t, unreachableDeps(t), "--json", "--version")
 
 		assert.Equal(t, 0, res.code)
 		assert.Equal(t, "test-version\n", res.stdout)
@@ -756,8 +861,7 @@ func TestRun_ConfigLoading(t *testing.T) {
 		assert.Equal(t, "[error] no config file found\n", res.stderr)
 	})
 
-	// Pins current behaviour: in --json mode errors are written to stdout.
-	t.Run("config error in JSON mode is printed to stdout", func(t *testing.T) {
+	t.Run("config error in JSON mode is a JSON line on stderr", func(t *testing.T) {
 		t.Parallel()
 
 		deps := unreachableDeps(t)
@@ -768,10 +872,23 @@ func TestRun_ConfigLoading(t *testing.T) {
 		res := runCLI(t, deps, "--json", "issue", "view", "TEST-1")
 
 		assert.Equal(t, 4, res.code)
-		assert.Empty(t, res.stderr)
-		var got map[string]any
-		require.NoError(t, json.Unmarshal([]byte(res.stdout), &got))
-		assert.Equal(t, "not_found", got["code"])
+		assert.Empty(t, res.stdout)
+		assertJSONError(t, res.stderr, jira4claude.ENotFound, "no config file found")
+	})
+
+	t.Run("service factory error in JSON mode is a JSON line on stderr", func(t *testing.T) {
+		t.Parallel()
+
+		deps := testDeps(nil, nil)
+		deps.NewServices = func(cfg *jira4claude.Config) (jira4claude.IssueService, jira4claude.UserService, error) {
+			return nil, nil, &jira4claude.Error{Code: jira4claude.EUnauthorized, Message: "could not read netrc file"}
+		}
+
+		res := runCLI(t, deps, "--json", "issue", "view", "TEST-1")
+
+		assert.Equal(t, 2, res.code)
+		assert.Empty(t, res.stdout)
+		assertJSONError(t, res.stderr, jira4claude.EUnauthorized, "could not read netrc file")
 	})
 
 	t.Run("service factory error is printed and its exit code returned", func(t *testing.T) {

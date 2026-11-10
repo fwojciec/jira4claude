@@ -184,7 +184,7 @@ func TestRun_IssueUpdateIfUpdated(t *testing.T) {
 		assert.Equal(t, []string{"get TEST-1"}, svc.Calls())
 	})
 
-	t.Run("a stale value exits 5 with a JSON error on stdout", func(t *testing.T) {
+	t.Run("a stale value exits 5 with a JSON error on stderr", func(t *testing.T) {
 		t.Parallel()
 
 		svc := newGuardedService(guardedIssue())
@@ -193,9 +193,10 @@ func TestRun_IssueUpdateIfUpdated(t *testing.T) {
 			"--json", "issue", "update", "TEST-1", "--description=New text", "--if-updated="+stale)
 
 		assert.Equal(t, 5, res.code)
-		assert.Empty(t, res.stderr)
+		assert.Empty(t, res.stdout)
 		var got map[string]any
-		require.NoError(t, json.Unmarshal([]byte(res.stdout), &got))
+		require.NoError(t, json.Unmarshal([]byte(res.stderr), &got))
+		assert.Equal(t, "error", got["level"])
 		assert.Equal(t, true, got["error"])
 		assert.Equal(t, "conflict", got["code"])
 		assert.Contains(t, got["message"], "2026-11-09T10:15:30.123Z")

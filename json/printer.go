@@ -2,13 +2,13 @@ package json
 
 import (
 	"encoding/json"
-	"fmt"
 	"io"
 
 	"github.com/fwojciec/jira4claude"
 )
 
-// Printer outputs JSON format to stdout for machine parsing.
+// Printer outputs JSON for machine parsing: data on stdout, and errors and
+// warnings on stderr as one JSON object per line.
 type Printer struct {
 	out       io.Writer
 	err       io.Writer
@@ -20,8 +20,8 @@ func (p *Printer) SetServerURL(url string) {
 	p.serverURL = url
 }
 
-// NewPrinter creates a JSON printer that writes to out.
-// Warnings are discarded since no stderr writer is provided.
+// NewPrinter creates a JSON printer that writes data to out.
+// Errors and warnings are discarded since no stderr writer is provided.
 func NewPrinter(out io.Writer) *Printer {
 	return &Printer{out: out, err: io.Discard}
 }
@@ -104,23 +104,71 @@ func (p *Printer) Success(msg string, keys ...string) {
 	p.encode(result)
 }
 
-// Warning prints a warning message to stderr as plain text.
+// Diagnostic levels on stderr. A script reads level to tell an error from a
+// warning without knowing which other keys each one carries.
+const (
+	levelError   = "error"
+	levelWarning = "warning"
+)
+
+// errorLine is the stderr shape of an error. The error, code and message keys
+// are the ones errors carried when they were printed on stdout.
+type errorLine struct {
+	Level   string `json:"level"`
+	Error   bool   `json:"error"`
+	Code    string `json:"code"`
+	Message string `json:"message"`
+}
+
+// warningLine is the stderr shape of a warning. A conversion warning also
+// carries the ConversionIssue fields (kind, node, detail, existing).
+type warningLine struct {
+	Level    string `json:"level"`
+	Message  string `json:"message"`
+	Kind     string `json:"kind,omitempty"`
+	Node     string `json:"node,omitempty"`
+	Detail   string `json:"detail,omitempty"`
+	Existing bool   `json:"existing,omitempty"`
+}
+
+// diagnose writes v to stderr as one compact JSON object on its own line, so
+// that a script can read stderr line by line.
+func (p *Printer) diagnose(v any) {
+	enc := json.NewEncoder(p.err)
+	// Messages are read by people too: keep <, > and & as they are.
+	enc.SetEscapeHTML(false)
+	// Error ignored: as in encode, a failing writer has no recovery path.
+	_ = enc.Encode(v)
+}
+
+// Warning prints a warning to stderr as one JSON line:
+// {"level":"warning","message":...}.
 func (p *Printer) Warning(msg string) {
-	fmt.Fprintln(p.err, "warning: "+msg)
+	p.diagnose(warningLine{Level: levelWarning, Message: msg})
 }
 
-// ConversionIssue prints a conversion issue to stderr as a plain-text warning,
-// in the same style as Warning.
+// ConversionIssue prints a conversion issue to stderr as one JSON warning line
+// that also carries the issue's kind, node, detail and existing fields.
 func (p *Printer) ConversionIssue(issue jira4claude.ConversionIssue) {
-	p.Warning(issue.String())
+	p.diagnose(warningLine{
+		Level:    levelWarning,
+		Message:  issue.String(),
+		Kind:     issue.Kind,
+		Node:     issue.Node,
+		Detail:   issue.Detail,
+		Existing: issue.Existing,
+	})
 }
 
-// Error prints an error as JSON to stdout (for machine parsing).
+// Error prints an error to stderr as one JSON line:
+// {"level":"error","error":true,"code":...,"message":...}. stdout carries data
+// only.
 func (p *Printer) Error(err error) {
-	p.encode(map[string]any{
-		"error":   true,
-		"code":    jira4claude.ErrorCode(err),
-		"message": jira4claude.ErrorMessage(err),
+	p.diagnose(errorLine{
+		Level:   levelError,
+		Error:   true,
+		Code:    jira4claude.ErrorCode(err),
+		Message: jira4claude.ErrorMessage(err),
 	})
 }
 

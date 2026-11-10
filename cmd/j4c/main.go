@@ -2,6 +2,8 @@
 package main
 
 import (
+	"errors"
+	"fmt"
 	"io"
 	"os"
 
@@ -166,15 +168,19 @@ type kongExit struct {
 	code int
 }
 
-// parse parses args into cli. Kong terminates the process itself on parse
-// errors, --help and --version, and expects its Exit hook not to return. The
-// hook here panics with kongExit instead, which parse recovers and reports as
-// exited=true with kong's exit code, so Run can return it.
+// parse parses args into cli. Kong terminates the process itself on --help and
+// --version, which print to stdout, and expects its Exit hook not to return.
+// The hook here panics with kongExit instead, which parse recovers and reports
+// as exited=true with kong's exit code, so Run can return it.
+//
+// A parse error (unknown flag, missing argument, bad flag value) is a usage
+// error: a validation error, reported on stderr. In text mode stderr gets the
+// usage text and the parser's message; in --json mode it gets only the message,
+// as one JSON error line. stdout stays empty.
 func parse(cli *CLI, args []string, stdout, stderr io.Writer, versionText string) (ctx *kong.Context, code int, exited bool) {
 	parser, err := kong.New(cli,
 		kong.Name("j4c"),
 		kong.Description("A minimal Jira CLI for AI agents"),
-		kong.UsageOnError(),
 		kong.Vars{"version": versionText},
 		kong.Writers(stdout, stderr),
 		kong.Exit(func(code int) { panic(kongExit{code: code}) }),
@@ -196,8 +202,40 @@ func parse(cli *CLI, args []string, stdout, stderr io.Writer, versionText string
 	}()
 
 	ctx, err = parser.Parse(args)
-	parser.FatalIfErrorf(err)
-	return ctx, 0, false
+	if err == nil {
+		return ctx, 0, false
+	}
+	usageErr := &jira4claude.Error{Code: jira4claude.EValidation, Message: err.Error()}
+	if cli.JSON || requestsJSON(args) {
+		json.NewPrinterWithIO(io.Discard, stderr).Error(usageErr)
+		return nil, jira4claude.ExitCode(usageErr), true
+	}
+	var parseErr *kong.ParseError
+	if errors.As(err, &parseErr) && parseErr.Context != nil {
+		// Kong prints usage to its stdout writer; point it at stderr.
+		parser.Stdout = stderr
+		// Error ignored: as with the printers, a failing writer has no
+		// recovery path, and the error line below still follows.
+		_ = parseErr.Context.PrintUsage(false)
+		fmt.Fprintln(stderr)
+	}
+	parser.Errorf("%s", err.Error())
+	return nil, jira4claude.ExitCode(usageErr), true
+}
+
+// requestsJSON reports whether args ask for --json output. It is consulted
+// only when parsing failed: kong stops at the first bad token, so a --json
+// after it never reaches the CLI struct. Arguments after "--" are positional.
+func requestsJSON(args []string) bool {
+	for _, a := range args {
+		switch a {
+		case "--":
+			return false
+		case "--json", "--json=true", "-j":
+			return true
+		}
+	}
+	return false
 }
 
 // newHTTPServices builds the Jira services backed by the HTTP client.
