@@ -46,6 +46,16 @@ func TestToADF_LiteralBlockHTML(t *testing.T) {
 			expected: adfDoc(para("<word>")),
 		},
 		{
+			name:     "a comment that mentions details is text, like any comment",
+			input:    "<!-- <details> -->\n\nafter",
+			expected: adfDoc(para("<!-- <details> -->"), para("after")),
+		},
+		{
+			name:     "a multi-line comment around a details block is text",
+			input:    "<!--\n<details><summary>T</summary>\nx\n</details>\n-->",
+			expected: adfDoc(literalLines("<!--", "<details><summary>T</summary>", "x", "</details>", "-->")),
+		},
+		{
 			name:     "a lone placeholder between paragraphs is kept in place",
 			input:    "Run it with\n\n<path>\n\nand wait.",
 			expected: adfDoc(para("Run it with"), para("<path>"), para("and wait.")),
@@ -148,6 +158,7 @@ func TestToADF_LiteralBlockHTMLRoundTrip(t *testing.T) {
 		"inside blockquote":      "> <div>\n> inner\n> </div>",
 		"whitespace line":        "<pre>\n   \nx\n</pre>",
 		"unterminated comment":   "<!--\nfoo\n\nbar",
+		"comment with details":   "<!-- <details> -->",
 		"markdown syntax inside": "<div>\n# heading\n*star* `code` | pipe\n\\escaped\n</div>",
 		"indented lines":         "   <div>\n x\n</div>",
 		"lines under a lone tag": "<word>\nmore **text**",

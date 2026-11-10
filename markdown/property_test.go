@@ -81,6 +81,7 @@ var propertySeeds = []string{
 	// #155 block HTML
 	"<word>",
 	"<div>\nsome\ntext\n</div>",
+	"<!-- <details> -->\n\n<!--\n</details>\n-->",
 	// #156 block content in task items
 	"- [ ] task\n\n  ```\n  code\n  ```",
 	"- [ ] task\n\n  second paragraph",

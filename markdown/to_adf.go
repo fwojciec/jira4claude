@@ -818,9 +818,11 @@ func htmlBlockText(node ast.Node, source []byte) (string, bool) {
 // breaks), so the line structure survives and reads back as the same block.
 // A block that mentions <details> or </details> reached here only because the
 // details handling could not pair it; it stays dropped so a write refuses.
+// An HTML comment is text whatever it mentions: no <details> in it opens or
+// closes anything.
 func convertHTMLBlock(node *ast.HTMLBlock, source []byte, skipped *skippedCollector) (jira4claude.ADFNode, bool) {
 	lines := htmlBlockLines(node, source)
-	if isDetailsConstruct(lines) {
+	if node.HTMLBlockType != ast.HTMLBlockType2 && isDetailsConstruct(lines) {
 		skipped.add("HTMLBlock")
 		return jira4claude.ADFNode{}, false
 	}
