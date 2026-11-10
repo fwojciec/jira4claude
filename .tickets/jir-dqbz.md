@@ -1,6 +1,6 @@
 ---
 id: jir-dqbz
-status: open
+status: in_progress
 deps: []
 links: []
 created: 2026-11-10T11:30:36Z

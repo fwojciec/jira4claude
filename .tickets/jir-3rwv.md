@@ -1,6 +1,6 @@
 ---
 id: jir-3rwv
-status: open
+status: in_progress
 deps: []
 links: []
 created: 2026-11-10T12:10:34Z
