@@ -163,9 +163,9 @@ Error: Summary is required
 Error: Project 'XYZ' does not exist
 ```
 
-**JSON errors (`--json`):**
+**JSON errors (`--json`), one line on stderr:**
 ```json
-{"error": true, "messages": ["Summary is required"]}
+{"level":"error","error":true,"code":"validation","message":"Summary is required"}
 ```
 
 ## Implementation Approach

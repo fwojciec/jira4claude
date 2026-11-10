@@ -15,7 +15,9 @@ import (
 // maxSummaryLength is the maximum length for issue summaries in list format.
 const maxSummaryLength = 60
 
-// Printer outputs GitHub-Flavored Markdown format.
+// Printer outputs GitHub-Flavored Markdown format. Data goes to out; errors,
+// warnings and [info] notices (an empty result, hidden fields) go to err, so
+// that stdout holds only data.
 type Printer struct {
 	out       io.Writer
 	err       io.Writer
@@ -23,7 +25,8 @@ type Printer struct {
 }
 
 // NewPrinter creates a markdown printer that writes to out.
-// Warnings are discarded since no stderr writer is provided.
+// Warnings, errors and [info] notices are discarded since no stderr writer is
+// provided.
 func NewPrinter(out io.Writer) *Printer {
 	return &Printer{out: out, err: io.Discard}
 }
@@ -142,7 +145,7 @@ func compactJSON(raw json.RawMessage) string {
 func (p *Printer) Issues(view jira4claude.IssueListView) {
 	items := view.Issues
 	if len(items) == 0 {
-		fmt.Fprintln(p.out, "[info] No issues found")
+		fmt.Fprintln(p.err, "[info] No issues found")
 		return
 	}
 
@@ -160,7 +163,7 @@ func (p *Printer) Comment(view jira4claude.CommentView) {
 // Transitions prints available transitions for an issue.
 func (p *Printer) Transitions(key string, ts []*jira4claude.Transition) {
 	if len(ts) == 0 {
-		fmt.Fprintf(p.out, "[info] No transitions available for %s\n", key)
+		fmt.Fprintf(p.err, "[info] No transitions available for %s\n", key)
 		return
 	}
 
@@ -182,9 +185,9 @@ const (
 func (p *Printer) Fields(view jira4claude.IssueFieldsView) {
 	if len(view.Fields) == 0 {
 		if view.Scope == jira4claude.FieldScopeFiltered {
-			fmt.Fprintf(p.out, "[info] No fields match the filter for %s\n", view.Source)
+			fmt.Fprintf(p.err, "[info] No fields match the filter for %s\n", view.Source)
 		} else {
-			fmt.Fprintf(p.out, "[info] No fields for %s\n", view.Source)
+			fmt.Fprintf(p.err, "[info] No fields for %s\n", view.Source)
 		}
 		return
 	}
@@ -245,7 +248,7 @@ func (p *Printer) Fields(view jira4claude.IssueFieldsView) {
 	}
 
 	if view.Omitted > 0 {
-		fmt.Fprintf(p.out, "\n[info] %d more field(s) hidden — use --all to show all, or --filter to find one.\n", view.Omitted)
+		fmt.Fprintf(p.err, "[info] %d more field(s) hidden — use --all to show all, or --filter to find one.\n", view.Omitted)
 	}
 }
 
@@ -331,7 +334,7 @@ func padRight(s string, width int) string {
 // Links prints issue links using RelatedIssueView.
 func (p *Printer) Links(key string, links []jira4claude.RelatedIssueView) {
 	if len(links) == 0 {
-		fmt.Fprintf(p.out, "[info] No links for %s\n", key)
+		fmt.Fprintf(p.err, "[info] No links for %s\n", key)
 		return
 	}
 

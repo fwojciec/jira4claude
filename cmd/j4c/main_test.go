@@ -313,9 +313,12 @@ func TestRun_IssueCreateAssigneeFallbackAssignFails(t *testing.T) {
 		issueSvc, userSvc := newServices()
 		res := runCLI(t, testDeps(issueSvc, userSvc), "issue", "create", "-s", "Test issue", "-A", "me")
 
-		assert.NotEqual(t, 0, res.code)
-		assert.Contains(t, res.stdout, "TEST-7")
-		assert.Contains(t, res.stderr, "created TEST-7, assignment failed")
+		assert.Equal(t, 3, res.code)
+		assert.Equal(t, "[ok] Created: TEST-7\nhttps://test.atlassian.net/browse/TEST-7\n", res.stdout)
+		lines := strings.Split(strings.TrimSuffix(res.stderr, "\n"), "\n")
+		require.Len(t, lines, 2, "stderr: %q", res.stderr)
+		assert.True(t, strings.HasPrefix(lines[0], "[warn] Jira rejected the assignee on create"), "stderr: %q", res.stderr)
+		assert.Equal(t, "[error] created TEST-7, assignment failed: cannot assign", lines[1])
 	})
 
 	// The issue exists, so stdout still names it: this partial success is the

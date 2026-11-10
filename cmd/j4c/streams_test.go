@@ -340,3 +340,139 @@ func TestRun_WarningStreams(t *testing.T) {
 		})
 	}
 }
+
+// emptyCase is a list-like command whose result is empty.
+type emptyCase struct {
+	name    string
+	args    []string
+	svc     func() *mock.IssueService
+	notice  string // the text-mode [info] line on stderr
+	jsonOut string // the --json data on stdout
+}
+
+func emptyCases() []emptyCase {
+	noIssues := func() *mock.IssueService {
+		return &mock.IssueService{ListFn: func(context.Context, jira4claude.IssueFilter) ([]*jira4claude.Issue, string, error) {
+			return nil, "", nil
+		}}
+	}
+	noCreateFields := func() *mock.IssueService {
+		return &mock.IssueService{GetCreateFieldsFn: func(context.Context, string, string) ([]*jira4claude.IssueField, error) {
+			return nil, nil
+		}}
+	}
+	return []emptyCase{
+		{
+			name: "issue list", args: []string{"issue", "list"}, svc: noIssues,
+			notice:  "[info] No issues found\n",
+			jsonOut: `{"issues":[],"truncated":false}`,
+		},
+		{
+			name: "issue ready", args: []string{"issue", "ready"}, svc: noIssues,
+			notice:  "[info] No issues found\n",
+			jsonOut: `{"issues":[],"truncated":false}`,
+		},
+		{
+			name: "issue transitions", args: []string{"issue", "transitions", "TEST-1"},
+			svc: func() *mock.IssueService {
+				return &mock.IssueService{TransitionsFn: func(context.Context, string) ([]*jira4claude.Transition, error) {
+					return nil, nil
+				}}
+			},
+			notice:  "[info] No transitions available for TEST-1\n",
+			jsonOut: `[]`,
+		},
+		{
+			name: "issue fields (create)", args: []string{"issue", "fields"}, svc: noCreateFields,
+			notice:  "[info] No fields for TEST / Task\n",
+			jsonOut: `{"source":"TEST / Task","scope":"default","omitted":0,"fields":[]}`,
+		},
+		{
+			name: "issue fields (edit)", args: []string{"issue", "fields", "--key=TEST-1"},
+			svc: func() *mock.IssueService {
+				return &mock.IssueService{GetEditFieldsFn: func(context.Context, string) ([]*jira4claude.IssueField, error) {
+					return nil, nil
+				}}
+			},
+			notice:  "[info] No fields for TEST-1 (edit)\n",
+			jsonOut: `{"source":"TEST-1 (edit)","scope":"default","omitted":0,"fields":[]}`,
+		},
+		{
+			name: "issue fields --filter with no match", args: []string{"issue", "fields", "--filter=nothing"}, svc: noCreateFields,
+			notice:  "[info] No fields match the filter for TEST / Task\n",
+			jsonOut: `{"source":"TEST / Task","scope":"filtered","omitted":0,"fields":[]}`,
+		},
+		{
+			name: "link list", args: []string{"link", "list", "TEST-1"},
+			svc: func() *mock.IssueService {
+				return issueGetter(&jira4claude.Issue{Key: "TEST-1"}, nil)
+			},
+			notice:  "[info] No links for TEST-1\n",
+			jsonOut: `[]`,
+		},
+	}
+}
+
+func TestRun_EmptyResultStreams(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range emptyCases() {
+		t.Run(tc.name+"/text", func(t *testing.T) {
+			t.Parallel()
+
+			res := runCLI(t, testDeps(tc.svc(), &mock.UserService{}), tc.args...)
+
+			assert.Equal(t, 0, res.code)
+			assert.Empty(t, res.stdout, "an empty result prints no data")
+			assert.Equal(t, tc.notice, res.stderr)
+		})
+
+		t.Run(tc.name+"/json", func(t *testing.T) {
+			t.Parallel()
+
+			res := runCLI(t, testDeps(tc.svc(), &mock.UserService{}), append([]string{"--json"}, tc.args...)...)
+
+			assert.Equal(t, 0, res.code)
+			assert.JSONEq(t, tc.jsonOut, res.stdout)
+			assert.Empty(t, res.stderr)
+		})
+	}
+}
+
+func TestRun_HiddenFieldsNotice(t *testing.T) {
+	t.Parallel()
+
+	svc := func() *mock.IssueService {
+		return &mock.IssueService{GetCreateFieldsFn: func(context.Context, string, string) ([]*jira4claude.IssueField, error) {
+			return []*jira4claude.IssueField{
+				{ID: "summary", Name: "Summary", Required: true, SchemaType: "string"},
+				{ID: "description", Name: "Description", SchemaType: "string"},
+			}, nil
+		}}
+	}
+
+	t.Run("text mode prints the fields on stdout and the hidden count on stderr", func(t *testing.T) {
+		t.Parallel()
+
+		res := runCLI(t, testDeps(svc(), &mock.UserService{}), "issue", "fields")
+
+		assert.Equal(t, 0, res.code)
+		assert.Contains(t, res.stdout, "summary")
+		assert.NotContains(t, res.stdout, "[info]")
+		assert.Equal(t, "[info] 1 more field(s) hidden — use --all to show all, or --filter to find one.\n", res.stderr)
+	})
+
+	t.Run("json mode carries the hidden count in the data only", func(t *testing.T) {
+		t.Parallel()
+
+		res := runCLI(t, testDeps(svc(), &mock.UserService{}), "--json", "issue", "fields")
+
+		assert.Equal(t, 0, res.code)
+		var got struct {
+			Omitted int `json:"omitted"`
+		}
+		require.NoError(t, json.Unmarshal([]byte(res.stdout), &got))
+		assert.Equal(t, 1, got.Omitted)
+		assert.Empty(t, res.stderr)
+	})
+}

@@ -298,15 +298,15 @@ func TestPrinter_Issues(t *testing.T) {
 		assert.Contains(t, result, "- **J4C-5** [To Do] [P4] Lowest priority")
 	})
 
-	t.Run("empty list shows info message", func(t *testing.T) {
+	t.Run("empty list shows the info message on stderr", func(t *testing.T) {
 		t.Parallel()
-		var out bytes.Buffer
-		p := markdown.NewPrinter(&out)
+		var out, errOut bytes.Buffer
+		p := markdown.NewPrinterWithIO(&out, &errOut)
 
 		p.Issues(jira4claude.IssueListView{})
-		result := out.String()
 
-		assert.Contains(t, result, "[info] No issues found")
+		assert.Empty(t, out.String(), "an empty list prints no data")
+		assert.Equal(t, "[info] No issues found\n", errOut.String())
 	})
 
 	t.Run("handles Won't Do status in list", func(t *testing.T) {
@@ -433,15 +433,15 @@ func TestPrinter_Transitions(t *testing.T) {
 		assert.Contains(t, result, "- Blocked")
 	})
 
-	t.Run("empty transitions shows info message", func(t *testing.T) {
+	t.Run("empty transitions shows the info message on stderr", func(t *testing.T) {
 		t.Parallel()
-		var out bytes.Buffer
-		p := markdown.NewPrinter(&out)
+		var out, errOut bytes.Buffer
+		p := markdown.NewPrinterWithIO(&out, &errOut)
 
 		p.Transitions("J4C-100", nil)
-		result := out.String()
 
-		assert.Contains(t, result, "[info] No transitions available for J4C-100")
+		assert.Empty(t, out.String())
+		assert.Equal(t, "[info] No transitions available for J4C-100\n", errOut.String())
 	})
 }
 
@@ -469,15 +469,15 @@ func TestPrinter_Links(t *testing.T) {
 		assert.Contains(t, result, "- **J4C-74** [Done] (Task) Inject Converter into CLI")
 	})
 
-	t.Run("empty links shows info message", func(t *testing.T) {
+	t.Run("empty links shows the info message on stderr", func(t *testing.T) {
 		t.Parallel()
-		var out bytes.Buffer
-		p := markdown.NewPrinter(&out)
+		var out, errOut bytes.Buffer
+		p := markdown.NewPrinterWithIO(&out, &errOut)
 
 		p.Links("J4C-100", nil)
-		result := out.String()
 
-		assert.Contains(t, result, "[info] No links for J4C-100")
+		assert.Empty(t, out.String())
+		assert.Equal(t, "[info] No links for J4C-100\n", errOut.String())
 	})
 }
 
@@ -853,15 +853,16 @@ func TestPrinter_Fields(t *testing.T) {
 		assert.Contains(t, result, "...")
 	})
 
-	t.Run("empty input renders info line", func(t *testing.T) {
+	t.Run("empty input renders the info line on stderr", func(t *testing.T) {
 		t.Parallel()
-		var out bytes.Buffer
-		p := markdown.NewPrinter(&out)
+		var out, errOut bytes.Buffer
+		p := markdown.NewPrinterWithIO(&out, &errOut)
 
 		view := jira4claude.IssueFieldsView{Source: "INT / Bug", Fields: nil}
 		p.Fields(view)
 
-		assert.Equal(t, "[info] No fields for INT / Bug\n", out.String())
+		assert.Empty(t, out.String())
+		assert.Equal(t, "[info] No fields for INT / Bug\n", errOut.String())
 	})
 
 	t.Run("empty schema type renders as unknown", func(t *testing.T) {
@@ -905,12 +906,13 @@ func TestPrinter_Fields(t *testing.T) {
 
 	t.Run("filtered scope with no matches reports a filter-specific message", func(t *testing.T) {
 		t.Parallel()
-		var out bytes.Buffer
-		p := markdown.NewPrinter(&out)
+		var out, errOut bytes.Buffer
+		p := markdown.NewPrinterWithIO(&out, &errOut)
 
 		p.Fields(jira4claude.IssueFieldsView{Source: "INT / Bug", Scope: jira4claude.FieldScopeFiltered})
 
-		assert.Contains(t, out.String(), "No fields match the filter for INT / Bug")
+		assert.Empty(t, out.String())
+		assert.Equal(t, "[info] No fields match the filter for INT / Bug\n", errOut.String())
 	})
 
 	t.Run("all scope renders optional builtins in an OPTIONAL section", func(t *testing.T) {
@@ -939,8 +941,8 @@ func TestPrinter_Fields(t *testing.T) {
 
 	t.Run("default scope prints a hidden-count footer when fields are omitted", func(t *testing.T) {
 		t.Parallel()
-		var out bytes.Buffer
-		p := markdown.NewPrinter(&out)
+		var out, errOut bytes.Buffer
+		p := markdown.NewPrinterWithIO(&out, &errOut)
 
 		view := jira4claude.IssueFieldsView{
 			Source:  "INT / Bug",
@@ -952,13 +954,15 @@ func TestPrinter_Fields(t *testing.T) {
 		}
 
 		p.Fields(view)
-		assert.Contains(t, out.String(), "14 more")
+		assert.NotContains(t, out.String(), "more field", "the footer is not data")
+		assert.Contains(t, out.String(), "summary")
+		assert.Equal(t, "[info] 14 more field(s) hidden — use --all to show all, or --filter to find one.\n", errOut.String())
 	})
 
 	t.Run("no footer when nothing is omitted", func(t *testing.T) {
 		t.Parallel()
-		var out bytes.Buffer
-		p := markdown.NewPrinter(&out)
+		var out, errOut bytes.Buffer
+		p := markdown.NewPrinterWithIO(&out, &errOut)
 
 		view := jira4claude.IssueFieldsView{
 			Source:  "INT / Bug",
@@ -971,5 +975,6 @@ func TestPrinter_Fields(t *testing.T) {
 
 		p.Fields(view)
 		assert.NotContains(t, out.String(), "more field")
+		assert.Empty(t, errOut.String())
 	})
 }

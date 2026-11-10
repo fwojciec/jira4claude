@@ -197,7 +197,7 @@ Semantic exit codes for programmatic error handling:
 
 Usage errors (unknown flag, missing argument, bad flag value) are validation errors and exit 1.
 
-stdout carries only the data a command prints, so `out=$(j4c ... --json)` holds either that data or nothing. Errors and warnings go to stderr. With `--json`, each is one JSON object per line on stderr:
+stdout carries only the data a command prints, in both modes, so `out=$(j4c ...)` holds either that data or nothing. Errors, warnings and notices such as `[info] No issues found` go to stderr; an empty list prints nothing on stdout in text mode, and the empty data (for example `{"issues":[],"truncated":false}`) with `--json`. With `--json`, each error or warning is one JSON object per line on stderr:
 
 ```json
 {"level":"error","error":true,"code":"not_found","message":"issue not found"}
