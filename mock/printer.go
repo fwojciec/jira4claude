@@ -26,6 +26,7 @@ type Printer struct {
 	ErrorFn           func(err error)
 
 	ViewConversionIssueFn func(issue jira4claude.ViewConversionIssue)
+	SavedAttachmentsFn    func(key string, saved []jira4claude.SavedAttachmentView)
 
 	// Captured calls for assertions
 	IssueCalls          []jira4claude.IssueView
@@ -53,6 +54,10 @@ type Printer struct {
 	ErrorCalls           []error
 
 	ViewConversionIssueCalls []jira4claude.ViewConversionIssue
+	SavedAttachmentsCalls    []struct {
+		Key   string
+		Saved []jira4claude.SavedAttachmentView
+	}
 }
 
 func (p *Printer) ViewConversionIssue(issue jira4claude.ViewConversionIssue) {
@@ -131,6 +136,16 @@ func (p *Printer) Attachments(key string, attachments []jira4claude.AttachmentVi
 	}{key, attachments})
 	if p.AttachmentsFn != nil {
 		p.AttachmentsFn(key, attachments)
+	}
+}
+
+func (p *Printer) SavedAttachments(key string, saved []jira4claude.SavedAttachmentView) {
+	p.SavedAttachmentsCalls = append(p.SavedAttachmentsCalls, struct {
+		Key   string
+		Saved []jira4claude.SavedAttachmentView
+	}{key, saved})
+	if p.SavedAttachmentsFn != nil {
+		p.SavedAttachmentsFn(key, saved)
 	}
 }
 

@@ -183,7 +183,15 @@ j4c link delete PROJ-1 PROJ-2              # Remove link
 
 ```bash
 j4c attachment list PROJ-123               # One line each: ID, bytes, MIME type, filename (tab-separated)
+j4c attachment download PROJ-123 --all --dir ./files      # Prints one saved path per line
+j4c attachment download PROJ-123 --id 10000 --dir ./files
+j4c attachment download PROJ-123 --name "log.txt" --dir ./files --overwrite
 ```
+
+Downloads keep only the base name of Jira's filename (a repeated name gets
+the attachment ID: `report-10001.pdf`), never write outside `--dir` (which
+must already exist), and refuse to replace an existing file unless
+`--overwrite` is given (which still never replaces a symlink or directory).
 
 ### Configuration
 

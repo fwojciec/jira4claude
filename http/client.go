@@ -257,6 +257,182 @@ func (c *Client) DoRequest(req *http.Request, expectedStatus int) ([]byte, error
 	return nil, lastErr
 }
 
+// maxStreamRedirects caps the redirects one Stream attempt follows.
+const maxStreamRedirects = 5
+
+// maxErrorBodyBytes bounds how much of an error response Stream reads.
+const maxErrorBodyBytes = 64 << 10
+
+// Stream GETs path on the configured server and copies a 200 response body
+// to w, returning the number of bytes written. It sends Accept: */*, unlike
+// Do, which asks for JSON.
+//
+// Redirects are followed by hand, at most maxStreamRedirects per attempt,
+// because net/http's own redirect handling decides by host name alone (it
+// ignores the port and allows subdomains) whether to resend the
+// Authorization header, and a cookie jar ignores ports too:
+//   - credentials are sent only while every URL so far has had the scheme,
+//     host and port of the configured server; once a hop leaves it, no later
+//     hop carries them, even one that leads back;
+//   - no hop sends cookies (the client's jar is not used);
+//   - a redirect to a scheme other than http or https is refused, and so is
+//     one to plain http when the configured server uses https.
+//
+// GET is idempotent, so an attempt is retried with backoff, as in DoRequest,
+// on a connection error, 429 or 5xx, but only until the first byte reaches
+// w: w cannot be rewound, so a failure while copying is returned as it is.
+func (c *Client) Stream(ctx context.Context, path string, w io.Writer) (int64, error) {
+	ref, err := url.Parse(path)
+	if err != nil {
+		return 0, &jira4claude.Error{Code: jira4claude.EInternal, Message: "invalid request path", Inner: err}
+	}
+	start := c.baseURL.ResolveReference(ref)
+
+	// A copy of the configured client that hands redirects back instead of
+	// following them, and keeps no cookies.
+	hc := *c.httpClient
+	hc.Jar = nil
+	hc.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+
+	var lastErr error
+	for attempt := 0; attempt <= c.maxRetries; attempt++ {
+		if attempt > 0 {
+			delay := c.retryBaseDelay * (1 << (attempt - 1))
+			select {
+			case <-time.After(delay):
+			case <-ctx.Done():
+				return 0, &jira4claude.Error{
+					Code:    jira4claude.EInternal,
+					Message: "request cancelled during retry backoff",
+					Inner:   ctx.Err(),
+				}
+			}
+		}
+		n, retry, err := c.streamOnce(ctx, &hc, start, w)
+		if err == nil {
+			return n, nil
+		}
+		if !retry || n > 0 {
+			return n, err
+		}
+		lastErr = err
+	}
+	return 0, lastErr
+}
+
+// streamOnce makes one Stream attempt from start. retry reports whether the
+// failure is transient and nothing was written.
+func (c *Client) streamOnce(ctx context.Context, hc *http.Client, start *url.URL, w io.Writer) (n int64, retry bool, err error) {
+	target := start
+	withAuth := true
+	for hop := 0; ; hop++ {
+		if !sameOrigin(target, c.baseURL) {
+			withAuth = false
+		}
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, target.String(), nil)
+		if err != nil {
+			return 0, false, &jira4claude.Error{Code: jira4claude.EInternal, Message: "failed to create request", Inner: err}
+		}
+		req.Header.Set("Accept", "*/*")
+		if withAuth {
+			req.SetBasicAuth(c.username, c.password)
+		}
+
+		resp, err := hc.Do(req)
+		if err != nil {
+			return 0, true, &jira4claude.Error{Code: jira4claude.EInternal, Message: "request failed", Inner: err}
+		}
+
+		switch {
+		case resp.StatusCode == http.StatusOK:
+			n, err := io.Copy(w, resp.Body)
+			resp.Body.Close()
+			if err != nil {
+				return n, true, &jira4claude.Error{Code: jira4claude.EInternal, Message: "download interrupted", Inner: err}
+			}
+			return n, false, nil
+
+		case isRedirectStatus(resp.StatusCode):
+			location := resp.Header.Get("Location")
+			drainAndClose(resp.Body)
+			if hop >= maxStreamRedirects {
+				return 0, false, &jira4claude.Error{Code: jira4claude.EInternal, Message: fmt.Sprintf("too many redirects (more than %d)", maxStreamRedirects)}
+			}
+			next, err := c.redirectTarget(target, location)
+			if err != nil {
+				return 0, false, err
+			}
+			target = next
+
+		default:
+			body, _ := io.ReadAll(io.LimitReader(resp.Body, maxErrorBodyBytes))
+			drainAndClose(resp.Body)
+			return 0, isRetryableStatus(resp.StatusCode), statusError(resp.StatusCode, body)
+		}
+	}
+}
+
+// redirectTarget resolves a Location header against the current URL and
+// checks that it may be followed. Messages name only the scheme and host:
+// media URLs carry signed query strings.
+func (c *Client) redirectTarget(current *url.URL, location string) (*url.URL, error) {
+	if location == "" {
+		return nil, &jira4claude.Error{Code: jira4claude.EInternal, Message: "redirect without a Location header"}
+	}
+	next, err := current.Parse(location)
+	if err != nil {
+		return nil, &jira4claude.Error{Code: jira4claude.EInternal, Message: "invalid redirect location"}
+	}
+	scheme := strings.ToLower(next.Scheme)
+	switch {
+	case scheme != "http" && scheme != "https":
+		return nil, &jira4claude.Error{Code: jira4claude.EInternal, Message: fmt.Sprintf("refusing a redirect to a %q URL", scheme)}
+	case strings.EqualFold(c.baseURL.Scheme, "https") && scheme != "https":
+		return nil, &jira4claude.Error{Code: jira4claude.EInternal, Message: "refusing a redirect to a non-HTTPS URL on " + next.Host}
+	case next.Host == "":
+		return nil, &jira4claude.Error{Code: jira4claude.EInternal, Message: "redirect location has no host"}
+	}
+	return next, nil
+}
+
+// sameOrigin reports whether a and b have the same scheme, host and port,
+// with the scheme's default port filled in.
+func sameOrigin(a, b *url.URL) bool {
+	return strings.EqualFold(a.Scheme, b.Scheme) &&
+		strings.EqualFold(a.Hostname(), b.Hostname()) &&
+		effectivePort(a) == effectivePort(b)
+}
+
+func effectivePort(u *url.URL) string {
+	if p := u.Port(); p != "" {
+		return p
+	}
+	switch strings.ToLower(u.Scheme) {
+	case "https":
+		return "443"
+	case "http":
+		return "80"
+	}
+	return ""
+}
+
+func isRedirectStatus(code int) bool {
+	switch code {
+	case http.StatusMovedPermanently, http.StatusFound, http.StatusSeeOther,
+		http.StatusTemporaryRedirect, http.StatusPermanentRedirect:
+		return true
+	}
+	return false
+}
+
+// drainAndClose reads a little of body, so the connection can be reused, and
+// closes it.
+func drainAndClose(body io.ReadCloser) {
+	// Errors ignored: the body is being discarded.
+	_, _ = io.Copy(io.Discard, io.LimitReader(body, maxErrorBodyBytes))
+	_ = body.Close()
+}
+
 // statusError builds the domain error for an unexpected status code, using the
 // Jira error body when it has one.
 func statusError(statusCode int, body []byte) error {

@@ -117,6 +117,15 @@ func (p *Printer) Attachments(_ string, attachments []jira4claude.AttachmentView
 	p.encode(attachments)
 }
 
+// SavedAttachments prints the saved files as a JSON array of {id, filename,
+// path, size}, [] (not null) when empty.
+func (p *Printer) SavedAttachments(_ string, saved []jira4claude.SavedAttachmentView) {
+	if saved == nil {
+		saved = []jira4claude.SavedAttachmentView{}
+	}
+	p.encode(saved)
+}
+
 // Mutation prints the result of a write as one JSON object. changes is
 // always an object, {} when the command reports none.
 func (p *Printer) Mutation(result jira4claude.MutationResult) {

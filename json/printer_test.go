@@ -916,6 +916,39 @@ func TestPrinter_Attachments(t *testing.T) {
 	})
 }
 
+func TestPrinter_SavedAttachments(t *testing.T) {
+	t.Parallel()
+
+	t.Run("prints the saved files as an array", func(t *testing.T) {
+		t.Parallel()
+		var out, errOut bytes.Buffer
+		p := jsonpkg.NewPrinterWithIO(&out, &errOut)
+
+		p.SavedAttachments("TEST-1", []jira4claude.SavedAttachmentView{
+			{ID: "10000", Filename: "../picture.jpg", Path: "/tmp/dl/picture.jpg", Size: 23123},
+		})
+
+		assert.JSONEq(t, `[{
+			"id": "10000",
+			"filename": "../picture.jpg",
+			"path": "/tmp/dl/picture.jpg",
+			"size": 23123
+		}]`, out.String())
+		assert.Empty(t, errOut.String())
+	})
+
+	t.Run("nothing saved is an empty array, not null, and nothing on stderr", func(t *testing.T) {
+		t.Parallel()
+		var out, errOut bytes.Buffer
+		p := jsonpkg.NewPrinterWithIO(&out, &errOut)
+
+		p.SavedAttachments("TEST-1", nil)
+
+		assert.JSONEq(t, `[]`, out.String())
+		assert.Empty(t, errOut.String())
+	})
+}
+
 func TestPrinter_Mutation(t *testing.T) {
 	t.Parallel()
 

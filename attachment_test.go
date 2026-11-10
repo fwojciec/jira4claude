@@ -2,8 +2,10 @@ package jira4claude_test
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/fwojciec/jira4claude"
 	"github.com/fwojciec/jira4claude/mock"
@@ -150,5 +152,138 @@ func TestToIssueView_Attachments(t *testing.T) {
 		require.NoError(t, json.Unmarshal(data, &got))
 		assert.NotContains(t, got, "attachments")
 		assert.NotContains(t, got, "comments")
+	})
+}
+
+func TestSafeFilename(t *testing.T) {
+	t.Parallel()
+
+	long := strings.Repeat("a", 300) + ".txt"
+	longMultibyte := strings.Repeat("é", 200) // 400 bytes
+
+	tests := []struct {
+		name     string
+		filename string
+		id       string
+		want     string
+	}{
+		{"plain name is kept", "report.pdf", "10000", "report.pdf"},
+		{"spaces and unicode are kept", "débug log.txt", "10000", "débug log.txt"},
+		{"traversal keeps the base name", "../../etc/passwd", "10000", "passwd"},
+		{"absolute path keeps the base name", "/abs/path", "10000", "path"},
+		{"subdirectory keeps the base name", "a/b.txt", "10000", "b.txt"},
+		{"windows separators", `..\x`, "10000", "x"},
+		{"windows absolute path", `C:\Users\me\evil.bat`, "10000", "evil.bat"},
+		{"mixed separators", `a\b/c\d.txt`, "10000", "d.txt"},
+		{"dot dot falls back", "..", "10000", "attachment-10000"},
+		{"dot falls back", ".", "10000", "attachment-10000"},
+		{"empty falls back", "", "10000", "attachment-10000"},
+		{"only separators falls back", "///", "10000", "attachment-10000"},
+		{"trailing separator falls back", "dir/", "10000", "attachment-10000"},
+		{"trailing backslash falls back", `dir\`, "10000", "attachment-10000"},
+		{"traversal ending in dot dot falls back", "a/../..", "10000", "attachment-10000"},
+		{"NUL is replaced", "a\x00b.txt", "10000", "a_b.txt"},
+		{"newline and tab are replaced", "a\nb\tc.txt", "10000", "a_b_c.txt"},
+		{"DEL and C1 controls are replaced", "a\x7fb\u0085c", "10000", "a_b_c"},
+		{"invalid UTF-8 is replaced", "a\xffb", "10000", "a_b"},
+		{"right-to-left override is replaced", "evil\u202etxt.exe", "10000", "evil_txt.exe"},
+		{"a lone NUL becomes a placeholder name", "\x00", "10000", "_"},
+		{"hidden file is kept", ".bashrc", "10000", ".bashrc"},
+		{"fallback sanitises a hostile id", "", "../1", "attachment-___1"},
+		{"fallback with an empty id", "", "", "attachment"},
+		{"long name is cut to 200 bytes keeping the extension", long, "10000", strings.Repeat("a", 196) + ".txt"},
+		{"long multibyte name is cut on a rune boundary", longMultibyte, "10000", strings.Repeat("é", 100)},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := jira4claude.SafeFilename(tc.filename, tc.id)
+
+			assert.Equal(t, tc.want, got)
+			assert.NotContains(t, got, "/")
+			assert.NotContains(t, got, `\`)
+			assert.NotEqual(t, "..", got)
+			assert.NotEqual(t, ".", got)
+			assert.NotEmpty(t, got)
+			assert.LessOrEqual(t, len(got), 200)
+			assert.True(t, utf8.ValidString(got))
+		})
+	}
+}
+
+func TestLocalNames(t *testing.T) {
+	t.Parallel()
+
+	t.Run("each attachment keeps its safe name", func(t *testing.T) {
+		t.Parallel()
+
+		names, err := jira4claude.LocalNames([]*jira4claude.Attachment{
+			{ID: "1", Filename: "a.txt"},
+			{ID: "2", Filename: "../b.txt"},
+		})
+
+		require.NoError(t, err)
+		assert.Equal(t, []string{"a.txt", "b.txt"}, names)
+	})
+
+	t.Run("a repeated name gets the attachment id in every later copy", func(t *testing.T) {
+		t.Parallel()
+
+		names, err := jira4claude.LocalNames([]*jira4claude.Attachment{
+			{ID: "10", Filename: "report.pdf"},
+			{ID: "11", Filename: "x/report.pdf"},
+			{ID: "12", Filename: "REPORT.PDF"},
+			{ID: "13", Filename: "README"},
+			{ID: "14", Filename: "readme"},
+			{ID: "15", Filename: ".env"},
+			{ID: "16", Filename: ".env"},
+		})
+
+		require.NoError(t, err)
+		assert.Equal(t, []string{
+			"report.pdf", "report-11.pdf", "REPORT-12.PDF",
+			"README", "readme-14",
+			".env", ".env-16",
+		}, names)
+	})
+
+	t.Run("a clash that the id suffix cannot resolve is an error", func(t *testing.T) {
+		t.Parallel()
+
+		_, err := jira4claude.LocalNames([]*jira4claude.Attachment{
+			{ID: "10", Filename: "a.txt"},
+			{ID: "11", Filename: "a.txt"},
+			{ID: "12", Filename: "a-11.txt"},
+		})
+
+		require.Error(t, err)
+		assert.Equal(t, jira4claude.EConflict, jira4claude.ErrorCode(err))
+		assert.Contains(t, err.Error(), "11")
+		assert.Contains(t, err.Error(), "12")
+	})
+
+	t.Run("the id suffix also fits a name cut to the length limit", func(t *testing.T) {
+		t.Parallel()
+
+		long := strings.Repeat("a", 300) + ".txt"
+		names, err := jira4claude.LocalNames([]*jira4claude.Attachment{
+			{ID: "10", Filename: long},
+			{ID: "11", Filename: long},
+		})
+
+		require.NoError(t, err)
+		require.Len(t, names, 2)
+		assert.LessOrEqual(t, len(names[1]), 200)
+		assert.True(t, strings.HasSuffix(names[1], "-11.txt"), "name: %q", names[1])
+	})
+
+	t.Run("no attachments gives no names", func(t *testing.T) {
+		t.Parallel()
+
+		names, err := jira4claude.LocalNames(nil)
+
+		require.NoError(t, err)
+		assert.Empty(t, names)
 	})
 }

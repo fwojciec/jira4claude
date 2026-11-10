@@ -1233,6 +1233,35 @@ func TestPrinter_Attachments(t *testing.T) {
 	})
 }
 
+func TestPrinter_SavedAttachments(t *testing.T) {
+	t.Parallel()
+
+	t.Run("prints one saved path per line and nothing else", func(t *testing.T) {
+		t.Parallel()
+		var out, errOut bytes.Buffer
+		p := markdown.NewPrinterWithIO(&out, &errOut)
+
+		p.SavedAttachments("J4C-100", []jira4claude.SavedAttachmentView{
+			{ID: "10000", Filename: "../picture.jpg", Path: "/tmp/dl/picture.jpg", Size: 23123},
+			{ID: "10001", Filename: "debug log.txt", Path: "/tmp/dl/debug log.txt", Size: 2460},
+		})
+
+		assert.Equal(t, "/tmp/dl/picture.jpg\n/tmp/dl/debug log.txt\n", out.String())
+		assert.Empty(t, errOut.String())
+	})
+
+	t.Run("nothing saved prints nothing on stdout and a notice on stderr", func(t *testing.T) {
+		t.Parallel()
+		var out, errOut bytes.Buffer
+		p := markdown.NewPrinterWithIO(&out, &errOut)
+
+		p.SavedAttachments("J4C-100", nil)
+
+		assert.Empty(t, out.String())
+		assert.Equal(t, "[info] No attachments for J4C-100\n", errOut.String())
+	})
+}
+
 func TestPrinter_Issue_Attachments(t *testing.T) {
 	t.Parallel()
 

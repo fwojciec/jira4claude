@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"strconv"
 	"time"
@@ -59,6 +60,44 @@ func (s *AttachmentService) List(ctx context.Context, key string) ([]*jira4claud
 	}
 
 	return mapAttachments(resp.Fields.Attachment), nil
+}
+
+// Download streams the content of an attachment to w from
+// GET /rest/api/3/attachment/content/{id}?redirect=false on the configured
+// host. The content URL Jira reports with each attachment is never used.
+//
+// Atlassian's REST v3 OpenAPI document (operation getAttachmentContent) lists
+// 200, 206 and 303 responses and a redirect query parameter: "Whether a
+// redirect is provided for the attachment download. Clients that do not
+// automatically follow redirects can set this to false to avoid making
+// multiple requests to download the attachment." redirect=false therefore
+// asks for the bytes directly. Not verified against a live site, so a
+// redirect is still handled, under Client.Stream's credential rules.
+//
+// The ID must be a plain token of letters, digits, '-' and '_' (Jira's IDs
+// are numeric), so it cannot change the request path.
+func (s *AttachmentService) Download(ctx context.Context, id string, w io.Writer) (int64, error) {
+	if !isPlainID(id) {
+		return 0, &jira4claude.Error{
+			Code:    jira4claude.EValidation,
+			Message: "invalid attachment id " + strconv.Quote(id),
+		}
+	}
+	return s.client.Stream(ctx, "/rest/api/3/attachment/content/"+id+"?redirect=false", w)
+}
+
+// isPlainID reports whether id is non-empty and holds only ASCII letters,
+// digits, '-' and '_'.
+func isPlainID(id string) bool {
+	if id == "" {
+		return false
+	}
+	for _, r := range id {
+		if r != '-' && r != '_' && (r < '0' || r > '9') && (r < 'a' || r > 'z') && (r < 'A' || r > 'Z') {
+			return false
+		}
+	}
+	return true
 }
 
 // attachmentResponse is one entry of an issue's attachment field.

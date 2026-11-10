@@ -466,6 +466,20 @@ func attachmentLines(attachments []jira4claude.AttachmentView) string {
 	return b.String()
 }
 
+// SavedAttachments prints the path of each saved file, one per line, as
+// written, so a script can use each line as a path. The file name part is a
+// jira4claude.SafeFilename name, which holds no control characters; the
+// directory part is the caller's own --dir.
+func (p *Printer) SavedAttachments(key string, saved []jira4claude.SavedAttachmentView) {
+	if len(saved) == 0 {
+		fmt.Fprintf(p.err, "[info] No attachments for %s\n", key)
+		return
+	}
+	for _, s := range saved {
+		fmt.Fprintln(p.out, s.Path)
+	}
+}
+
 // renderAttachmentsSection prints the "## Attachments" section of an issue,
 // one "- ID filename (size, type)" line per attachment, with a human-readable
 // size. It prints nothing when there are no attachments.

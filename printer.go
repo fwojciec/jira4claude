@@ -27,6 +27,9 @@ type LinkPrinter interface {
 type AttachmentPrinter interface {
 	// Attachments prints the attachments of the issue with the given key.
 	Attachments(key string, attachments []AttachmentView)
+	// SavedAttachments prints the attachments of the issue with the given
+	// key that were saved to local files.
+	SavedAttachments(key string, saved []SavedAttachmentView)
 }
 
 // MutationPrinter reports what a command that writes did. It writes to stdout,

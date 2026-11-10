@@ -115,6 +115,11 @@ func everyCommand() []commandCase {
 			t.Helper()
 			return attachmentDeps(t, attachmentLister(nil, err))
 		}},
+		// --dir=. exists and List fails first, so nothing is written there.
+		{"attachment download", []string{"attachment", "download", "TEST-1", "--all", "--dir=."}, func(t *testing.T, err error) main.Deps {
+			t.Helper()
+			return attachmentDeps(t, attachmentLister(nil, err))
+		}},
 		{"init", []string{"init", "--server=https://test.atlassian.net", "--project=TEST"}, func(t *testing.T, err error) main.Deps {
 			t.Helper()
 			deps := unreachableDeps(t)
@@ -449,6 +454,16 @@ func emptyCases() []emptyCase {
 		},
 		{
 			name: "attachment list", args: []string{"attachment", "list", "TEST-1"},
+			deps: func(t *testing.T) main.Deps {
+				t.Helper()
+				return attachmentDeps(t, attachmentLister(nil, nil))
+			},
+			notice:  "[info] No attachments for TEST-1\n",
+			jsonOut: `[]`,
+		},
+		{
+			// --dir=. exists and there is nothing to write into it.
+			name: "attachment download --all", args: []string{"attachment", "download", "TEST-1", "--all", "--dir=."},
 			deps: func(t *testing.T) main.Deps {
 				t.Helper()
 				return attachmentDeps(t, attachmentLister(nil, nil))
