@@ -16,7 +16,23 @@ type createFields struct {
 	Priority     *priorityRef               `json:"priority,omitempty"`
 	Labels       []string                   `json:"labels,omitempty"`
 	Parent       *parentRef                 `json:"parent,omitempty"`
+	Assignee     *userIDRef                 `json:"assignee,omitempty"`
 	CustomFields map[string]json.RawMessage `json:"-"`
+}
+
+// userIDRef identifies a user by account ID in a create request.
+//
+// The shape follows Atlassian's Jira Cloud platform REST API v3 OpenAPI spec
+// (https://developer.atlassian.com/cloud/jira/platform/swagger-v3.v3.json,
+// version 1001.0.0-SNAPSHOT-84e72788de39608da1f7138389f0e1e9993e9555, fetched
+// 2026-11-09): the request example of operation createIssue
+// (POST /rest/api/3/issue) sets "fields": {"assignee": {"id":
+// "5b109f2e9729b51b54dc274d"}}, an account ID under the key "id". The
+// schema itself (IssueUpdateDetails.fields) is an untyped map, so that
+// example is the only documented shape. Not verified against a live site;
+// update requests use {"accountId": ...} (assigneeRef) instead.
+type userIDRef struct {
+	ID string `json:"id"`
 }
 
 // projectRef identifies a project by key.

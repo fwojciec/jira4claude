@@ -320,17 +320,18 @@ func TestIssueCreateCmd(t *testing.T) {
 		assert.Equal(t, "EPIC-1", capturedIssue.Parent.Key)
 	})
 
-	t.Run("assignee me creates issue then self-assigns", func(t *testing.T) {
+	t.Run("assignee me is sent in the one create request without a separate assign", func(t *testing.T) {
 		t.Parallel()
 
-		var assignedKey, assignedID string
+		var created []*jira4claude.Issue
+		assignCalled := false
 		svc := &mock.IssueService{
 			CreateFn: func(ctx context.Context, issue *jira4claude.Issue) (*jira4claude.Issue, error) {
+				created = append(created, issue)
 				return &jira4claude.Issue{Key: "TEST-1"}, nil
 			},
 			AssignFn: func(ctx context.Context, key, accountID string) error {
-				assignedKey = key
-				assignedID = accountID
+				assignCalled = true
 				return nil
 			},
 		}
@@ -355,23 +356,27 @@ func TestIssueCreateCmd(t *testing.T) {
 		err := cmd.Run(ctx)
 
 		require.NoError(t, err)
-		assert.Equal(t, "TEST-1", assignedKey)
-		assert.Equal(t, "myself-123", assignedID)
+		require.Len(t, created, 1)
+		require.NotNil(t, created[0].Assignee)
+		assert.Equal(t, "myself-123", created[0].Assignee.AccountID)
+		assert.False(t, assignCalled, "Assign must not be called when create carries the assignee")
 		require.Len(t, printer.SuccessCalls, 1)
 		assert.Equal(t, "Created:", printer.SuccessCalls[0].Msg)
+		assert.Equal(t, []string{"TEST-1"}, printer.SuccessCalls[0].Keys)
 	})
 
-	t.Run("assignee email creates issue then assigns by email", func(t *testing.T) {
+	t.Run("assignee email is resolved and sent in the one create request", func(t *testing.T) {
 		t.Parallel()
 
-		var assignedKey, assignedID string
+		var created []*jira4claude.Issue
+		assignCalled := false
 		svc := &mock.IssueService{
 			CreateFn: func(ctx context.Context, issue *jira4claude.Issue) (*jira4claude.Issue, error) {
+				created = append(created, issue)
 				return &jira4claude.Issue{Key: "TEST-1"}, nil
 			},
 			AssignFn: func(ctx context.Context, key, accountID string) error {
-				assignedKey = key
-				assignedID = accountID
+				assignCalled = true
 				return nil
 			},
 		}
@@ -396,8 +401,10 @@ func TestIssueCreateCmd(t *testing.T) {
 		err := cmd.Run(ctx)
 
 		require.NoError(t, err)
-		assert.Equal(t, "TEST-1", assignedKey)
-		assert.Equal(t, "user-456", assignedID)
+		require.Len(t, created, 1)
+		require.NotNil(t, created[0].Assignee)
+		assert.Equal(t, "user-456", created[0].Assignee.AccountID)
+		assert.False(t, assignCalled, "Assign must not be called when create carries the assignee")
 		require.Len(t, printer.SuccessCalls, 1)
 		assert.Equal(t, "Created:", printer.SuccessCalls[0].Msg)
 	})
@@ -406,8 +413,10 @@ func TestIssueCreateCmd(t *testing.T) {
 		t.Parallel()
 
 		assignCalled := false
+		var capturedIssue *jira4claude.Issue
 		svc := &mock.IssueService{
 			CreateFn: func(ctx context.Context, issue *jira4claude.Issue) (*jira4claude.Issue, error) {
+				capturedIssue = issue
 				return &jira4claude.Issue{Key: "TEST-1"}, nil
 			},
 			AssignFn: func(ctx context.Context, key, accountID string) error {
@@ -429,25 +438,26 @@ func TestIssueCreateCmd(t *testing.T) {
 		err := cmd.Run(ctx)
 
 		require.NoError(t, err)
+		require.NotNil(t, capturedIssue)
+		assert.Nil(t, capturedIssue.Assignee)
 		assert.False(t, assignCalled, "Assign should not be called when assignee is empty")
 		require.Len(t, printer.SuccessCalls, 1)
 		assert.Equal(t, "Created:", printer.SuccessCalls[0].Msg)
 	})
 
-	t.Run("assignment failure returns error but creation success is printed", func(t *testing.T) {
+	t.Run("unresolvable assignee email fails before Create is called", func(t *testing.T) {
 		t.Parallel()
 
+		createCalled := false
 		svc := &mock.IssueService{
 			CreateFn: func(ctx context.Context, issue *jira4claude.Issue) (*jira4claude.Issue, error) {
+				createCalled = true
 				return &jira4claude.Issue{Key: "TEST-1"}, nil
-			},
-			AssignFn: func(ctx context.Context, key, accountID string) error {
-				return &jira4claude.Error{Code: jira4claude.EInternal, Message: "assign failed"}
 			},
 		}
 		userSvc := &mock.UserService{
-			GetMyselfFn: func(ctx context.Context) (*jira4claude.User, error) {
-				return &jira4claude.User{AccountID: "myself-123"}, nil
+			FindUsersFn: func(ctx context.Context, query string) ([]*jira4claude.User, error) {
+				return nil, nil
 			},
 		}
 
@@ -461,22 +471,23 @@ func TestIssueCreateCmd(t *testing.T) {
 		}
 		cmd := main.IssueCreateCmd{
 			Summary:  "Test issue",
-			Assignee: "me",
+			Assignee: "nobody@example.com",
 		}
 		err := cmd.Run(ctx)
 
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "assign failed")
-		// Creation success should still be printed before the assignment error
-		require.Len(t, printer.SuccessCalls, 1)
-		assert.Equal(t, "Created:", printer.SuccessCalls[0].Msg)
+		assert.Equal(t, jira4claude.ENotFound, jira4claude.ErrorCode(err))
+		assert.False(t, createCalled, "Create must not be called when the assignee cannot be resolved")
+		assert.Empty(t, printer.SuccessCalls)
 	})
 
-	t.Run("resolve failure returns error but creation success is printed", func(t *testing.T) {
+	t.Run("assignee lookup failure fails before Create is called", func(t *testing.T) {
 		t.Parallel()
 
+		createCalled := false
 		svc := &mock.IssueService{
 			CreateFn: func(ctx context.Context, issue *jira4claude.Issue) (*jira4claude.Issue, error) {
+				createCalled = true
 				return &jira4claude.Issue{Key: "TEST-1"}, nil
 			},
 		}
@@ -502,8 +513,195 @@ func TestIssueCreateCmd(t *testing.T) {
 
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "auth failed")
+		assert.False(t, createCalled, "Create must not be called when the assignee cannot be resolved")
+		assert.Empty(t, printer.SuccessCalls)
+	})
+}
+
+// assigneeRejected is the error the HTTP layer returns when Jira answers a
+// create with a 400 whose field errors name the assignee (see
+// http.ParseErrorResponse: field errors become "field: message" segments).
+func assigneeRejected() error {
+	return &jira4claude.Error{
+		Code:    jira4claude.EValidation,
+		Message: "assignee: Field 'assignee' cannot be set. It is not on the appropriate screen, or unknown.",
+	}
+}
+
+func TestIssueCreateCmd_AssigneeFallback(t *testing.T) {
+	t.Parallel()
+
+	newCtx := func(svc *mock.IssueService, printer *mock.Printer) *main.IssueContext {
+		return &main.IssueContext{
+			Service: svc,
+			UserService: &mock.UserService{
+				GetMyselfFn: func(ctx context.Context) (*jira4claude.User, error) {
+					return &jira4claude.User{AccountID: "myself-123"}, nil
+				},
+			},
+			Printer:   printer,
+			Converter: mockConverter(),
+			Config:    &jira4claude.Config{Project: "TEST", Server: "https://test.atlassian.net"},
+		}
+	}
+
+	t.Run("rejected assignee field falls back to create then assign", func(t *testing.T) {
+		t.Parallel()
+
+		var created []*jira4claude.Issue
+		var assignedKey, assignedID string
+		svc := &mock.IssueService{
+			CreateFn: func(ctx context.Context, issue *jira4claude.Issue) (*jira4claude.Issue, error) {
+				created = append(created, issue)
+				if issue.Assignee != nil {
+					return nil, assigneeRejected()
+				}
+				return &jira4claude.Issue{Key: "TEST-1"}, nil
+			},
+			AssignFn: func(ctx context.Context, key, accountID string) error {
+				assignedKey = key
+				assignedID = accountID
+				return nil
+			},
+		}
+		printer := &mock.Printer{}
+
+		cmd := main.IssueCreateCmd{Summary: "Test issue", Labels: []string{"a"}, Assignee: "me"}
+		err := cmd.Run(newCtx(svc, printer))
+
+		require.NoError(t, err)
+		require.Len(t, created, 2)
+		require.NotNil(t, created[0].Assignee)
+		assert.Equal(t, "myself-123", created[0].Assignee.AccountID)
+		assert.Nil(t, created[1].Assignee)
+		assert.Equal(t, "Test issue", created[1].Summary)
+		assert.Equal(t, []string{"a"}, created[1].Labels)
+		assert.Equal(t, "TEST-1", assignedKey)
+		assert.Equal(t, "myself-123", assignedID)
 		require.Len(t, printer.SuccessCalls, 1)
 		assert.Equal(t, "Created:", printer.SuccessCalls[0].Msg)
+		assert.Equal(t, []string{"TEST-1"}, printer.SuccessCalls[0].Keys)
+		require.Len(t, printer.WarningCalls, 1)
+		assert.Contains(t, printer.WarningCalls[0], "assignee")
+	})
+
+	t.Run("failed assignment in the fallback reports the created key and fails", func(t *testing.T) {
+		t.Parallel()
+
+		svc := &mock.IssueService{
+			CreateFn: func(ctx context.Context, issue *jira4claude.Issue) (*jira4claude.Issue, error) {
+				if issue.Assignee != nil {
+					return nil, assigneeRejected()
+				}
+				return &jira4claude.Issue{Key: "TEST-1"}, nil
+			},
+			AssignFn: func(ctx context.Context, key, accountID string) error {
+				return &jira4claude.Error{Code: jira4claude.EForbidden, Message: "cannot assign"}
+			},
+		}
+		printer := &mock.Printer{}
+
+		cmd := main.IssueCreateCmd{Summary: "Test issue", Assignee: "me"}
+		err := cmd.Run(newCtx(svc, printer))
+
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "created TEST-1")
+		assert.Contains(t, err.Error(), "assignment failed")
+		assert.Contains(t, err.Error(), "cannot assign")
+		assert.Equal(t, jira4claude.EForbidden, jira4claude.ErrorCode(err))
+		require.Len(t, printer.SuccessCalls, 1)
+		assert.Equal(t, []string{"TEST-1"}, printer.SuccessCalls[0].Keys)
+	})
+
+	t.Run("does not retry create on a validation error that does not name the assignee", func(t *testing.T) {
+		t.Parallel()
+
+		calls := 0
+		svc := &mock.IssueService{
+			CreateFn: func(ctx context.Context, issue *jira4claude.Issue) (*jira4claude.Issue, error) {
+				calls++
+				return nil, &jira4claude.Error{
+					Code:    jira4claude.EValidation,
+					Message: "Field 'assignee' is mentioned here but is not the field key; priority: invalid",
+				}
+			},
+		}
+		printer := &mock.Printer{}
+
+		cmd := main.IssueCreateCmd{Summary: "Test issue", Assignee: "me"}
+		err := cmd.Run(newCtx(svc, printer))
+
+		require.Error(t, err)
+		assert.Equal(t, 1, calls)
+		assert.Empty(t, printer.SuccessCalls)
+	})
+
+	t.Run("does not retry create when the first create may have been applied", func(t *testing.T) {
+		t.Parallel()
+
+		calls := 0
+		svc := &mock.IssueService{
+			CreateFn: func(ctx context.Context, issue *jira4claude.Issue) (*jira4claude.Issue, error) {
+				calls++
+				// A 5xx on POST: the code is kept from the inner status error,
+				// and the message may carry the Jira body.
+				return nil, &jira4claude.Error{
+					Code:    jira4claude.EInternal,
+					Message: "POST /rest/api/3/issue failed and was not retried; the request may have been applied, check before retrying",
+					Inner:   &jira4claude.Error{Code: jira4claude.EInternal, Message: "assignee: something went wrong"},
+				}
+			},
+		}
+		printer := &mock.Printer{}
+
+		cmd := main.IssueCreateCmd{Summary: "Test issue", Assignee: "me"}
+		err := cmd.Run(newCtx(svc, printer))
+
+		require.Error(t, err)
+		assert.Equal(t, 1, calls)
+		assert.Empty(t, printer.SuccessCalls)
+	})
+
+	t.Run("does not retry create on a non-validation error that names the assignee", func(t *testing.T) {
+		t.Parallel()
+
+		calls := 0
+		svc := &mock.IssueService{
+			CreateFn: func(ctx context.Context, issue *jira4claude.Issue) (*jira4claude.Issue, error) {
+				calls++
+				return nil, &jira4claude.Error{
+					Code:    jira4claude.EForbidden,
+					Message: "assignee: Field 'assignee' cannot be set. It is not on the appropriate screen, or unknown.",
+				}
+			},
+		}
+		printer := &mock.Printer{}
+
+		cmd := main.IssueCreateCmd{Summary: "Test issue", Assignee: "me"}
+		err := cmd.Run(newCtx(svc, printer))
+
+		require.Error(t, err)
+		assert.Equal(t, 1, calls)
+		assert.Empty(t, printer.SuccessCalls)
+	})
+
+	t.Run("does not retry create when the fallback is not needed because no assignee was given", func(t *testing.T) {
+		t.Parallel()
+
+		calls := 0
+		svc := &mock.IssueService{
+			CreateFn: func(ctx context.Context, issue *jira4claude.Issue) (*jira4claude.Issue, error) {
+				calls++
+				return nil, assigneeRejected()
+			},
+		}
+		printer := &mock.Printer{}
+
+		cmd := main.IssueCreateCmd{Summary: "Test issue"}
+		err := cmd.Run(newCtx(svc, printer))
+
+		require.Error(t, err)
+		assert.Equal(t, 1, calls)
 	})
 }
 

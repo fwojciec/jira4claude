@@ -2788,3 +2788,103 @@ func TestIssueService_CustomFields(t *testing.T) {
 		assert.Equal(t, "Custom summary", fields["summary"])
 	})
 }
+
+func TestIssueService_Create_Assignee(t *testing.T) {
+	t.Parallel()
+
+	t.Run("sends the assignee account ID in the one create request", func(t *testing.T) {
+		t.Parallel()
+
+		var requests int
+		var capturedBody []byte
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			requests++
+			assert.Equal(t, http.MethodPost, r.Method)
+			assert.Equal(t, "/rest/api/3/issue", r.URL.Path)
+			capturedBody, _ = io.ReadAll(r.Body)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusCreated)
+			_, _ = w.Write([]byte(`{"key":"INT-1"}`))
+		}))
+		defer server.Close()
+
+		client := newTestClient(t, server.URL, "user", "pass")
+		svc := jirahttp.NewIssueService(client)
+
+		issue := &jira4claude.Issue{
+			Project:  "INT",
+			Type:     "Task",
+			Summary:  "Hi",
+			Assignee: &jira4claude.User{AccountID: "acc-123"},
+		}
+
+		created, err := svc.Create(context.Background(), issue)
+		require.NoError(t, err)
+
+		assert.Equal(t, 1, requests)
+		assert.Equal(t, "INT-1", created.Key)
+		var body struct {
+			Fields map[string]json.RawMessage `json:"fields"`
+		}
+		require.NoError(t, json.Unmarshal(capturedBody, &body))
+		assert.JSONEq(t, `{"id":"acc-123"}`, string(body.Fields["assignee"]))
+	})
+
+	t.Run("omits the assignee when it has no account ID", func(t *testing.T) {
+		t.Parallel()
+
+		var capturedBody []byte
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			capturedBody, _ = io.ReadAll(r.Body)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusCreated)
+			_, _ = w.Write([]byte(`{"key":"INT-1"}`))
+		}))
+		defer server.Close()
+
+		client := newTestClient(t, server.URL, "user", "pass")
+		svc := jirahttp.NewIssueService(client)
+
+		_, err := svc.Create(context.Background(), &jira4claude.Issue{
+			Project:  "INT",
+			Type:     "Task",
+			Summary:  "Hi",
+			Assignee: &jira4claude.User{},
+		})
+		require.NoError(t, err)
+
+		var body struct {
+			Fields map[string]json.RawMessage `json:"fields"`
+		}
+		require.NoError(t, json.Unmarshal(capturedBody, &body))
+		assert.NotContains(t, body.Fields, "assignee")
+	})
+
+	t.Run("a 400 naming the assignee field is a validation error naming it", func(t *testing.T) {
+		t.Parallel()
+
+		var requests int
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			requests++
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"errorMessages":[],"errors":{"assignee":"Field 'assignee' cannot be set. It is not on the appropriate screen, or unknown."}}`))
+		}))
+		defer server.Close()
+
+		client := newTestClient(t, server.URL, "user", "pass")
+		svc := jirahttp.NewIssueService(client)
+
+		_, err := svc.Create(context.Background(), &jira4claude.Issue{
+			Project:  "INT",
+			Type:     "Task",
+			Summary:  "Hi",
+			Assignee: &jira4claude.User{AccountID: "acc-123"},
+		})
+
+		require.Error(t, err)
+		assert.Equal(t, 1, requests)
+		assert.Equal(t, jira4claude.EValidation, jira4claude.ErrorCode(err))
+		assert.Equal(t, "assignee: Field 'assignee' cannot be set. It is not on the appropriate screen, or unknown.", jira4claude.ErrorMessage(err))
+	})
+}

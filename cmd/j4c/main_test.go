@@ -279,6 +279,63 @@ func TestIssueCreateCmd_ReturnsServiceError(t *testing.T) {
 	})
 }
 
+func TestRun_IssueCreateAssigneeFallbackAssignFails(t *testing.T) {
+	t.Parallel()
+
+	// Jira rejects the assignee field on create (not on the create screen),
+	// the retry without it succeeds, and the separate assign then fails.
+	newServices := func() (*mock.IssueService, *mock.UserService) {
+		issueSvc := &mock.IssueService{
+			CreateFn: func(ctx context.Context, issue *jira4claude.Issue) (*jira4claude.Issue, error) {
+				if issue.Assignee != nil {
+					return nil, &jira4claude.Error{
+						Code:    jira4claude.EValidation,
+						Message: "assignee: Field 'assignee' cannot be set. It is not on the appropriate screen, or unknown.",
+					}
+				}
+				return &jira4claude.Issue{Key: "TEST-7"}, nil
+			},
+			AssignFn: func(ctx context.Context, key, accountID string) error {
+				return &jira4claude.Error{Code: jira4claude.EForbidden, Message: "cannot assign"}
+			},
+		}
+		userSvc := &mock.UserService{
+			GetMyselfFn: func(ctx context.Context) (*jira4claude.User, error) {
+				return &jira4claude.User{AccountID: "myself-123"}, nil
+			},
+		}
+		return issueSvc, userSvc
+	}
+
+	t.Run("markdown prints the key on stdout, the failure on stderr, and exits non-zero", func(t *testing.T) {
+		t.Parallel()
+
+		issueSvc, userSvc := newServices()
+		res := runCLI(t, testDeps(issueSvc, userSvc), "issue", "create", "-s", "Test issue", "-A", "me")
+
+		assert.NotEqual(t, 0, res.code)
+		assert.Contains(t, res.stdout, "TEST-7")
+		assert.Contains(t, res.stderr, "created TEST-7, assignment failed")
+	})
+
+	t.Run("json prints the created key and the failure and exits non-zero", func(t *testing.T) {
+		t.Parallel()
+
+		issueSvc, userSvc := newServices()
+		res := runCLI(t, testDeps(issueSvc, userSvc), "--json", "issue", "create", "-s", "Test issue", "-A", "me")
+
+		assert.NotEqual(t, 0, res.code)
+		var success struct {
+			Success bool     `json:"success"`
+			Keys    []string `json:"keys"`
+		}
+		require.NoError(t, json.NewDecoder(strings.NewReader(res.stdout)).Decode(&success))
+		assert.True(t, success.Success)
+		assert.Equal(t, []string{"TEST-7"}, success.Keys)
+		assert.Contains(t, res.stdout+res.stderr, "created TEST-7, assignment failed")
+	})
+}
+
 func TestIssueTransitionCmd_RequiresStatusOrID(t *testing.T) {
 	t.Parallel()
 

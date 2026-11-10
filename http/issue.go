@@ -59,6 +59,9 @@ func (s *IssueService) Create(ctx context.Context, issue *jira4claude.Issue) (*j
 	if issue.Parent != nil {
 		reqBody.Fields.Parent = &parentRef{Key: issue.Parent.Key}
 	}
+	if issue.Assignee != nil && issue.Assignee.AccountID != "" {
+		reqBody.Fields.Assignee = &userIDRef{ID: issue.Assignee.AccountID}
+	}
 	reqBody.Fields.CustomFields = issue.CustomFields
 
 	req, err := s.client.NewJSONRequest(ctx, http.MethodPost, "/rest/api/3/issue", reqBody)

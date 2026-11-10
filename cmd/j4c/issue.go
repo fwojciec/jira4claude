@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -189,6 +190,17 @@ func (c *IssueCreateCmd) Run(ctx *IssueContext) error {
 		return err
 	}
 
+	// Resolve the assignee before any write, so a bad value fails without
+	// leaving an issue behind.
+	var assignee *jira4claude.User
+	if c.Assignee != "" {
+		accountID, err := ResolveAssignee(context.Background(), c.Assignee, ctx.UserService)
+		if err != nil {
+			return err
+		}
+		assignee = &jira4claude.User{AccountID: accountID}
+	}
+
 	issue := &jira4claude.Issue{
 		Project:      project,
 		Type:         c.Type,
@@ -197,27 +209,58 @@ func (c *IssueCreateCmd) Run(ctx *IssueContext) error {
 		Priority:     c.Priority,
 		Labels:       c.Labels,
 		Parent:       parent,
+		Assignee:     assignee,
 		CustomFields: customFields,
 	}
 
 	created, err := ctx.Service.Create(context.Background(), issue)
-	if err != nil {
+	if err == nil {
+		ctx.Printer.Success("Created:", created.Key)
+		return nil
+	}
+	if assignee == nil || !rejectsAssigneeField(err) {
 		return err
 	}
 
+	// The project's create screen does not accept the assignee. Jira refused
+	// the whole request, so nothing was created and a second create is safe.
+	ctx.Printer.Warning("Jira rejected the assignee on create (" + jira4claude.ErrorMessage(err) +
+		"); creating without it and assigning separately")
+	withoutAssignee := *issue
+	withoutAssignee.Assignee = nil
+	created, err = ctx.Service.Create(context.Background(), &withoutAssignee)
+	if err != nil {
+		return err
+	}
 	ctx.Printer.Success("Created:", created.Key)
 
-	if c.Assignee != "" {
-		accountID, err := ResolveAssignee(context.Background(), c.Assignee, ctx.UserService)
-		if err != nil {
-			return err
-		}
-		if err := ctx.Service.Assign(context.Background(), created.Key, accountID); err != nil {
-			return err
+	if err := ctx.Service.Assign(context.Background(), created.Key, assignee.AccountID); err != nil {
+		return &jira4claude.Error{
+			Code:    jira4claude.ErrorCode(err),
+			Message: "created " + created.Key + ", assignment failed",
+			Inner:   err,
 		}
 	}
-
 	return nil
+}
+
+// rejectsAssigneeField reports whether err is Jira's 400 answer to a create
+// whose field errors name the assignee. Only a definite 400 maps to
+// EValidation: 5xx and connection failures on POST, which may have been
+// applied, carry other codes. ParseErrorResponse flattens field errors into
+// "field: message" segments joined by "; ", so the assignee is named when a
+// segment starts with "assignee: ".
+func rejectsAssigneeField(err error) bool {
+	var e *jira4claude.Error
+	if !errors.As(err, &e) || e.Code != jira4claude.EValidation {
+		return false
+	}
+	for _, segment := range strings.Split(e.Message, "; ") {
+		if strings.HasPrefix(segment, "assignee: ") {
+			return true
+		}
+	}
+	return false
 }
 
 // IssueUpdateCmd updates an issue.
