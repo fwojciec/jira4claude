@@ -324,6 +324,73 @@ func TestRoundTrip_LinkThatLooksLikeATaskBox(t *testing.T) {
 	}
 }
 
+// An ordinary bare URL stays bare next to other inline nodes and inside
+// containers: a line is parsed back whole, and a difference anywhere on it
+// would bracket every bare link on it.
+func TestToMarkdown_BareLinkInContext(t *testing.T) {
+	t.Parallel()
+
+	url := hrefLink("https://x.test/a", "https://x.test/a")
+	para := func(inline ...jira4claude.ADFNode) jira4claude.ADFNode {
+		return jira4claude.ADFNode{Type: "paragraph", Content: inline}
+	}
+	sentence := para(txt("see "), url, txt(" now"))
+	mention := jira4claude.ADFNode{Type: "mention", Attrs: json.RawMessage(`{"id":"1","text":"@Ann *x*"}`)}
+	emoji := jira4claude.ADFNode{Type: "emoji", Attrs: json.RawMessage(`{"shortName":":smile:","text":"😄"}`)}
+	date := jira4claude.ADFNode{Type: "date", Attrs: json.RawMessage(`{"timestamp":"0"}`)}
+	status := jira4claude.ADFNode{Type: "status", Attrs: json.RawMessage(`{"text":"DONE","color":"green"}`)}
+	cell := func(typ string, content ...jira4claude.ADFNode) jira4claude.ADFNode {
+		return jira4claude.ADFNode{Type: typ, Content: content}
+	}
+
+	tests := map[string]jira4claude.ADFNode{
+		"after a mention":         para(mention, txt(" see "), url, txt(" now")),
+		"before a mention":        para(txt("see "), url, txt(" "), mention),
+		"next to an emoji":        para(emoji, txt(" "), url, txt(" "), emoji),
+		"next to a date":          para(date, txt(" "), url),
+		"next to a status":        para(status, txt(" "), url),
+		"after a mid-line break":  para(txt("a"), hardBreak(), txt("see "), url, txt(" now")),
+		"before a mid-line break": para(txt("see "), url, hardBreak(), txt("next")),
+		"in a list item":          cell("bulletList", cell("listItem", sentence)),
+		"in a blockquote":         cell("blockquote", sentence),
+		"in a panel":              {Type: "panel", Attrs: json.RawMessage(`{"panelType":"info"}`), Content: []jira4claude.ADFNode{sentence}},
+		"in a table cell": cell("table",
+			cell("tableRow", cell("tableHeader", para(txt("h")))),
+			cell("tableRow", cell("tableCell", sentence))),
+		"in a heading": {Type: "heading", Attrs: json.RawMessage(`{"level":2}`), Content: sentence.Content},
+	}
+	for name, block := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			doc := &jira4claude.ADFNode{Type: "doc", Version: 1, Content: []jira4claude.ADFNode{block}}
+			md, _ := markdown.New().ToMarkdown(doc)
+			assert.Contains(t, md, "https://x.test/a", "read as %q", md)
+			assert.NotContains(t, md, "](https://x.test/a)", "read as %q", md)
+		})
+	}
+}
+
+// An email in text that is emphasised with "_" (forced by a neighbour that
+// ends in "*") stays text, and a linked one stays a link (#161, cause 9a).
+func TestRoundTrip_EmailInUnderscoreEmphasis(t *testing.T) {
+	t.Parallel()
+
+	for name, inline := range map[string][]jira4claude.ADFNode{
+		"plain":           {txt("_a@b.co x_")},
+		"em after strong": {textNode("s", "strong"), textNode("a@b.co x", "em")},
+		"linked em after strong": {
+			textNode("s", "strong"), hrefLink("a@b.co", "a@b.co", "em"), textNode(" x", "em"),
+		},
+		"plain email after em": {textNode("e", "em"), txt("_a@b.co x_")},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			roundTripsExactly(t, paragraphDoc(inline...))
+		})
+	}
+}
+
 // roundTripsExactly asserts that doc reads and writes back unchanged, with
 // no issue on either side.
 func roundTripsExactly(t *testing.T, doc *jira4claude.ADFNode) {
