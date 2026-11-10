@@ -228,6 +228,22 @@ func TestAttachmentService_Download(t *testing.T) {
 		assert.Empty(t, buf.String())
 	})
 
+	t.Run("a failed hop to the media host keeps the signed URL out of the error", func(t *testing.T) {
+		t.Parallel()
+
+		closed := httptest.NewServer(http.NotFoundHandler())
+		closedURL := closed.URL
+		closed.Close()
+		jira := redirectingJira(t, func() string { return closedURL + "/file?token=signed-secret" }, nil)
+		svc := jirahttp.NewAttachmentService(newTestClient(t, jira.URL, "user", "pass", jirahttp.WithMaxRetries(0)))
+
+		_, err := svc.Download(context.Background(), "10000", &bytes.Buffer{})
+
+		require.Error(t, err)
+		assert.NotContains(t, err.Error(), "signed-secret")
+		assert.NotContains(t, err.Error(), "/file")
+	})
+
 	t.Run("a redirect to a non-HTTP scheme is refused", func(t *testing.T) {
 		t.Parallel()
 

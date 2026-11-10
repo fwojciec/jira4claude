@@ -8,6 +8,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -340,7 +341,13 @@ func (c *Client) streamOnce(ctx context.Context, hc *http.Client, start *url.URL
 
 		resp, err := hc.Do(req)
 		if err != nil {
-			return 0, true, &jira4claude.Error{Code: jira4claude.EInternal, Message: "request failed", Inner: err}
+			// A *url.Error quotes the full URL, and a media URL carries a
+			// signed query string: keep only the cause and the host.
+			var urlErr *url.Error
+			if errors.As(err, &urlErr) {
+				err = urlErr.Err
+			}
+			return 0, true, &jira4claude.Error{Code: jira4claude.EInternal, Message: "request to " + target.Host + " failed", Inner: err}
 		}
 
 		switch {

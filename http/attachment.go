@@ -66,13 +66,12 @@ func (s *AttachmentService) List(ctx context.Context, key string) ([]*jira4claud
 // GET /rest/api/3/attachment/content/{id}?redirect=false on the configured
 // host. The content URL Jira reports with each attachment is never used.
 //
-// Atlassian's REST v3 OpenAPI document (operation getAttachmentContent) lists
-// 200, 206 and 303 responses and a redirect query parameter: "Whether a
-// redirect is provided for the attachment download. Clients that do not
-// automatically follow redirects can set this to false to avoid making
-// multiple requests to download the attachment." redirect=false therefore
-// asks for the bytes directly. Not verified against a live site, so a
-// redirect is still handled, under Client.Stream's credential rules.
+// Atlassian's REST v3 OpenAPI document is reported (in the ticket brief; the
+// document was not fetched for this change) to list 200, 206 and 303
+// responses for this endpoint and a redirect query parameter. redirect=false
+// is assumed to ask for the bytes directly. Neither is verified against a
+// live site, so a redirect is still handled, under Client.Stream's
+// credential rules, and the code is safe whichever way the server answers.
 //
 // The ID must be a plain token of letters, digits, '-' and '_' (Jira's IDs
 // are numeric), so it cannot change the request path.

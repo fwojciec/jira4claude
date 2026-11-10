@@ -243,6 +243,22 @@ func TestDir_Save(t *testing.T) {
 		assert.Equal(t, []string{"a.txt"}, entries(t, dir))
 	})
 
+	t.Run("--overwrite never replaces a file saved earlier through the same Dir", func(t *testing.T) {
+		t.Parallel()
+
+		dir := t.TempDir()
+		d := openDir(t, dir, true)
+		path, _, err := d.Save("a.txt", 0, content("first"))
+		require.NoError(t, err)
+
+		_, _, err = d.Save("a.txt", 0, content("second"))
+
+		require.Error(t, err)
+		assert.Equal(t, jira4claude.EConflict, jira4claude.ErrorCode(err))
+		assert.Equal(t, "first", readFile(t, path))
+		assert.Equal(t, []string{"a.txt"}, entries(t, dir))
+	})
+
 	t.Run("--overwrite refuses a directory", func(t *testing.T) {
 		t.Parallel()
 

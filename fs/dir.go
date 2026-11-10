@@ -28,6 +28,11 @@ type Dir struct {
 	root      *os.Root
 	path      string // absolute
 	overwrite bool
+
+	// saved holds the files placed through this Dir, so that --overwrite
+	// never replaces one of them, even under another name that the file
+	// system treats as equal (case or Unicode normalisation on macOS).
+	saved []iofs.FileInfo
 }
 
 // OpenDir opens an existing directory for saving. It never creates the
@@ -111,6 +116,7 @@ func (d *Dir) Save(name string, size int64, fill func(io.Writer) error) (path st
 	if err := d.place(tmp, name); err != nil {
 		return "", cw.n, err
 	}
+	d.remember(name)
 	return filepath.Join(d.path, name), cw.n, nil
 }
 
@@ -132,7 +138,24 @@ func (d *Dir) check(name string) error {
 			Message: d.display(name) + " exists and is not a regular file; refusing to replace it even with --overwrite",
 		}
 	}
+	for _, s := range d.saved {
+		if os.SameFile(s, info) {
+			return &jira4claude.Error{
+				Code:    jira4claude.EConflict,
+				Message: d.display(name) + " was saved earlier in this run; refusing to replace it",
+			}
+		}
+	}
 	return nil
+}
+
+// remember records a file placed under name, for check.
+func (d *Dir) remember(name string) {
+	// Error ignored: the file was just placed; if it cannot be read back,
+	// the only loss is this extra guard for it.
+	if info, err := d.root.Lstat(name); err == nil {
+		d.saved = append(d.saved, info)
+	}
 }
 
 // place moves the temporary file to name. Without overwrite it never
