@@ -63,6 +63,32 @@ func (e *ReadBackError) Unwrap() error {
 	return e.Err
 }
 
+// UnreadableAnswerError is the error of a write that Jira accepted (it
+// answered 2xx) but whose answer could not be read: the body was cut short,
+// is not the JSON expected, or does not name what the write created. The
+// write was applied, and what only the answer carried (a new issue's key, a
+// new comment's ID) is unknown. Err says what was wrong with the answer;
+// ErrorCode and ExitCode see through to its code. A caller reports the write
+// as done and must not repeat it.
+//
+// It differs from ReadBackError, where the write's own answer was fine and a
+// separate read after it failed: that read can be made again, while what an
+// unreadable answer held can only be found by searching.
+type UnreadableAnswerError struct {
+	Err error
+}
+
+// Error returns what was wrong with the answer, saying that the write was
+// applied.
+func (e *UnreadableAnswerError) Error() string {
+	return "the write was applied, but its answer could not be read: " + e.Err.Error()
+}
+
+// Unwrap returns what was wrong with the answer.
+func (e *UnreadableAnswerError) Unwrap() error {
+	return e.Err
+}
+
 // TimeoutError marks a request that got no answer, or stopped moving, within
 // the client's timeout. Err is the error to report; ErrorCode, ErrorMessage
 // and ExitCode see through to it. A command working through several items

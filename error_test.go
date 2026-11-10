@@ -7,6 +7,7 @@ import (
 
 	"github.com/fwojciec/jira4claude"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestError_Error(t *testing.T) {
@@ -300,4 +301,19 @@ func TestExitCode(t *testing.T) {
 
 		assert.Equal(t, 4, jira4claude.ExitCode(wrapped))
 	})
+}
+
+func TestUnreadableAnswerError(t *testing.T) {
+	t.Parallel()
+
+	inner := &jira4claude.Error{Code: jira4claude.EInternal, Message: "Jira's answer does not name the new issue"}
+	err := fmt.Errorf("create: %w", &jira4claude.UnreadableAnswerError{Err: inner})
+
+	var unreadable *jira4claude.UnreadableAnswerError
+	require.ErrorAs(t, err, &unreadable)
+	require.ErrorIs(t, err, inner)
+	assert.Equal(t, jira4claude.EInternal, jira4claude.ErrorCode(err))
+	assert.Equal(t, 7, jira4claude.ExitCode(err))
+	assert.Equal(t, "the write was applied, but its answer could not be read: Jira's answer does not name the new issue",
+		unreadable.Error())
 }

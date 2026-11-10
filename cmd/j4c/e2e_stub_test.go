@@ -45,6 +45,10 @@ type stubJira struct {
 	// fail with 503, as a read back after an applied write may.
 	failReadAfterWrite bool
 
+	// garbleCreated makes every 201 answer, after the write is applied,
+	// carry a body that is not JSON, as a proxy's error page might.
+	garbleCreated bool
+
 	// mediaStall, when set, makes the media host stall mid-body (see
 	// stallMedia).
 	mediaStall chan struct{}
@@ -269,6 +273,12 @@ func (s *stubJira) serveJira(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	status, body := s.route(req)
+	if status == http.StatusCreated && s.garbleCreated {
+		w.Header().Set("Content-Type", "text/html")
+		w.WriteHeader(status)
+		_, _ = w.Write([]byte("<html><body>Created</body></html>"))
+		return
+	}
 	if status == http.StatusSeeOther {
 		w.Header().Set("Location", string(body))
 		w.WriteHeader(status)

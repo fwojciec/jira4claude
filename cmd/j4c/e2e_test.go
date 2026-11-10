@@ -422,6 +422,38 @@ func TestE2E(t *testing.T) {
 		assert.Contains(t, string(e.stub.issue("PROJ-2").Description), "Fixed in build 512.")
 	})
 
+	t.Run("a create or comment whose answer cannot be read still reports the applied write", func(t *testing.T) {
+		t.Parallel()
+		e := newE2EEnv(t, bin)
+		e.stub.mu.Lock()
+		e.stub.garbleCreated = true
+		e.stub.mu.Unlock()
+
+		r := e.run("issue", "create", "--summary", "Add retry")
+		assert.Equal(t, e2eRun{
+			stdout: "PROJ: created\n",
+			stderr: "[error] created an issue in PROJ, but Jira's answer could not be read, so its key is unknown " +
+				`(find it by its summary: issue list --jql "project = PROJ ORDER BY created DESC"); ` +
+				"the write was applied, do not repeat it: Jira's answer does not name the new issue: " +
+				"invalid character '<' looking for beginning of value\n",
+			code: 7,
+		}, r)
+		assert.Equal(t, "Add retry", e.stub.issue("PROJ-101").Summary, "the issue was created")
+
+		r = e.run("issue", "comment", "PROJ-1", "--body", "Deployed.")
+		assert.Equal(t, 7, r.code)
+		assert.Equal(t, "PROJ-1: added comment\n"+e.stub.server.URL+"/browse/PROJ-1\n", r.stdout)
+		assert.Contains(t, r.stderr, "[error] added a comment to PROJ-1, but Jira's answer could not be read, so its ID is unknown")
+		assert.Contains(t, r.stderr, "the write was applied, do not repeat it")
+		assert.Len(t, e.stub.issue("PROJ-1").Comments, 1, "the comment was added")
+
+		r = e.run("--json", "link", "create", "PROJ-1", "Blocks", "PROJ-2")
+		assert.Equal(t, 0, r.code, "a link's answer is not read: %s", r.stderr)
+		assert.Empty(t, r.stderr)
+		assert.Equal(t, []string{"POST /rest/api/3/issue", "POST /rest/api/3/issue/PROJ-1/comment", "POST /rest/api/3/issueLink"},
+			paths(writes(e.stub.Requests())), "each write sent once")
+	})
+
 	t.Run("issue list warns when cut by --limit; issue ready follows the pages", func(t *testing.T) {
 		t.Parallel()
 		e := newE2EEnv(t, bin)

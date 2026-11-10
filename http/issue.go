@@ -74,13 +74,15 @@ func (s *IssueService) Create(ctx context.Context, issue *jira4claude.Issue) (*j
 		return nil, err
 	}
 
+	// Jira answered 2xx, so the issue exists: an answer that does not name
+	// it says the write was applied, so that nobody creates it again.
 	var createResp createIssueResponse
-	if err := json.Unmarshal(respBody, &createResp); err != nil {
-		return nil, &jira4claude.Error{
+	if err := json.Unmarshal(respBody, &createResp); err != nil || createResp.Key == "" {
+		return nil, &jira4claude.UnreadableAnswerError{Err: &jira4claude.Error{
 			Code:    jira4claude.EInternal,
-			Message: "failed to parse response",
+			Message: "Jira's answer does not name the new issue",
 			Inner:   err,
-		}
+		}}
 	}
 
 	result := *issue
@@ -270,8 +272,7 @@ func (s *IssueService) Update(ctx context.Context, key string, update jira4claud
 		return nil, err
 	}
 
-	_, err = s.client.DoRequest(req, http.StatusNoContent)
-	if err != nil {
+	if err := s.client.send(req, http.StatusNoContent); err != nil {
 		return nil, err
 	}
 
@@ -301,8 +302,7 @@ func (s *IssueService) Delete(ctx context.Context, key string, deleteSubtasks bo
 		}
 	}
 
-	_, err = s.client.DoRequest(req, http.StatusNoContent)
-	return err
+	return s.client.send(req, http.StatusNoContent)
 }
 
 // AddComment adds a comment to an issue.
@@ -321,7 +321,17 @@ func (s *IssueService) AddComment(ctx context.Context, key string, body *jira4cl
 		return nil, err
 	}
 
-	return parseCommentResponse(respBody)
+	// Jira answered 2xx, so the comment exists: an answer that does not
+	// name it says the write was applied, so that nobody adds it again.
+	comment, err := parseCommentResponse(respBody)
+	if err != nil || comment.ID == "" {
+		return nil, &jira4claude.UnreadableAnswerError{Err: &jira4claude.Error{
+			Code:    jira4claude.EInternal,
+			Message: "Jira's answer does not name the new comment",
+			Inner:   err,
+		}}
+	}
+	return comment, nil
 }
 
 // DeleteComment deletes a comment from an issue.
@@ -335,8 +345,7 @@ func (s *IssueService) DeleteComment(ctx context.Context, key, commentID string)
 		}
 	}
 
-	_, err = s.client.DoRequest(req, http.StatusNoContent)
-	return err
+	return s.client.send(req, http.StatusNoContent)
 }
 
 // Transitions returns available workflow transitions for an issue.
@@ -380,8 +389,7 @@ func (s *IssueService) Transition(ctx context.Context, key, transitionID string)
 		return err
 	}
 
-	_, err = s.client.DoRequest(req, http.StatusNoContent)
-	return err
+	return s.client.send(req, http.StatusNoContent)
 }
 
 // Assign assigns an issue to a user by account ID.
@@ -399,8 +407,7 @@ func (s *IssueService) Assign(ctx context.Context, key, accountID string) error 
 		return err
 	}
 
-	_, err = s.client.DoRequest(req, http.StatusNoContent)
-	return err
+	return s.client.send(req, http.StatusNoContent)
 }
 
 // issueResponse represents the JSON structure returned by Jira API for an issue.
@@ -711,8 +718,7 @@ func (s *IssueService) Link(ctx context.Context, inwardKey, linkType, outwardKey
 		return err
 	}
 
-	_, err = s.client.DoRequest(req, http.StatusCreated)
-	return err
+	return s.client.send(req, http.StatusCreated)
 }
 
 // Unlink removes a link between two issues.
@@ -733,8 +739,7 @@ func (s *IssueService) Unlink(ctx context.Context, key1, key2 string) error {
 		}
 	}
 
-	_, err = s.client.DoRequest(req, http.StatusNoContent)
-	return err
+	return s.client.send(req, http.StatusNoContent)
 }
 
 // findLinkID finds the link ID connecting two issues.

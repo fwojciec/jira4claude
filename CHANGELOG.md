@@ -12,8 +12,10 @@ object per line on stderr, with a `level` key. stdout holds only data, or
 nothing when a command fails, except where part of the work was done:
 `issue view` with several keys and `attachment download` and `upload` with
 several files print what succeeded, `issue create` prints the new key when
-its separate assignment step failed, and `issue update` and `issue assign`
-print their result when only the read-back after the write failed. When
+its separate assignment step failed, `issue update` and `issue assign`
+print their result when only the read-back after the write failed, and
+`issue create` and `issue comment` print theirs when Jira's answer to the
+write could not be read. When
 every key or file of such a command fails, `--json` still prints the empty
 result (`[]`, or the upload result with `"attachments": []`); text mode
 prints nothing.
@@ -294,6 +296,14 @@ Jira; to keep an inline comment, leave its paragraph unchanged.
   with a smart link's URL made an unchanged paragraph holding an inline
   comment refuse the write; and an empty paragraph put back at the start of
   an edited list item was still warned about as left out.
+- `issue create` and `issue comment` printed nothing and exited 7 when Jira
+  answered 2xx with a body the tool could not read, although the issue or
+  comment existed; a retry made a second one. They now print the result
+  with what is known (`PROJ: created` without a key, `PROJ-123: added
+  comment` without an ID) and fail with an error saying the write was
+  applied, not to repeat it, and how to find it. A write answered with a
+  2xx other than the documented one (200 for 201) counted as failed; any
+  2xx now counts as done.
 - A server URL with a port (`https://jira.example.com:8443`) found
   credentials only under `machine jira.example.com:8443` in `.netrc`. It now
   falls back to `machine jira.example.com`, as curl and git do; an entry

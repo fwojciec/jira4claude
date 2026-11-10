@@ -240,12 +240,30 @@ func (c *Client) NewJSONRequest(ctx context.Context, method, path string, body a
 //     retry could duplicate it (for example a second issue or comment).
 //
 // The request body is rewound (via req.GetBody) before every retry.
+//
+// When expectedStatus is a 2xx, any 2xx counts as success: Jira applied the
+// request, whatever status it chose to say so. A write (any method but GET
+// and HEAD) answered 2xx whose body then fails to arrive in full was applied
+// too: it is not retried, and its error is a
+// *jira4claude.UnreadableAnswerError.
 func (c *Client) DoRequest(req *http.Request, expectedStatus int) ([]byte, error) {
 	body, _, err := c.doRequest(req, expectedStatus)
 	if err != nil {
 		return nil, err
 	}
 	return body, nil
+}
+
+// send is DoRequest for a write whose answer the caller does not read: a
+// 2xx whose body could not be read is a success, since nothing in it was
+// needed.
+func (c *Client) send(req *http.Request, expectedStatus int) error {
+	_, _, err := c.doRequest(req, expectedStatus)
+	var unreadable *jira4claude.UnreadableAnswerError
+	if errors.As(err, &unreadable) {
+		return nil
+	}
+	return err
 }
 
 // doRequest is DoRequest, also returning the status code of the last
@@ -255,6 +273,7 @@ func (c *Client) doRequest(req *http.Request, expectedStatus int) ([]byte, int, 
 	var lastErr error
 	lastStatus := 0
 	idempotent := req.Method != http.MethodPost
+	write := req.Method != http.MethodGet && req.Method != http.MethodHead
 
 	for attempt := 0; attempt <= c.maxRetries; attempt++ {
 		if attempt > 0 {
@@ -278,6 +297,14 @@ func (c *Client) doRequest(req *http.Request, expectedStatus int) ([]byte, int, 
 		if errors.As(err, &timedOut) {
 			return nil, 0, c.timeoutError(req, timedOut)
 		}
+		if err != nil && write && isSuccess(statusCode) && isSuccess(expectedStatus) {
+			// The write was applied; only its answer was lost.
+			return nil, statusCode, &jira4claude.UnreadableAnswerError{Err: &jira4claude.Error{
+				Code:    jira4claude.EInternal,
+				Message: fmt.Sprintf("Jira answered %s %s with status %d, but its body could not be read", req.Method, req.URL.Path, statusCode),
+				Inner:   err,
+			}}
+		}
 		if err != nil {
 			connErr := &jira4claude.Error{
 				Code:    jira4claude.EInternal,
@@ -293,7 +320,7 @@ func (c *Client) doRequest(req *http.Request, expectedStatus int) ([]byte, int, 
 		}
 
 		lastStatus = statusCode
-		if statusCode == expectedStatus {
+		if statusCode == expectedStatus || (isSuccess(statusCode) && isSuccess(expectedStatus)) {
 			return body, statusCode, nil
 		}
 
@@ -694,7 +721,9 @@ func (c *Client) doRequestOnce(req *http.Request) ([]byte, int, error) {
 }
 
 // exchange sends req and reads the whole response body, calling kick when
-// the response arrives and for each part of its body.
+// the response arrives and for each part of its body. When the body fails to
+// read, the error comes with the response's status code (0 when there was
+// no response).
 func (c *Client) exchange(req *http.Request, kick func()) ([]byte, int, error) {
 	resp, err := c.Do(req)
 	if err != nil {
@@ -705,10 +734,15 @@ func (c *Client) exchange(req *http.Request, kick func()) ([]byte, int, error) {
 
 	body, err := io.ReadAll(&progressReader{rc: resp.Body, kick: kick})
 	if err != nil {
-		return nil, 0, err
+		return nil, resp.StatusCode, err
 	}
 
 	return body, resp.StatusCode, nil
+}
+
+// isSuccess reports whether code is a 2xx status.
+func isSuccess(code int) bool {
+	return code >= 200 && code <= 299
 }
 
 // Causes of a timed-out attempt's cancellation.

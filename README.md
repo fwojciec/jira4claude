@@ -34,8 +34,11 @@ as Markdown; the tool converts them to and from Jira's document format.
   part of the work was done and stdout reports that part: `issue view` with
   several keys, `attachment download` and `attachment upload` with several
   files, `issue create` whose separate assignment step failed (the new key is
-  printed), and `issue update` and `issue assign` whose read-back failed
-  (the write was applied; the error says not to repeat it). When every key
+  printed), `issue update` and `issue assign` whose read-back failed
+  (the write was applied; the error says not to repeat it), and
+  `issue create` and `issue comment` whose answer from Jira could not be
+  read (the write was applied, but the result has no key or no comment ID;
+  the error says not to repeat it and how to find it). When every key
   or file of a several-item command fails, text mode prints nothing on
   stdout, but `--json` still prints the empty result so that stdout always
   parses: `[]` for `issue view` with several keys and for
@@ -56,7 +59,12 @@ as Markdown; the tool converts them to and from Jira's document format.
   own shape, with no action or changes. When `issue update` or `issue assign`
   was applied but reading the issue back failed, the result is still printed
   (an update without `updated`, an assign naming the account ID sent), and
-  the command fails with the code of the failed read.
+  the command fails with the code of the failed read. When Jira accepted an
+  `issue create` or `issue comment` but its answer could not be read, the
+  result is printed without what only the answer held (`PROJ: created`
+  names the project, as the key is unknown; `PROJ-123: added comment` has no
+  ID), and the command exits 7 with an error saying the write was applied.
+  Any 2xx answer counts as a write done.
 
 ## Install and configure
 

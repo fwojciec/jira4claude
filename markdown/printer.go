@@ -550,12 +550,14 @@ func (p *Printer) Mutation(result jira4claude.MutationResult) {
 		return
 	}
 	changes := result.Changes
+	// A result without a key (the dry run of a create, or a create whose
+	// answer could not be read) names the project.
+	subject := result.Key
+	if subject == "" {
+		subject = result.Project
+	}
 	switch {
 	case result.DryRun:
-		subject := result.Key
-		if subject == "" {
-			subject = result.Project
-		}
 		fmt.Fprintf(p.out, "%s: %s (dry run; nothing was written)\n", subject, strings.ReplaceAll(result.Action, "_", " "))
 	case result.Action == jira4claude.ActionTransitioned:
 		// The status move is the whole result.
@@ -563,7 +565,8 @@ func (p *Printer) Mutation(result jira4claude.MutationResult) {
 		fmt.Fprintf(p.out, "%s: %s → %s\n", result.Key, formatValue(status.From), formatValue(status.To))
 		changes = nil
 	case result.Action == jira4claude.ActionCommentAdded:
-		fmt.Fprintf(p.out, "%s: added comment %s\n", result.Key, result.CommentID)
+		// The ID is empty when the comment's answer could not be read.
+		fmt.Fprintln(p.out, strings.TrimSuffix(fmt.Sprintf("%s: added comment %s", result.Key, result.CommentID), " "))
 	case result.Action == jira4claude.ActionCommentDeleted:
 		fmt.Fprintf(p.out, "%s: deleted comment %s\n", result.Key, result.CommentID)
 	case result.Action == jira4claude.ActionLinked:
@@ -571,7 +574,7 @@ func (p *Printer) Mutation(result jira4claude.MutationResult) {
 	case result.Action == jira4claude.ActionUnlinked:
 		fmt.Fprintf(p.out, "%s: unlinked from %s\n", result.Key, result.Link.Target)
 	default:
-		fmt.Fprintf(p.out, "%s: %s\n", result.Key, result.Action)
+		fmt.Fprintf(p.out, "%s: %s\n", subject, result.Action)
 	}
 
 	fields := make([]string, 0, len(changes))

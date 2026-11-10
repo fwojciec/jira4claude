@@ -346,7 +346,9 @@ type FieldAllowedValue struct {
 // IssueService defines operations for managing Jira issues.
 type IssueService interface {
 	// Create creates a new issue and returns it with Key and other
-	// server-assigned fields populated.
+	// server-assigned fields populated. When Jira applied the create but its
+	// answer could not be read, so that the key is unknown, the error is a
+	// *UnreadableAnswerError.
 	Create(ctx context.Context, issue *Issue) (*Issue, error)
 
 	// Get retrieves an issue by its key.
@@ -371,6 +373,8 @@ type IssueService interface {
 
 	// AddComment adds a comment to an issue.
 	// The body is an ADF document; conversion from markdown happens at CLI boundary.
+	// When Jira applied it but its answer could not be read, so that the
+	// comment's ID is unknown, the error is a *UnreadableAnswerError.
 	AddComment(ctx context.Context, key string, body *ADFNode) (*Comment, error)
 
 	// DeleteComment deletes a comment from an issue.

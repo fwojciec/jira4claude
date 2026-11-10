@@ -413,6 +413,30 @@ func TestAttachmentService_Upload(t *testing.T) {
 		})
 	}
 
+	// jir-dqbz: the 200 says the file was attached, even if the body is
+	// lost on the way.
+	t.Run("a 200 whose body is cut short says the file was uploaded, not that it may have been", func(t *testing.T) {
+		t.Parallel()
+
+		var posts atomic.Int32
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			posts.Add(1)
+			_, _ = io.Copy(io.Discard, r.Body)
+			w.Header().Set("Content-Length", "100")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`[{"id":`))
+		}))
+		defer server.Close()
+		svc := jirahttp.NewAttachmentService(newTestClient(t, server.URL, "user", "pass"))
+
+		_, err := svc.Upload(context.Background(), "TEST-1", memFile("notes.txt", "hello world", nil))
+
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), `Jira accepted "notes.txt" (HTTP 200)`)
+		assert.NotContains(t, err.Error(), "may have been applied")
+		assert.Equal(t, int32(1), posts.Load())
+	})
+
 	t.Run("a file that cannot be opened fails before any request", func(t *testing.T) {
 		t.Parallel()
 

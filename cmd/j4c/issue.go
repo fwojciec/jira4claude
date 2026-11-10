@@ -332,6 +332,9 @@ func (c *IssueCreateCmd) Run(ctx *IssueContext) error {
 		ctx.Printer.Mutation(newResult(ctx.Config, created.Key, jira4claude.ActionCreated))
 		return nil
 	}
+	if unreadable := (*jira4claude.UnreadableAnswerError)(nil); errors.As(err, &unreadable) {
+		return createdWithoutKey(ctx, project, unreadable, false)
+	}
 	if assignee == nil || !rejectsAssigneeField(err) {
 		return err
 	}
@@ -343,6 +346,10 @@ func (c *IssueCreateCmd) Run(ctx *IssueContext) error {
 	withoutAssignee := *issue
 	withoutAssignee.Assignee = nil
 	created, err = ctx.Service.Create(context.Background(), &withoutAssignee)
+	if unreadable := (*jira4claude.UnreadableAnswerError)(nil); errors.As(err, &unreadable) {
+		// Without the key the assignment cannot be made.
+		return createdWithoutKey(ctx, project, unreadable, true)
+	}
 	if err != nil {
 		return err
 	}
@@ -356,6 +363,28 @@ func (c *IssueCreateCmd) Run(ctx *IssueContext) error {
 		}
 	}
 	return nil
+}
+
+// createdWithoutKey reports a create that Jira applied but whose answer could
+// not be read: the result names the project, since the key is unknown, and
+// the error, with the answer's code, says the write was applied and how to
+// find the issue. A repeated create would make a second issue.
+// withoutAssignee says the issue was created without the assignee Jira
+// rejected, which could then not be set.
+func createdWithoutKey(ctx *IssueContext, project string, unreadable *jira4claude.UnreadableAnswerError, withoutAssignee bool) error {
+	ctx.Printer.Mutation(jira4claude.MutationResult{Project: project, Action: jira4claude.ActionCreated})
+	what, then := "an issue in "+project, ""
+	if withoutAssignee {
+		what += " without its assignee"
+		then = ", then assign it with issue assign"
+	}
+	return &jira4claude.Error{
+		Code: jira4claude.ErrorCode(unreadable.Err),
+		Message: fmt.Sprintf("created %s, but Jira's answer could not be read, so its key is unknown "+
+			`(find it by its summary: issue list --jql "project = %s ORDER BY created DESC"%s); `+
+			"the write was applied, do not repeat it", what, project, then),
+		Inner: unreadable.Err,
+	}
 }
 
 // rejectsAssigneeField reports whether err is Jira's 400 answer to a create
@@ -802,6 +831,17 @@ func (c *IssueCommentCmd) Run(ctx *IssueContext) error {
 	}
 
 	comment, err := ctx.Service.AddComment(context.Background(), c.Key, body)
+	if unreadable := (*jira4claude.UnreadableAnswerError)(nil); errors.As(err, &unreadable) {
+		// The comment exists; only its ID is unknown. A repeated comment
+		// would be a second one.
+		ctx.Printer.Mutation(newResult(ctx.Config, c.Key, jira4claude.ActionCommentAdded))
+		return &jira4claude.Error{
+			Code: jira4claude.ErrorCode(unreadable.Err),
+			Message: fmt.Sprintf("added a comment to %s, but Jira's answer could not be read, so its ID is unknown "+
+				"(issue view %s --field comments lists it); the write was applied, do not repeat it", c.Key, c.Key),
+			Inner: unreadable.Err,
+		}
+	}
 	if err != nil {
 		return err
 	}

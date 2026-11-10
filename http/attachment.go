@@ -129,8 +129,7 @@ func (s *AttachmentService) Delete(ctx context.Context, id string) error {
 	if err != nil {
 		return &jira4claude.Error{Code: jira4claude.EInternal, Message: "failed to create request", Inner: err}
 	}
-	_, err = s.client.DoRequest(req, http.StatusNoContent)
-	return err
+	return s.client.send(req, http.StatusNoContent)
 }
 
 // attachmentPath is the path of an attachment's metadata; id is a plain token
@@ -208,7 +207,10 @@ func (s *AttachmentService) Upload(ctx context.Context, key string, file jira4cl
 	req.Header.Set("X-Atlassian-Token", "no-check")
 
 	respBody, status, err := s.client.withoutRedirects().forTransfer().doRequest(req, http.StatusOK)
+	var unreadable *jira4claude.UnreadableAnswerError
 	switch {
+	case errors.As(err, &unreadable):
+		return nil, acceptedUnnamed(file, key, status, unreadable.Err)
 	case status == http.StatusRequestEntityTooLarge:
 		return nil, tooLargeError(file, respBody)
 	case isRedirectStatus(status):
@@ -224,14 +226,21 @@ func (s *AttachmentService) Upload(ctx context.Context, key string, file jira4cl
 	var entries []attachmentResponse
 	err = json.Unmarshal(respBody, &entries)
 	if err != nil || len(entries) != 1 || entries[0].ID == "" {
-		return nil, &jira4claude.Error{
-			Code: jira4claude.EInternal,
-			Message: fmt.Sprintf("Jira accepted %q (HTTP 200), but its response does not name the one attachment created; check with attachment list %s before uploading again",
-				file.Name, key),
-			Inner: err,
-		}
+		return nil, acceptedUnnamed(file, key, status, err)
 	}
 	return mapAttachments(entries)[0], nil
+}
+
+// acceptedUnnamed is the error of an upload Jira accepted (a 2xx) whose
+// answer does not name the one attachment created: its body is cut short,
+// is not the JSON expected, or names none or several. The file was attached.
+func acceptedUnnamed(file jira4claude.AttachmentFile, key string, status int, cause error) error {
+	return &jira4claude.Error{
+		Code: jira4claude.EInternal,
+		Message: fmt.Sprintf("Jira accepted %q (HTTP %d), but its response does not name the one attachment created; check with attachment list %s before uploading again",
+			file.Name, status, key),
+		Inner: cause,
+	}
 }
 
 // multipartFrame returns what a multipart/form-data body of one file part
