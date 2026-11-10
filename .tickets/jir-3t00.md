@@ -1,6 +1,6 @@
 ---
 id: jir-3t00
-status: open
+status: in_progress
 deps: [jir-bhhg, jir-mi82]
 links: []
 created: 2026-11-10T07:47:17Z
