@@ -756,7 +756,9 @@ was read:
   you read changes nothing. Two cases it cannot tell, and treats the block as
   changed (next bullet): a block identical to a sibling when you add or
   remove one of those copies, and the rows and cells of a table whose shape
-  you changed, which lose their widths and spans.
+  you changed, which lose their widths and spans. A third case refuses
+  without need: a paragraph holding a smart link and an inline comment, when
+  you add a plain link with the smart link's URL elsewhere.
 - A block you changed keeps what Markdown cannot show when it matches the
   original: same kind of block, same place among the blocks of that kind
   next to it, as many of them as before, inside a container that matches the

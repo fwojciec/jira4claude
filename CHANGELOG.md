@@ -298,6 +298,17 @@ Jira; to keep an inline comment, leave its paragraph unchanged.
 - An upload is not retried after a server error, which may have attached the
   file anyway. Check with `attachment list` before sending it again.
 - A new image cannot be placed in a description; upload it as an attachment.
+- A rewrite of a description has cases it gets wrong without saying so, or
+  refuses without need (jir-wd4f): if you remove a block and add another of
+  the same kind in the same container, the new one gets the removed one's
+  hidden values (a panel's colour, a table's widths, ids); in malformed
+  content where Jira holds paragraphs directly inside a list, swapping the
+  tokens of two that differ only in their id is undone; adding a plain link
+  with the URL of a smart link can make an unchanged paragraph that also
+  holds an inline comment refuse the write; and an empty paragraph kept at
+  the start of an edited list item is still warned about as left out.
+- Whether Jira accepts an edited block that carries the original's hidden
+  values and ids has not been tried on a live site.
 - `attachment delete` results have no issue key: Jira's attachment data does
   not name the issue.
 - In text mode, values printed after `==> KEY FIELD <==` headers are not

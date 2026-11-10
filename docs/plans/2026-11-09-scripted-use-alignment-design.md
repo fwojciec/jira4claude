@@ -330,6 +330,7 @@ Referencing an uploaded file from Markdown, for example
 | Does Jira accept the empty-paragraph placeholder in empty list items, table cells and panels? | 1.3 | Emit a paragraph holding one space |
 | Do comments or transitions change an issue's `updated` value? | 1.4 | Document that `--if-updated` can report a conflict after any activity |
 | Does Jira accept a `taskItem` rewritten as `blockTaskItem`, and task items with new `localId`s? | 1.4 | Refuse block tokens in task items |
+| Does Jira accept an edited node that carries the original's `localId`, hidden attributes and block marks (for example `panelColor` kept after the panel type changed, `colwidth` on a cell whose text changed)? | 1.4 (jir-h44x) | Restore only blocks that are unchanged whole; report the rest as `degraded` |
 | Redirect status and auth of `/attachment/content/{id}` | M3 | Use `redirect=false` |
 | Does `/attachment/content/{id}?redirect=false` return the bytes directly (200), or still redirect? | `attachment download` | None needed: a redirect is followed under `Client.Stream`'s credential rules; only the docs comment on `Download` changes |
 | Does upload accept a non-chunked body with a `Content-Length`? | `attachment upload` | Send chunked (`ContentLength` -1); the body is already streamed |

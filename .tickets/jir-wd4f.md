@@ -5,7 +5,7 @@ deps: []
 links: []
 created: 2026-11-10T12:08:27Z
 type: bug
-priority: 3
+priority: 2
 assignee: Filip Wojciechowski
 parent: jir-pskt
 ---
