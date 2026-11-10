@@ -210,6 +210,8 @@ var propertySeeds = []string{
 	"<https://x.co/a`b> `c`",
 	"_a@b.co x_",
 	"\\\\ http://x.co/a<a",
+	// Found by fuzzing in #161.
+	"0@0.0_",
 }
 
 // addPropertySeeds adds propertySeeds and the Markdown fixtures in testdata

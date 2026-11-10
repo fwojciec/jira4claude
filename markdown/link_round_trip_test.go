@@ -307,6 +307,10 @@ func TestRoundTrip_TextThatLooksLikeALinkStaysText(t *testing.T) {
 		{"www URL", []jira4claude.ADFNode{txt("see www.x.test now")}},
 		{"email", []jira4claude.ADFNode{txt("mail a@b.co now")}},
 		{"email with punctuation", []jira4claude.ADFNode{txt("0!@0.0")}},
+		// Linkify takes no email right before "_", but the "_" is written
+		// escaped, and "\" does not stop it.
+		{"email before an underscore", []jira4claude.ADFNode{txt("0@0.0_")}},
+		{"email before an underscore in a sentence", []jira4claude.ADFNode{txt("mail a@b.co_ now")}},
 		{"URL after a parenthesis", []jira4claude.ADFNode{txt("(https://0.a")}},
 		{"URL after an unmatched bracket", []jira4claude.ADFNode{txt("[ http://x.com")}},
 		{"URL after a hard break", []jira4claude.ADFNode{txt("a"), hardBreak(), txt("https://x.test")}},

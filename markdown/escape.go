@@ -474,6 +474,13 @@ func (a *autolinkScanner) scan(p int, full bool) int {
 		if k := strings.IndexByte(a.s[a.at+1:a.wordEnd], '@'); k >= 0 {
 			email = a.s[p : a.at+1+k]
 		}
+		// Linkify takes no email whose domain an "_" follows, but text
+		// writes that "_" escaped, and "\" does not stop it. So an email is
+		// taken to end before an "_" after its "@" (no domain holds one),
+		// erring towards an autolink.
+		if k := strings.IndexByte(email[a.at-p:], '_'); k >= 0 {
+			email = email[:a.at-p+k]
+		}
 		if n := autolinkLen(email); n > 0 {
 			a.emailEnd = p + n
 		}
