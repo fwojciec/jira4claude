@@ -498,12 +498,10 @@ func TestConverter_ToMarkdown(t *testing.T) {
 
 		result, warnings := converter.ToMarkdown(adfDoc)
 
-		// Should still return converted content (best effort)
-		assert.Equal(t, "Before\n\nAfter", result)
-
-		// Should return warning listing skipped content
-		require.Len(t, warnings, 1)
-		assert.Equal(t, "bodiedExtension", warnings[0].Node)
+		// An extension is a protected node (#149): it reads as a token,
+		// which Reattach turns back into the node, so nothing is lost.
+		assert.Equal(t, "Before\n\n{{bodiedExtension:1}}\n\nAfter", result)
+		assert.Empty(t, warnings)
 	})
 
 	t.Run("accumulates multiple warnings for different skipped node types", func(t *testing.T) {
@@ -525,20 +523,14 @@ func TestConverter_ToMarkdown(t *testing.T) {
 					},
 				},
 				{
-					Type:    "extension",
-					Content: []jira4claude.ADFNode{},
-				},
-				{
-					Type:    "bodiedExtension",
-					Content: []jira4claude.ADFNode{},
-				},
-				{
+					// Unknown nodes are tokens, not warnings (#149); an
+					// inlineCard without a URL and a trailing hardBreak still
+					// warn.
 					Type: "paragraph",
 					Content: []jira4claude.ADFNode{
-						{
-							Type: "text",
-							Text: "End",
-						},
+						{Type: "text", Text: "End"},
+						{Type: "inlineCard"},
+						{Type: "hardBreak"},
 					},
 				},
 			},
@@ -551,8 +543,8 @@ func TestConverter_ToMarkdown(t *testing.T) {
 
 		// Should return individual warnings for each skipped node type, sorted alphabetically
 		require.Len(t, warnings, 2)
-		assert.Equal(t, "bodiedExtension", warnings[0].Node)
-		assert.Equal(t, "extension", warnings[1].Node)
+		assert.Equal(t, "hardBreak", warnings[0].Node)
+		assert.Equal(t, "inlineCard", warnings[1].Node)
 	})
 
 	t.Run("returns empty warnings slice when no content is skipped", func(t *testing.T) {
@@ -1432,7 +1424,7 @@ func TestConverter_ToMarkdown(t *testing.T) {
 		assert.Equal(t, "<details><summary></summary>\n\nNo title content.\n\n</details>", result)
 	})
 
-	t.Run("converts mediaSingle with URL-carrying media to image", func(t *testing.T) {
+	t.Run("converts mediaSingle with URL-carrying media to a token labelled with its alt text", func(t *testing.T) {
 		t.Parallel()
 
 		converter := markdown.New()
@@ -1466,10 +1458,10 @@ func TestConverter_ToMarkdown(t *testing.T) {
 		result, warnings := converter.ToMarkdown(adfDoc)
 
 		assert.Empty(t, warnings)
-		assert.Equal(t, "![screenshot](https://example.com/image.png)", result)
+		assert.Equal(t, "{{mediaSingle:1 screenshot}}", result)
 	})
 
-	t.Run("converts mediaSingle without URL to fallback text with filename", func(t *testing.T) {
+	t.Run("converts mediaSingle without alt text or filename to an unlabelled token", func(t *testing.T) {
 		t.Parallel()
 
 		converter := markdown.New()
@@ -1497,10 +1489,10 @@ func TestConverter_ToMarkdown(t *testing.T) {
 		result, warnings := converter.ToMarkdown(adfDoc)
 
 		assert.Empty(t, warnings)
-		assert.Equal(t, "[image]", result)
+		assert.Equal(t, "{{mediaSingle:1}}", result)
 	})
 
-	t.Run("converts mediaSingle without URL but with filename to fallback text", func(t *testing.T) {
+	t.Run("converts mediaSingle with filename to a token labelled with the filename", func(t *testing.T) {
 		t.Parallel()
 
 		converter := markdown.New()
@@ -1529,10 +1521,10 @@ func TestConverter_ToMarkdown(t *testing.T) {
 		result, warnings := converter.ToMarkdown(adfDoc)
 
 		assert.Empty(t, warnings)
-		assert.Equal(t, "[image: diagram.png]", result)
+		assert.Equal(t, "{{mediaSingle:1 diagram.png}}", result)
 	})
 
-	t.Run("converts mediaGroup with multiple media items", func(t *testing.T) {
+	t.Run("converts mediaGroup with multiple media items to one token", func(t *testing.T) {
 		t.Parallel()
 
 		converter := markdown.New()
@@ -1564,10 +1556,10 @@ func TestConverter_ToMarkdown(t *testing.T) {
 		result, warnings := converter.ToMarkdown(adfDoc)
 
 		assert.Empty(t, warnings)
-		assert.Equal(t, "![first](https://example.com/a.png)\n[image: second.png]", result)
+		assert.Equal(t, "{{mediaGroup:1 first, second.png}}", result)
 	})
 
-	t.Run("converts mediaInline with filename to inline text", func(t *testing.T) {
+	t.Run("converts mediaInline with filename to an inline token", func(t *testing.T) {
 		t.Parallel()
 
 		converter := markdown.New()
@@ -1595,10 +1587,10 @@ func TestConverter_ToMarkdown(t *testing.T) {
 		result, warnings := converter.ToMarkdown(adfDoc)
 
 		assert.Empty(t, warnings)
-		assert.Equal(t, "See [report.pdf] for details.", result)
+		assert.Equal(t, "See {{mediaInline:1 report.pdf}} for details.", result)
 	})
 
-	t.Run("converts mediaInline without filename to attachment fallback", func(t *testing.T) {
+	t.Run("converts mediaInline without filename to an unlabelled token", func(t *testing.T) {
 		t.Parallel()
 
 		converter := markdown.New()
@@ -1624,10 +1616,10 @@ func TestConverter_ToMarkdown(t *testing.T) {
 		result, warnings := converter.ToMarkdown(adfDoc)
 
 		assert.Empty(t, warnings)
-		assert.Equal(t, "See [attachment] attached.", result)
+		assert.Equal(t, "See {{mediaInline:1}} attached.", result)
 	})
 
-	t.Run("converts mention with display name", func(t *testing.T) {
+	t.Run("converts mention to a token labelled with its display name", func(t *testing.T) {
 		t.Parallel()
 
 		converter := markdown.New()
@@ -1652,10 +1644,10 @@ func TestConverter_ToMarkdown(t *testing.T) {
 		result, warnings := converter.ToMarkdown(adfDoc)
 
 		assert.Empty(t, warnings)
-		assert.Equal(t, "Assigned to @John Smith for review.", result)
+		assert.Equal(t, "Assigned to {{mention:1 John Smith}} for review.", result)
 	})
 
-	t.Run("converts mention with @ prefix in text avoids double @", func(t *testing.T) {
+	t.Run("converts mention with @ prefix in text to a label without it", func(t *testing.T) {
 		t.Parallel()
 
 		converter := markdown.New()
@@ -1679,7 +1671,7 @@ func TestConverter_ToMarkdown(t *testing.T) {
 		result, warnings := converter.ToMarkdown(adfDoc)
 
 		assert.Empty(t, warnings)
-		assert.Equal(t, "Ask @Bradley Ayers", result)
+		assert.Equal(t, "Ask {{mention:1 Bradley Ayers}}", result)
 	})
 
 	t.Run("converts mention without display name falls back to id", func(t *testing.T) {
@@ -1707,7 +1699,7 @@ func TestConverter_ToMarkdown(t *testing.T) {
 		result, warnings := converter.ToMarkdown(adfDoc)
 
 		assert.Empty(t, warnings)
-		assert.Equal(t, "Ask @user-456 about it.", result)
+		assert.Equal(t, "Ask {{mention:1 user-456}} about it.", result)
 	})
 
 	t.Run("converts emoji with unicode text", func(t *testing.T) {
@@ -1874,7 +1866,7 @@ func TestConverter_ToMarkdown(t *testing.T) {
 		assert.Equal(t, "Enter text here please.", result)
 	})
 
-	t.Run("drops inlineExtension with warning", func(t *testing.T) {
+	t.Run("converts inlineExtension to a token without warning", func(t *testing.T) {
 		t.Parallel()
 
 		converter := markdown.New()
@@ -1898,12 +1890,11 @@ func TestConverter_ToMarkdown(t *testing.T) {
 
 		result, warnings := converter.ToMarkdown(adfDoc)
 
-		assert.Equal(t, "Content:  end.", result)
-		require.Len(t, warnings, 1)
-		assert.Equal(t, "inlineExtension", warnings[0].Node)
+		assert.Equal(t, "Content: {{inlineExtension:1 jira}} end.", result)
+		assert.Empty(t, warnings)
 	})
 
-	t.Run("handles unknown inline node with warning", func(t *testing.T) {
+	t.Run("converts unknown inline node to a token without warning", func(t *testing.T) {
 		t.Parallel()
 
 		converter := markdown.New()
@@ -1924,9 +1915,8 @@ func TestConverter_ToMarkdown(t *testing.T) {
 
 		result, warnings := converter.ToMarkdown(adfDoc)
 
-		assert.Equal(t, "Before  after.", result)
-		require.Len(t, warnings, 1)
-		assert.Equal(t, "futureInlineNode", warnings[0].Node)
+		assert.Equal(t, "Before {{futureInlineNode:1}} after.", result)
+		assert.Empty(t, warnings)
 	})
 
 	t.Run("converts underline mark to u tag", func(t *testing.T) {
@@ -2421,7 +2411,7 @@ func TestConverter_ToMarkdown(t *testing.T) {
 		assert.Equal(t, "Direct content", result)
 	})
 
-	t.Run("drops extension nodes with warning", func(t *testing.T) {
+	t.Run("converts extension nodes to tokens without warning", func(t *testing.T) {
 		t.Parallel()
 
 		converter := markdown.New()
@@ -2450,12 +2440,8 @@ func TestConverter_ToMarkdown(t *testing.T) {
 
 		result, warnings := converter.ToMarkdown(adfDoc)
 
-		assert.Equal(t, "Before\n\nAfter", result)
-		require.Len(t, warnings, 4)
-		assert.Equal(t, "bodiedExtension", warnings[0].Node)
-		assert.Equal(t, "extension", warnings[1].Node)
-		assert.Equal(t, "extensionFrame", warnings[2].Node)
-		assert.Equal(t, "multiBodiedExtension", warnings[3].Node)
+		assert.Equal(t, "Before\n\n{{bodiedExtension:1}}\n\n{{extension:2}}\n\n{{multiBodiedExtension:3}}\n\n{{extensionFrame:4}}\n\nAfter", result)
+		assert.Empty(t, warnings)
 	})
 
 	t.Run("silently drops annotation mark preserving text", func(t *testing.T) {

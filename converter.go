@@ -77,5 +77,27 @@ type Converter interface {
 	// ToMarkdown converts ADF to GitHub-flavored markdown.
 	// Returns the markdown string and any conversion issues.
 	// If adf is nil, returns an empty string.
+	//
+	// Protected nodes, whose content or behaviour plain text would lose
+	// (media, mediaSingle, mediaGroup, mediaInline, mention, and node types
+	// the converter does not know), are written as tokens numbered in
+	// document order, such as {{mention:2 Jane Doe}}. The label after the
+	// number is for the reader only.
 	ToMarkdown(adf *ADFNode) (string, []ConversionIssue)
+
+	// Reattach puts protected nodes back into an edited document. original
+	// is the document ToMarkdown read; edited is what ToADF produced from the
+	// edited Markdown. Each token of original still present in edited is
+	// replaced by the original node, unchanged. Only the token's number is
+	// trusted.
+	//
+	// Every node that would be lost is reported as ConversionDropped, with
+	// the token in Node: a token missing from edited, a token used more than
+	// once (only the first is restored), a token whose number original does
+	// not have, and a block token placed where its node is not allowed. Such
+	// tokens other than the missing ones stay in the result as text.
+	//
+	// edited is not modified. A nil document counts as an empty one. Always
+	// returns a non-nil *ADFNode.
+	Reattach(original, edited *ADFNode) (*ADFNode, []ConversionIssue)
 }

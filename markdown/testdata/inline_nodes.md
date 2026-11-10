@@ -1,4 +1,4 @@
-Assigned to @John Smith for review.
+Assigned to {{mention:1 John Smith}} for review.
 
 Great work 👍 and custom :atlassian:
 

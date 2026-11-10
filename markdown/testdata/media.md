@@ -1,10 +1,9 @@
 Here is a screenshot of the issue:
 
-![error dialog](https://jira.example.com/rest/api/3/attachment/content/12345)
+{{mediaSingle:1 error dialog}}
 
 And here are the related logs:
 
-[image: server.log]
-[image: client.log]
+{{mediaGroup:2 server.log, client.log}}
 
-Please review [report.pdf] before the meeting.
+Please review {{mediaInline:3 report.pdf}} before the meeting.

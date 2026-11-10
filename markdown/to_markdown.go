@@ -14,6 +14,7 @@ import (
 // toMarkdown converts an Atlassian Document Format (ADF) document to GitHub-flavored markdown.
 // This is useful for displaying Jira issue content in a readable format.
 // Returns a ConversionIssue for any element that was skipped during conversion.
+// Protected nodes are written as tokens (see protect.go).
 func toMarkdown(adfDoc *jira4claude.ADFNode) (string, []jira4claude.ConversionIssue) {
 	if adfDoc == nil {
 		return "", nil
@@ -23,21 +24,17 @@ func toMarkdown(adfDoc *jira4claude.ADFNode) (string, []jira4claude.ConversionIs
 		return "", nil
 	}
 
-	skipped := newSkippedCollector()
-	blocks := siblingBlocks{skipped: skipped}
-	var parts []string
-	for i := range adfDoc.Content {
-		part := blocks.render(&adfDoc.Content[i])
-		if part != "" {
-			parts = append(parts, part)
-		}
-	}
-
-	return strings.Join(parts, "\n\n"), skipped.issues()
+	md, skipped := readDocument(adfDoc)
+	return md, skipped.issues()
 }
 
-// adfNodeToGFM converts a single ADF node to markdown.
+// adfNodeToGFM converts a single ADF node to markdown. A node it does not
+// know is protected: it is written as a token on a line of its own.
 func adfNodeToGFM(node *jira4claude.ADFNode, skipped *skippedCollector) string {
+	container := skipped.blockContainer()
+	skipped.enterBlock(node.Type)
+	defer skipped.leaveBlock()
+
 	switch node.Type {
 	case "paragraph":
 		return adfInlineToGFM(node, skipped)
@@ -65,13 +62,6 @@ func adfNodeToGFM(node *jira4claude.ADFNode, skipped *skippedCollector) string {
 		return adfDecisionListToGFM(node, skipped)
 	case "layoutSection", "layoutColumn":
 		return adfFlattenToGFM(node, skipped)
-	case "mediaSingle":
-		return adfMediaSingleToGFM(node)
-	case "mediaGroup":
-		return adfMediaGroupToGFM(node)
-	case "bodiedExtension", "extension", "multiBodiedExtension", "extensionFrame":
-		skipped.add(node.Type)
-		return ""
 	case "hardBreak":
 		return "\n"
 	case "text":
@@ -83,9 +73,9 @@ func adfNodeToGFM(node *jira4claude.ADFNode, skipped *skippedCollector) string {
 		}
 		return adfInlineToGFM(wrapper, skipped)
 	default:
-		// Record the skipped node type
-		skipped.add(node.Type)
-		return ""
+		// mediaSingle, mediaGroup, a bare media, extensions, and any type
+		// this reader does not know.
+		return skipped.protectBlock(node, container)
 	}
 }
 
@@ -248,6 +238,13 @@ type siblingBlocks struct {
 // render returns the Markdown of node, or "" when it renders empty.
 func (s *siblingBlocks) render(node *jira4claude.ADFNode) string {
 	var part, marker string
+	switch node.Type {
+	case "bulletList", "taskList", "decisionList", "orderedList":
+		// Lists rendered here skip adfNodeToGFM, so they record the block
+		// they open themselves, for the tokens inside them.
+		s.skipped.enterBlock(node.Type)
+		defer s.skipped.leaveBlock()
+	}
 	switch node.Type {
 	case "bulletList":
 		marker = pickMarker(bulletMarkers, s.prev, s.avoid)
@@ -814,8 +811,8 @@ func adfInlineLineToGFM(node *jira4claude.ADFNode, skipped *skippedCollector, si
 				}
 				result.WriteString("\\\n")
 			}
-		case "mediaInline":
-			result.WriteString(adfMediaInlineToGFM(child, nextStartsWith(items, i)))
+		case tokenItemType:
+			result.WriteString(child.Text)
 		case "inlineCard":
 			result.WriteString(adfInlineCardToGFM(child))
 		}
@@ -827,8 +824,11 @@ func adfInlineLineToGFM(node *jira4claude.ADFNode, skipped *skippedCollector, si
 // emittingInline returns the inline nodes that produce output, in order.
 // Nodes whose output is a plain label (mention, emoji, date, status) become
 // text nodes holding that label, so it is escaped like any other text; a
-// status keeps its bold. Nodes that emit nothing are left out, and the ones
-// that are not supported are recorded as dropped.
+// status keeps its bold. Protected nodes (mention, mediaInline and inline
+// nodes this reader does not know) become token items (tokenItemType), which
+// hold their own Markdown and are never merged with text. Nodes that emit
+// nothing are left out, and an inlineCard without a URL is recorded as
+// dropped.
 func emittingInline(content []jira4claude.ADFNode, skipped *skippedCollector) []jira4claude.ADFNode {
 	items := make([]jira4claude.ADFNode, 0, len(content))
 	// label appends text, merging it into the previous item when that is
@@ -854,10 +854,8 @@ func emittingInline(content []jira4claude.ADFNode, skipped *skippedCollector) []
 		switch child.Type {
 		case "text":
 			label(child.Text, child.Marks)
-		case "hardBreak", "mediaInline":
+		case "hardBreak":
 			items = append(items, *child)
-		case "mention":
-			label(adfMentionToGFM(child), nil)
 		case "emoji":
 			label(adfEmojiToGFM(child), nil)
 		case "date":
@@ -873,31 +871,11 @@ func emittingInline(content []jira4claude.ADFNode, skipped *skippedCollector) []
 		case "placeholder":
 			// Drop silently — placeholder nodes produce no output.
 		default:
-			if skipped != nil {
-				skipped.add(child.Type)
-			}
+			// mention, mediaInline, and any type this reader does not know.
+			items = append(items, skipped.protectInline(child))
 		}
 	}
 	return items
-}
-
-// nextStartsWith returns the first byte the node after items[i] emits, or 0.
-func nextStartsWith(items []jira4claude.ADFNode, i int) byte {
-	if i+1 >= len(items) {
-		return 0
-	}
-	switch next := items[i+1]; next.Type {
-	case "text":
-		if hasRenderedMark(next.Marks) {
-			return '*' // any delimiter; only "(" and ":" matter to callers
-		}
-		return next.Text[0]
-	case "inlineCard":
-		return '['
-	case "mediaInline":
-		return '['
-	}
-	return 0
 }
 
 // onlyHardBreaksFrom reports whether nodes[i:] holds nothing but hardBreaks.
@@ -1002,25 +980,6 @@ func applyMarks(text string, marks []jira4claude.ADFMark) string {
 	return leading + result + trailing
 }
 
-// adfMentionToGFM converts an ADF mention node to @DisplayName.
-func adfMentionToGFM(node *jira4claude.ADFNode) string {
-	if node.Attrs == nil {
-		return ""
-	}
-	var attrs map[string]any
-	if err := json.Unmarshal(node.Attrs, &attrs); err != nil {
-		return ""
-	}
-	if text, ok := attrs["text"].(string); ok && text != "" {
-		// Some Jira payloads include the @ prefix in text, some don't.
-		return "@" + strings.TrimPrefix(text, "@")
-	}
-	if id, ok := attrs["id"].(string); ok && id != "" {
-		return "@" + id
-	}
-	return ""
-}
-
 // adfEmojiToGFM converts an ADF emoji node to its Unicode character or :shortName:.
 func adfEmojiToGFM(node *jira4claude.ADFNode) string {
 	if node.Attrs == nil {
@@ -1091,83 +1050,4 @@ func adfDateToGFM(node *jira4claude.ADFNode) string {
 		return time.UnixMilli(ms).UTC().Format("2006-01-02")
 	}
 	return ""
-}
-
-// mediaAttrs extracts common attributes from a media node's attrs JSON.
-func mediaAttrs(node *jira4claude.ADFNode) (url, alt, fileName string) {
-	if node.Attrs == nil {
-		return "", "", ""
-	}
-	var attrs map[string]any
-	if err := json.Unmarshal(node.Attrs, &attrs); err != nil {
-		return "", "", ""
-	}
-	if u, ok := attrs["url"].(string); ok {
-		url = u
-	}
-	if a, ok := attrs["alt"].(string); ok {
-		alt = a
-	}
-	if f, ok := attrs["__fileName"].(string); ok {
-		fileName = f
-	}
-	return url, alt, fileName
-}
-
-// adfMediaToGFM renders a single media node as markdown.
-func adfMediaToGFM(node *jira4claude.ADFNode) string {
-	url, alt, fileName := mediaAttrs(node)
-	if url != "" {
-		if alt == "" {
-			alt = fileName
-		}
-		return fmt.Sprintf("![%s](%s)", escapeBracketed(alt), url)
-	}
-	if fileName != "" {
-		return fmt.Sprintf("[image: %s]", escapeBracketed(fileName))
-	}
-	return "[image]"
-}
-
-// adfMediaSingleToGFM converts an ADF mediaSingle node to markdown.
-func adfMediaSingleToGFM(node *jira4claude.ADFNode) string {
-	for i := range node.Content {
-		if node.Content[i].Type == "media" {
-			return adfMediaToGFM(&node.Content[i])
-		}
-	}
-	return "[image]"
-}
-
-// adfMediaGroupToGFM converts an ADF mediaGroup (multiple media nodes) to markdown.
-func adfMediaGroupToGFM(node *jira4claude.ADFNode) string {
-	var parts []string
-	for i := range node.Content {
-		if node.Content[i].Type == "media" {
-			parts = append(parts, adfMediaToGFM(&node.Content[i]))
-		}
-	}
-	return strings.Join(parts, "\n")
-}
-
-// escapeBracketed escapes a label written inside brackets the read side
-// supplies, so it cannot close them early or turn into formatting.
-func escapeBracketed(label string) string {
-	return escapeText(label, textContext{inLink: true})
-}
-
-// adfMediaInlineToGFM converts an ADF mediaInline node to inline markdown
-// text. next is the first character the following node emits: a "(" or ":"
-// right after the closing bracket would turn the bracketed name into a link
-// or a link reference definition, so the opening bracket is escaped then.
-func adfMediaInlineToGFM(node *jira4claude.ADFNode, next byte) string {
-	open := "["
-	if next == '(' || next == ':' {
-		open = `\[`
-	}
-	_, _, fileName := mediaAttrs(node)
-	if fileName != "" {
-		return open + escapeBracketed(fileName) + "]"
-	}
-	return open + "attachment]"
 }

@@ -31,6 +31,8 @@ type skippedCollector struct {
 
 	localID  func(n int) string // write side only: source of localId values
 	localIDs int                // number of localId values generated so far
+
+	tokens *tokenRegistry // read side only: protected-node tokens (protect.go)
 }
 
 // issueKey identifies one recorded issue, so a node type can be both dropped

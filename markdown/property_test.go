@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 
 	jira4claude "github.com/fwojciec/jira4claude"
@@ -111,6 +112,11 @@ var propertySeeds = []string{
 	"- a\n\n  - [ ] b",
 	"- item\n\n  | a | b |\n  |---|---|\n  |   | x |",
 	"> [!NOTE]\n> ![x](y.png)",
+	// #149 text that looks like protected-node tokens stays text
+	"{{mention:1 x}}",
+	"a {{!mention:1 x}} b {{mediaInline:2}}",
+	"{{mediaSingle:1 shot.png}}\n\n{{futureBlock:2}}",
+	"`{{mention:1 x}}` and **{{mention:2 y}}**",
 	// Schema-invalid output found and fixed in #147
 	"*",
 	"* *",
@@ -238,6 +244,108 @@ func FuzzToADFFixedPoint(f *testing.F) {
 	f.Fuzz(func(t *testing.T, md string) {
 		t.Parallel()
 		if failure := checkFixedPoint(md); failure != "" {
+			t.Fatal(failure)
+		}
+	})
+}
+
+// P3, protected nodes (#149): for an ADF document, ADF -> Markdown -> ADF
+// followed by Reattach against the original gives back every protected node
+// (media, mention, extension, ...) unchanged and in order, and Reattach
+// reports nothing. Unprotected nodes may change form. A difference is excused
+// only when the read itself reports a dropped node, the reader saying "this
+// does not round-trip". The fixture identity for media.adf.json (the whole
+// document comes back identical) is TestReattach_FixtureIdentity.
+//
+// The seeds are the ADF fixtures in testdata and reattachSeeds.
+
+// reattachSeeds are ADF documents with protected nodes the fixtures lack.
+var reattachSeeds = []string{
+	`{"type":"doc","version":1,"content":[{"type":"extension","attrs":{"extensionType":"t","extensionKey":"toc"}},` +
+		`{"type":"paragraph","content":[{"type":"text","text":"a "},{"type":"inlineExtension","attrs":{"extensionType":"t","extensionKey":"k"}}]}]}`,
+	`{"type":"doc","version":1,"content":[{"type":"paragraph","content":[{"type":"text","text":"{{mention:1 x}} "},` +
+		`{"type":"mention","attrs":{"id":"u","text":"@Ann"}},{"type":"text","text":" {{!mention:1 Ann}}"}]}]}`,
+	`{"type":"doc","version":1,"content":[{"type":"table","content":[{"type":"tableRow","content":[{"type":"tableCell","content":[` +
+		`{"type":"paragraph","content":[{"type":"text","text":"x"}]},{"type":"mediaSingle","content":[{"type":"media","attrs":{"id":"m","type":"file","collection":"c"}}]}]}]}]}]}`,
+	// Found by fuzzing: an unknown block that is all of a task item.
+	`{"type":"doc","version":1,"content":[{"type":"taskList","attrs":{"localId":"l"},"content":[{"type":"taskItem","attrs":{"localId":"i","state":"TODO"},"content":[{"type":"futureBlock"}]}]}]}`,
+}
+
+func checkReattach(data []byte) string {
+	var doc jira4claude.ADFNode
+	if err := json.Unmarshal(data, &doc); err != nil {
+		return ""
+	}
+	conv := propertyConverter()
+	md, readIssues := conv.ToMarkdown(&doc)
+	adf, _ := conv.ToADF(md)
+	got, issues := conv.Reattach(&doc, adf)
+
+	if len(jira4claude.DroppedIssues(readIssues)) > 0 || hasUnreadStructure(&doc) {
+		return ""
+	}
+	want, have := mustJSON(protectedNodes(&doc)), mustJSON(protectedNodes(got))
+	if len(issues) == 0 && want == have {
+		return ""
+	}
+	return fmt.Sprintf("protected nodes do not survive ADF -> Markdown -> ADF with Reattach\n"+
+		"input:  %s\nread:   %q\nissues: %v\nwant:   %s\nhave:   %s",
+		data, md, issueStrings(issues), want, have)
+}
+
+// hasUnreadStructure reports whether doc holds structure the reader skips
+// without a word, so a protected node inside it is never read: a child a
+// list, table, row, task list or decision list does not expect, or children
+// of a leaf node or code block. Known gap of the container renderers, not of
+// the tokens (#149); P3 excuses such documents so fuzzing can go past them.
+func hasUnreadStructure(doc *jira4claude.ADFNode) bool {
+	expected := map[string][]string{
+		"bulletList":   {"listItem"},
+		"orderedList":  {"listItem"},
+		"table":        {"tableRow"},
+		"tableRow":     {"tableCell", "tableHeader"},
+		"taskList":     {"taskItem", "taskList"},
+		"decisionList": {"decisionItem"},
+		"codeBlock":    {"text"},
+	}
+	leaves := map[string]bool{
+		"text": true, "hardBreak": true, "emoji": true, "status": true, "date": true,
+		"inlineCard": true, "placeholder": true, "rule": true,
+	}
+	var walk func(n *jira4claude.ADFNode) bool
+	walk = func(n *jira4claude.ADFNode) bool {
+		if leaves[n.Type] && len(n.Content) > 0 {
+			return true
+		}
+		for i := range n.Content {
+			c := &n.Content[i]
+			if want, ok := expected[n.Type]; ok && !slices.Contains(want, c.Type) {
+				return true
+			}
+			if walk(c) {
+				return true
+			}
+		}
+		return false
+	}
+	return walk(doc)
+}
+
+func FuzzReattachProtectedNodes(f *testing.F) {
+	for _, seed := range reattachSeeds {
+		f.Add([]byte(seed))
+	}
+	files, err := filepath.Glob(filepath.Join("testdata", "*.adf.json"))
+	require.NoError(f, err)
+	require.NotEmpty(f, files)
+	for _, file := range files {
+		data, err := os.ReadFile(file)
+		require.NoError(f, err)
+		f.Add(data)
+	}
+	f.Fuzz(func(t *testing.T, data []byte) {
+		t.Parallel()
+		if failure := checkReattach(data); failure != "" {
 			t.Fatal(failure)
 		}
 	})

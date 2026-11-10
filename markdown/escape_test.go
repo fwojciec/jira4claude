@@ -740,7 +740,8 @@ func TestRoundTrip_InlineNodeLabels(t *testing.T) {
 			node: func(l string) jira4claude.ADFNode {
 				return jira4claude.ADFNode{Type: "mention", Attrs: attrs(map[string]any{"id": "1", "text": "@" + l})}
 			},
-			text: func(l string) string { return "see @" + l + " now" },
+			// A mention reads as a token (#149); Reattach turns it back.
+			text: func(l string) string { return "see {{mention:1 " + l + "}} now" },
 		},
 		{
 			name: "emoji shortname",
@@ -754,7 +755,7 @@ func TestRoundTrip_InlineNodeLabels(t *testing.T) {
 			node: func(l string) jira4claude.ADFNode {
 				return jira4claude.ADFNode{Type: "mediaInline", Attrs: attrs(map[string]any{"id": "1", "__fileName": l})}
 			},
-			text: func(l string) string { return "see [" + l + "] now" },
+			text: func(l string) string { return "see {{mediaInline:1 " + l + "}} now" },
 		},
 	}
 
@@ -802,7 +803,7 @@ func TestRoundTrip_InlineNodeLabels(t *testing.T) {
 			converter := markdown.New()
 			md, _ := converter.ToMarkdown(doc)
 			result, _ := converter.ToADF(md)
-			assert.Equal(t, paragraphDoc(jira4claude.ADFNode{Type: "text", Text: "[image: " + label + "]"}), result, "markdown was %q", md)
+			assert.Equal(t, paragraphDoc(jira4claude.ADFNode{Type: "text", Text: "{{mediaSingle:1 " + label + "}}"}), result, "markdown was %q", md)
 		}
 	})
 

@@ -390,7 +390,9 @@ func TestIssueViewCmd_UnsupportedNodesWarn(t *testing.T) {
 					Version: 1,
 					Content: []jira4claude.ADFNode{
 						{Type: "paragraph", Content: []jira4claude.ADFNode{{Type: "text", Text: "Before"}}},
-						{Type: "extension", Attrs: json.RawMessage(`{"extensionKey":"macro"}`)},
+						// An extension now reads as a token (#149); an inlineCard
+						// without a URL is still dropped on read.
+						{Type: "paragraph", Content: []jira4claude.ADFNode{{Type: "inlineCard", Attrs: json.RawMessage(`{}`)}}},
 					},
 				},
 			}, nil
@@ -413,8 +415,8 @@ func TestIssueViewCmd_UnsupportedNodesWarn(t *testing.T) {
 	require.Len(t, printer.ConversionIssueCalls, 1)
 	assert.Equal(t, jira4claude.ConversionIssue{
 		Kind:   jira4claude.ConversionDropped,
-		Node:   "extension",
-		Detail: "skipped unsupported node type 'extension'",
+		Node:   "inlineCard",
+		Detail: "skipped unsupported node type 'inlineCard'",
 	}, printer.ConversionIssueCalls[0])
 }
 

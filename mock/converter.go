@@ -11,6 +11,7 @@ var _ jira4claude.Converter = (*Converter)(nil)
 type Converter struct {
 	ToADFFn      func(markdown string) (*jira4claude.ADFNode, []jira4claude.ConversionIssue)
 	ToMarkdownFn func(adf *jira4claude.ADFNode) (string, []jira4claude.ConversionIssue)
+	ReattachFn   func(original, edited *jira4claude.ADFNode) (*jira4claude.ADFNode, []jira4claude.ConversionIssue)
 }
 
 func (c *Converter) ToADF(markdown string) (*jira4claude.ADFNode, []jira4claude.ConversionIssue) {
@@ -19,4 +20,8 @@ func (c *Converter) ToADF(markdown string) (*jira4claude.ADFNode, []jira4claude.
 
 func (c *Converter) ToMarkdown(adf *jira4claude.ADFNode) (string, []jira4claude.ConversionIssue) {
 	return c.ToMarkdownFn(adf)
+}
+
+func (c *Converter) Reattach(original, edited *jira4claude.ADFNode) (*jira4claude.ADFNode, []jira4claude.ConversionIssue) {
+	return c.ReattachFn(original, edited)
 }

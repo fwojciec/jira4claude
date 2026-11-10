@@ -48,3 +48,10 @@ func (c *Converter) ToADF(markdown string) (*jira4claude.ADFNode, []jira4claude.
 func (c *Converter) ToMarkdown(adfDoc *jira4claude.ADFNode) (string, []jira4claude.ConversionIssue) {
 	return toMarkdown(adfDoc)
 }
+
+// Reattach replaces the protected-node tokens that ToMarkdown wrote for
+// original, and that are still in edited, by the original nodes. See
+// jira4claude.Converter.
+func (c *Converter) Reattach(original, edited *jira4claude.ADFNode) (*jira4claude.ADFNode, []jira4claude.ConversionIssue) {
+	return reattach(original, edited)
+}

@@ -177,12 +177,37 @@ func TestToMarkdown_AdjacentLists(t *testing.T) {
 
 		md, issues := markdown.New().ToMarkdown(doc(
 			bullets(item(para("a"))),
-			jira4claude.ADFNode{Type: "extension"},
+			// An extension is a token now (#149); an inlineCard without a
+			// URL still renders empty, and is still reported.
+			jira4claude.ADFNode{Type: "paragraph", Content: []jira4claude.ADFNode{{Type: "inlineCard"}}},
 			bullets(item(para("b"))),
 		))
 
-		assert.Equal(t, []jira4claude.ConversionIssue{droppedIssue("extension")}, issues)
+		assert.Equal(t, []jira4claude.ConversionIssue{droppedIssue("inlineCard")}, issues)
 		assert.Equal(t, "- a\n\n* b", md)
+	})
+
+	t.Run("a protected-node token is a block that separates two lists", func(t *testing.T) {
+		t.Parallel()
+
+		conv := markdown.New()
+		original := doc(
+			bullets(item(para("a"))),
+			jira4claude.ADFNode{Type: "extension", Attrs: json.RawMessage(`{"extensionKey":"k"}`)},
+			bullets(item(para("b"))),
+		)
+		md, issues := conv.ToMarkdown(original)
+
+		assert.Empty(t, issues)
+		assert.Equal(t, "- a\n\n{{extension:1 k}}\n\n- b", md)
+		written, _ := conv.ToADF(md)
+		got, issues := conv.Reattach(original, written)
+		assert.Empty(t, issues)
+		gotJSON, err := json.Marshal(got)
+		require.NoError(t, err)
+		wantJSON, err := json.Marshal(original)
+		require.NoError(t, err)
+		assert.JSONEq(t, string(wantJSON), string(gotJSON))
 	})
 }
 
