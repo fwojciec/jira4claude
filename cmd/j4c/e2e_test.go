@@ -123,7 +123,9 @@ func newE2EEnv(t *testing.T, bin string) *e2eEnv {
 	}
 	require.NoError(t, os.Mkdir(e.home, 0o700))
 	require.NoError(t, os.Mkdir(e.work, 0o700))
-	e.writeNetrc(e.stub.host())
+	// The bare host name, as curl and git match it: the server URL has a
+	// port, and the client falls back from host:port to the host name.
+	e.writeNetrc(e.stub.hostname())
 	e.writeConfig(e.work)
 
 	e.stub.addIssue(&stubIssue{
@@ -146,6 +148,12 @@ func newE2EEnv(t *testing.T, bin string) *e2eEnv {
 
 func (s *stubJira) host() string {
 	return strings.TrimPrefix(s.server.URL, "http://")
+}
+
+// hostname is host without the port.
+func (s *stubJira) hostname() string {
+	h, _, _ := strings.Cut(s.host(), ":")
+	return h
 }
 
 func (e *e2eEnv) writeNetrc(machine string) {
@@ -681,7 +689,10 @@ func TestE2E(t *testing.T) {
 		e.writeNetrc("other.example.net")
 
 		r := e.run("issue", "view", "PROJ-1")
-		assert.Equal(t, e2eRun{stderr: "[error] no netrc entry for " + e.stub.host() + "\n", code: 2}, r)
+		assert.Equal(t, e2eRun{
+			stderr: "[error] no netrc entry for " + e.stub.host() + " or " + e.stub.hostname() + " in " + filepath.Join(e.home, ".netrc") + "\n",
+			code:   2,
+		}, r)
 		assert.Empty(t, e.stub.Requests())
 	})
 

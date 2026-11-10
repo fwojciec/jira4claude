@@ -137,12 +137,26 @@ func NewClient(baseURL string, opts ...Option) (*Client, error) {
 		}
 	}
 
-	// Find machine entry for the host
-	machine := n.Machine(u.Host)
+	// Find the machine entry: host:port first when the URL has a port, then
+	// the bare host name, as curl and git match it. The more specific entry
+	// wins. Either way the credentials go only to the configured scheme,
+	// host and port (see Do and Stream).
+	names := []string{u.Host}
+	if u.Port() != "" {
+		names = append(names, u.Hostname())
+	}
+	var machine *netrc.Machine
+	var name string
+	for _, candidate := range names {
+		if machine = n.Machine(candidate); machine != nil {
+			name = candidate
+			break
+		}
+	}
 	if machine == nil {
 		return nil, &jira4claude.Error{
 			Code:    jira4claude.EUnauthorized,
-			Message: "no netrc entry for " + u.Host,
+			Message: "no netrc entry for " + strings.Join(names, " or ") + " in " + netrcPath,
 		}
 	}
 
@@ -152,13 +166,13 @@ func NewClient(baseURL string, opts ...Option) (*Client, error) {
 	if login == "" {
 		return nil, &jira4claude.Error{
 			Code:    jira4claude.EUnauthorized,
-			Message: "netrc entry for " + u.Host + ": login is required",
+			Message: "netrc entry for " + name + ": login is required",
 		}
 	}
 	if password == "" {
 		return nil, &jira4claude.Error{
 			Code:    jira4claude.EUnauthorized,
-			Message: "netrc entry for " + u.Host + ": password is required",
+			Message: "netrc entry for " + name + ": password is required",
 		}
 	}
 

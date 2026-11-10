@@ -294,6 +294,11 @@ Jira; to keep an inline comment, leave its paragraph unchanged.
   with a smart link's URL made an unchanged paragraph holding an inline
   comment refuse the write; and an empty paragraph put back at the start of
   an edited list item was still warned about as left out.
+- A server URL with a port (`https://jira.example.com:8443`) found
+  credentials only under `machine jira.example.com:8443` in `.netrc`. It now
+  falls back to `machine jira.example.com`, as curl and git do; an entry
+  for host and port still wins. The error for a missing entry names both
+  names it looked for and the file.
 - A block HTML comment that mentions `<details>`, such as
   `<!-- <details> -->`, was dropped, so a write refused it; it is text, like
   every other comment.

@@ -73,6 +73,12 @@ printf 'machine yourcompany.atlassian.net login you@example.com password YOUR_AP
 j4c init --server=https://yourcompany.atlassian.net --project=PROJ
 ```
 
+The entry is found by the server's host name. For a server URL with a port,
+such as a self-hosted `https://jira.example.com:8443`, an entry for
+`jira.example.com:8443` is used if there is one, and otherwise the entry for
+`jira.example.com`, as curl and git match it. Either way the credentials are
+sent only to the configured scheme, host and port.
+
 `init` writes `.jira4claude.yaml` in the current directory and adds it to
 `.gitignore`. Other commands look for that file in the current directory, then
 in each parent directory, then in your home directory; `--config PATH` names
