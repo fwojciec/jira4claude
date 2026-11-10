@@ -252,6 +252,25 @@ func TestToIssueView(t *testing.T) {
 		assert.Equal(t, "https://test.atlassian.net/browse/TEST-1", view.URL)
 	})
 
+	t.Run("formats updated with milliseconds, to compare with --if-updated", func(t *testing.T) {
+		t.Parallel()
+
+		conv := &mock.Converter{
+			ToMarkdownFn: func(adf *jira4claude.ADFNode) (string, []jira4claude.ConversionIssue) {
+				return "", nil
+			},
+		}
+
+		issue := &jira4claude.Issue{
+			Key:     "TEST-1",
+			Updated: time.Date(2026, 11, 9, 10, 15, 30, 123_000_000, time.UTC),
+		}
+
+		view := jira4claude.ToIssueView(issue, conv, func(w jira4claude.ConversionIssue) {}, "")
+
+		assert.Equal(t, "2026-11-09T10:15:30.123Z", view.Updated)
+	})
+
 	t.Run("formats timestamps as RFC3339", func(t *testing.T) {
 		t.Parallel()
 
@@ -273,7 +292,7 @@ func TestToIssueView(t *testing.T) {
 		view := jira4claude.ToIssueView(issue, conv, func(w jira4claude.ConversionIssue) {}, "")
 
 		assert.Equal(t, "2024-01-15T10:30:00Z", view.Created)
-		assert.Equal(t, "2024-01-16T14:45:00Z", view.Updated)
+		assert.Equal(t, "2024-01-16T14:45:00.000Z", view.Updated)
 	})
 
 	t.Run("includes optional fields when present", func(t *testing.T) {

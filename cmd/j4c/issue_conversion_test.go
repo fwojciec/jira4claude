@@ -200,6 +200,9 @@ func TestIssueUpdateCmd_DroppedContent(t *testing.T) {
 
 		called := false
 		svc := &mock.IssueService{
+			GetFn: func(ctx context.Context, key string) (*jira4claude.Issue, error) {
+				return &jira4claude.Issue{Key: key}, nil
+			},
 			UpdateFn: func(ctx context.Context, key string, update jira4claude.IssueUpdate) (*jira4claude.Issue, error) {
 				called = true
 				return &jira4claude.Issue{Key: key}, nil
@@ -227,6 +230,9 @@ func TestIssueUpdateCmd_DroppedContent(t *testing.T) {
 
 		called := false
 		svc := &mock.IssueService{
+			GetFn: func(ctx context.Context, key string) (*jira4claude.Issue, error) {
+				return &jira4claude.Issue{Key: key}, nil
+			},
 			UpdateFn: func(ctx context.Context, key string, update jira4claude.IssueUpdate) (*jira4claude.Issue, error) {
 				called = true
 				return &jira4claude.Issue{Key: key}, nil

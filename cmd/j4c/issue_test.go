@@ -44,6 +44,13 @@ func mockConverter() *mock.Converter {
 			}
 			return result, nil
 		},
+		// No protected nodes: the edited document is written as it is.
+		ReattachFn: func(original, edited *jira4claude.ADFNode) (*jira4claude.ADFNode, []jira4claude.ConversionIssue) {
+			if edited == nil {
+				return &jira4claude.ADFNode{Type: "doc", Version: 1, Content: []jira4claude.ADFNode{}}, nil
+			}
+			return edited, nil
+		},
 	}
 }
 
@@ -715,6 +722,9 @@ func TestIssueUpdateCmd(t *testing.T) {
 
 		var capturedUpdate jira4claude.IssueUpdate
 		svc := &mock.IssueService{
+			GetFn: func(ctx context.Context, key string) (*jira4claude.Issue, error) {
+				return makeIssue(key), nil
+			},
 			UpdateFn: func(ctx context.Context, key string, update jira4claude.IssueUpdate) (*jira4claude.Issue, error) {
 				capturedUpdate = update
 				return makeIssue(key), nil
@@ -744,6 +754,9 @@ func TestIssueUpdateCmd(t *testing.T) {
 
 		var capturedUpdate jira4claude.IssueUpdate
 		svc := &mock.IssueService{
+			GetFn: func(ctx context.Context, key string) (*jira4claude.Issue, error) {
+				return makeIssue(key), nil
+			},
 			UpdateFn: func(ctx context.Context, key string, update jira4claude.IssueUpdate) (*jira4claude.Issue, error) {
 				capturedUpdate = update
 				return makeIssue(key), nil
@@ -840,6 +853,9 @@ func TestIssueUpdateCmd(t *testing.T) {
 
 		var capturedUpdate jira4claude.IssueUpdate
 		svc := &mock.IssueService{
+			GetFn: func(ctx context.Context, key string) (*jira4claude.Issue, error) {
+				return makeIssue(key), nil
+			},
 			UpdateFn: func(ctx context.Context, key string, update jira4claude.IssueUpdate) (*jira4claude.Issue, error) {
 				capturedUpdate = update
 				return makeIssue(key), nil

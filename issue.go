@@ -3,6 +3,8 @@ package jira4claude
 import (
 	"context"
 	"encoding/json"
+	"strconv"
+	"strings"
 	"time"
 )
 
@@ -174,6 +176,106 @@ func AppendDescription(current, addition *ADFNode) DescriptionUpdate {
 // ClearDescription removes the description.
 func ClearDescription() DescriptionUpdate {
 	return DescriptionUpdate{mode: DescriptionClear}
+}
+
+// ReplaceDescription prepares a description set: edited, the document
+// converted from the new Markdown, gets the protected nodes of current, the
+// description as read just before the write, back in place of their tokens
+// (see Converter.Reattach). Existing content the write would lose is refused
+// with a validation error naming it, unless force. The issues returned are
+// the re-attachment's, for the caller to report.
+func ReplaceDescription(conv Converter, current, edited *ADFNode, force bool) (*ADFNode, []ConversionIssue, error) {
+	doc, issues := conv.Reattach(current, edited)
+	if !force {
+		if err := DroppedContentError("description", issues); err != nil {
+			return nil, nil, err
+		}
+	}
+	return doc, issues, nil
+}
+
+// CheckClearDescription refuses to clear a description, current, that holds
+// protected nodes (images, mentions and other nodes Markdown cannot carry),
+// naming them, unless force. Under force it returns one dropped issue per
+// node removed, for the caller to report. current is not converted: nothing of
+// it is written back.
+func CheckClearDescription(conv Converter, current *ADFNode, force bool) ([]ConversionIssue, error) {
+	if current == nil {
+		return nil, nil
+	}
+	_, missing := conv.Reattach(current, nil)
+	var removed []ConversionIssue
+	var tokens []string
+	for _, m := range DroppedIssues(missing) {
+		removed = append(removed, ConversionIssue{
+			Kind:   ConversionDropped,
+			Node:   m.Node,
+			Detail: "removed with the description, which was cleared",
+		})
+		tokens = append(tokens, m.Node)
+	}
+	if len(removed) > 0 && !force {
+		return nil, &Error{
+			Code: EValidation,
+			Message: "clearing the description would remove content that cannot be written back from Markdown (" +
+				strings.Join(tokens, ", ") + "). Nothing was written. Pass --force to clear it anyway",
+		}
+	}
+	return removed, nil
+}
+
+// timestampLayout is how timestamps compared by --if-updated are printed:
+// RFC 3339 with exactly three fractional digits, Jira's own precision.
+const timestampLayout = "2006-01-02T15:04:05.000Z07:00"
+
+// jiraTimestampLayout is the form Jira itself returns, as in
+// 2026-11-09T10:15:30.123+0000.
+const jiraTimestampLayout = "2006-01-02T15:04:05.000-0700"
+
+// FormatTimestamp formats t as RFC 3339 with milliseconds, the precision
+// --if-updated compares at.
+func FormatTimestamp(t time.Time) string {
+	return t.Format(timestampLayout)
+}
+
+// ParseTimestamp parses an --if-updated value: RFC 3339, with or without
+// fractional seconds (the form issue view --json prints), or the form Jira
+// returns. A value it cannot parse is a validation error.
+func ParseTimestamp(s string) (time.Time, error) {
+	if t, err := time.Parse(time.RFC3339Nano, s); err == nil {
+		return t, nil
+	}
+	if t, err := time.Parse(jiraTimestampLayout, s); err == nil {
+		return t, nil
+	}
+	return time.Time{}, &Error{
+		Code: EValidation,
+		Message: "--if-updated " + strconv.Quote(s) + " is not a timestamp; pass the updated value " +
+			"issue view --json prints, such as 2026-11-09T10:15:30.123Z",
+	}
+}
+
+// CheckUpdated returns a conflict error when issue, as read just before a
+// write, was last updated at another time than want, compared at millisecond
+// precision. An issue without an updated time cannot be checked, which is an
+// internal error rather than a conflict.
+func CheckUpdated(issue *Issue, want time.Time) error {
+	if issue.Updated.IsZero() {
+		return &Error{
+			Code:    EInternal,
+			Message: "cannot check --if-updated: Jira returned no updated time for " + issue.Key + ". Nothing was written",
+		}
+	}
+	got := issue.Updated.Truncate(time.Millisecond)
+	if got.Equal(want.Truncate(time.Millisecond)) {
+		return nil
+	}
+	return &Error{
+		Code: EConflict,
+		Message: issue.Key + " was updated at " + FormatTimestamp(issue.Updated) + ", not at " +
+			FormatTimestamp(want.In(issue.Updated.Location())) + " as --if-updated expects. Nothing was written. " +
+			"View the issue again and redo the change against its current state",
+	}
 }
 
 // Mode reports what the update does to the description.

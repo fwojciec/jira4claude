@@ -105,7 +105,7 @@ func ToIssueView(issue *Issue, conv Converter, warn func(ConversionIssue), serve
 		RelatedIssues: relatedIssues,
 		Comments:      comments,
 		Created:       issue.Created.Format(time.RFC3339),
-		Updated:       issue.Updated.Format(time.RFC3339),
+		Updated:       FormatTimestamp(issue.Updated),
 		URL:           url,
 		CustomFields:  issue.ReadCustomFields,
 	}

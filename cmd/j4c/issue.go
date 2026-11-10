@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/fwojciec/jira4claude"
 )
@@ -267,9 +268,9 @@ func rejectsAssigneeField(err error) bool {
 type IssueUpdateCmd struct {
 	Key               string   `arg:"" help:"Issue key"`
 	Summary           *string  `help:"New summary" short:"s"`
-	Description       *string  `help:"Replace the description" short:"d" xor:"description"`
+	Description       *string  `help:"Replace the description. Edit the Markdown issue view prints: each {{...}} token in it stands for an existing image, mention or other node that Markdown cannot carry, and is put back unchanged; leaving a token out is refused unless --force" short:"d" xor:"description"`
 	AppendDescription *string  `help:"Add text after the current description; the existing content is kept as it is, never converted" xor:"description"`
-	ClearDescription  bool     `help:"Remove the description" xor:"description"`
+	ClearDescription  bool     `help:"Remove the description; refused unless --force when it holds images, mentions or other nodes Markdown cannot carry" xor:"description"`
 	Priority          *string  `help:"New priority"`
 	Assignee          *string  `help:"Assignee: 'me', email, or account ID" short:"a"`
 	Labels            []string `help:"New labels" short:"l"`
@@ -277,15 +278,28 @@ type IssueUpdateCmd struct {
 	Parent            *string  `help:"Parent issue key" short:"P" xor:"parent"`
 	ClearParent       bool     `help:"Remove from parent" name:"clear-parent" xor:"parent"`
 	FieldJSON         []string `name:"field-json" sep:"none" help:"Set field by ID, value is JSON (repeatable). Example: customfield_10801='{\"value\":\"High\"}'"`
-	Force             bool     `help:"Write even if Markdown conversion drops content (e.g. images); dropped content is reported as a warning"`
+	IfUpdated         *string  `name:"if-updated" help:"Write only if the issue was last updated at this time, as issue view --json prints it in 'updated' (compared to the millisecond); otherwise exit 5 and write nothing. The check is made just before the write, so a change landing in between is not caught"`
+	Force             bool     `help:"Write even if content would be lost: new Markdown that does not convert (e.g. images), existing nodes whose tokens were left out, or a cleared description that holds them; what is lost is reported as a warning"`
 }
 
-// Run executes the update command.
+// Run executes the update command. Anything that touches the description, and
+// --if-updated, reads the issue first: the read is the base for re-attaching
+// protected nodes, appending and the --if-updated check, and comes as late as
+// possible to keep the window before the write short.
 func (c *IssueUpdateCmd) Run(ctx *IssueContext) error {
-	// Validate and convert the description first, so a refusal happens before
-	// any service call, including assignee lookup.
-	var description jira4claude.DescriptionUpdate
-	var addition *jira4claude.ADFNode
+	// Validate and convert the new Markdown first, so a refusal that does not
+	// depend on the current issue happens before any service call, including
+	// assignee lookup.
+	var ifUpdated *time.Time
+	if c.IfUpdated != nil {
+		t, err := jira4claude.ParseTimestamp(*c.IfUpdated)
+		if err != nil {
+			return err
+		}
+		ifUpdated = &t
+	}
+	var edited, addition *jira4claude.ADFNode
+	var warnings []jira4claude.ConversionIssue
 	switch {
 	case c.Description != nil:
 		if *c.Description == "" {
@@ -295,11 +309,11 @@ func (c *IssueUpdateCmd) Run(ctx *IssueContext) error {
 			}
 		}
 		// Plain text is valid GFM.
-		adfDoc, err := convertForWrite(ctx, "description", *c.Description, c.Force)
+		doc, issues, err := convert(ctx, "description", *c.Description, c.Force)
 		if err != nil {
 			return err
 		}
-		description = jira4claude.SetDescription(adfDoc)
+		edited, warnings = doc, issues
 	case c.AppendDescription != nil:
 		if *c.AppendDescription == "" {
 			return &jira4claude.Error{
@@ -307,13 +321,11 @@ func (c *IssueUpdateCmd) Run(ctx *IssueContext) error {
 				Message: "--append-description cannot be empty",
 			}
 		}
-		adfDoc, err := convertForWrite(ctx, "description", *c.AppendDescription, c.Force)
+		doc, issues, err := convert(ctx, "description", *c.AppendDescription, c.Force)
 		if err != nil {
 			return err
 		}
-		addition = adfDoc
-	case c.ClearDescription:
-		description = jira4claude.ClearDescription()
+		addition, warnings = doc, issues
 	}
 
 	// Resolve assignee if provided
@@ -330,15 +342,40 @@ func (c *IssueUpdateCmd) Run(ctx *IssueContext) error {
 		return err
 	}
 
-	if addition != nil {
-		// Append at the ADF level: the current nodes are sent back as read,
-		// never through Markdown. The read comes last to keep the window
-		// before the write short.
+	var description jira4claude.DescriptionUpdate
+	if edited != nil || addition != nil || c.ClearDescription || ifUpdated != nil {
 		current, err := ctx.Service.Get(context.Background(), c.Key)
 		if err != nil {
 			return err
 		}
-		description = jira4claude.AppendDescription(current.Description, addition)
+		if ifUpdated != nil {
+			if err := jira4claude.CheckUpdated(current, *ifUpdated); err != nil {
+				return err
+			}
+		}
+		switch {
+		case edited != nil:
+			doc, issues, err := jira4claude.ReplaceDescription(ctx.Converter, current.Description, edited, c.Force)
+			if err != nil {
+				return err
+			}
+			description = jira4claude.SetDescription(doc)
+			warnings = append(warnings, issues...)
+		case addition != nil:
+			// Append at the ADF level: the current nodes are sent back as
+			// read, never through Markdown.
+			description = jira4claude.AppendDescription(current.Description, addition)
+		case c.ClearDescription:
+			issues, err := jira4claude.CheckClearDescription(ctx.Converter, current.Description, c.Force)
+			if err != nil {
+				return err
+			}
+			description = jira4claude.ClearDescription()
+			warnings = append(warnings, issues...)
+		}
+	}
+	for _, w := range warnings {
+		ctx.Printer.ConversionIssue(w)
 	}
 
 	update := jira4claude.IssueUpdate{
@@ -590,14 +627,24 @@ func (c *IssueDeleteCommentCmd) Run(ctx *IssueContext) error {
 // returns a validation error naming the dropped nodes instead, so the caller
 // writes nothing. field names the input in that error (e.g. "description").
 func convertForWrite(ctx *IssueContext, field, md string, force bool) (*jira4claude.ADFNode, error) {
-	doc, issues := ctx.Converter.ToADF(md)
-	if !force {
-		if err := jira4claude.DroppedContentError(field, issues); err != nil {
-			return nil, err
-		}
+	doc, issues, err := convert(ctx, field, md, force)
+	if err != nil {
+		return nil, err
 	}
 	for _, issue := range issues {
 		ctx.Printer.ConversionIssue(issue)
 	}
 	return doc, nil
+}
+
+// convert is convertForWrite without printing the issues, for a caller that
+// may still refuse the write and so reports them later.
+func convert(ctx *IssueContext, field, md string, force bool) (*jira4claude.ADFNode, []jira4claude.ConversionIssue, error) {
+	doc, issues := ctx.Converter.ToADF(md)
+	if !force {
+		if err := jira4claude.DroppedContentError(field, issues); err != nil {
+			return nil, nil, err
+		}
+	}
+	return doc, issues, nil
 }
