@@ -142,11 +142,11 @@ Migration: read the booleans.
 
 **`issue update` and `issue transition` read the issue before every write,
 and `issue assign` before and after.** The read gives the old value of each
-change reported. An update that leaves the description alone (v0.3.0 read
-the issue only to edit a description) and a transition make one more request
-than before, a GET before the write, and an assign two, a GET before and
-after; a failed read before the write now stops the command with nothing
-written.
+change reported. An update that neither edits the description nor passes
+`--if-updated` (the only cases v0.3.0 read the issue for) and a transition
+make one more request than before, a GET before the write, and an assign
+two, a GET before and after; a failed read before the write now stops the
+command with nothing written.
 
 Migration: none for output; count the extra requests against rate limits.
 
@@ -310,22 +310,6 @@ Migration: edit the description as `issue view --json` gives it in
 `description` (`issue view --field description`, which prints it alone, came
 in v0.4.0); use `--append-description` to add text without rewriting.
 
-**A bare email address is written as text.** Jira does not link an address
-typed into it, so the write side no longer does either. A bare URL still
-becomes a link, and so does an address in angle brackets, to `mailto:`.
-
-```text
-before: --description "Mail a@b.co"    ->  "a@b.co" linked to mailto:a@b.co
-after:  --description "Mail a@b.co"    ->  "a@b.co" as plain text
-        --description "Mail <a@b.co>"  ->  "a@b.co" linked to mailto:a@b.co (unchanged)
-```
-
-On read, an address in plain text reads as it is, and a `mailto:` link whose
-text is its address reads as `<a@b.co>` (as `[a@b.co](mailto:a@b.co)` where
-that form would not read back), which writes back as the same link.
-
-Migration: write `<a@b.co>` where you want a link.
-
 **`issue update --description ""` is an error.** It used to do nothing and
 print `[ok] Updated: KEY`. (`issue create` with an empty description still
 creates the issue without one.)
@@ -405,7 +389,13 @@ company-managed project.
   current user.
 - `issue ready` listed issues in Won't Do.
 - Backslash escapes and HTML entities reached Jira as literal text.
-- A bare URL in Markdown was dropped on write; it becomes a link.
+- A bare URL or email address in Markdown was dropped on write
+  (`Mail a@b.co` reached Jira as `Mail `). A bare URL now becomes a link; a
+  bare email address stays plain text, as Jira itself leaves a typed
+  address; `<a@b.co>` becomes a link to `mailto:a@b.co`. On read, an address
+  in plain text reads as it is, and a `mailto:` link whose text is its
+  address reads as `<a@b.co>` (as `[a@b.co](mailto:a@b.co)` where that form
+  would not read back), which writes back as the same link.
 - Line endings, control characters and invalid UTF-8 are handled the same
   way on write and on read: CRLF and a lone CR become a line break, other
   control characters but tab a space, and invalid UTF-8 U+FFFD; a read that
