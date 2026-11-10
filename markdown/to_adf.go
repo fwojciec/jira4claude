@@ -473,36 +473,15 @@ func convertPanelContent(node *ast.Blockquote, source []byte, skipped *skippedCo
 // convertPanelFirstParagraph converts the first paragraph of a panel blockquote,
 // skipping the first 3 text nodes that form the alert prefix ("[", "!NOTE", "]").
 func convertPanelFirstParagraph(para *ast.Paragraph, source []byte, skipped *skippedCollector) *jira4claude.ADFNode {
-	var inlineContent []jira4claude.ADFNode
-	var htmlMarkStack []jira4claude.ADFMark
-	skipCount := 3 // Skip "[", "!ALERT_NAME", "]"
-
-	for child := para.FirstChild(); child != nil; child = child.NextSibling() {
-		if skipCount > 0 {
-			skipCount--
-			continue
+	// Skip "[", "!ALERT_NAME", "]"
+	first := para.FirstChild()
+	for range 3 {
+		if first != nil {
+			first = first.NextSibling()
 		}
-
-		if rh, ok := child.(*ast.RawHTML); ok {
-			tag := rawHTMLContent(rh, source)
-			if mark, ok := openingHTMLTagToMark(tag); ok {
-				htmlMarkStack = append(htmlMarkStack, mark)
-				continue
-			}
-			if closingHTMLTagMatchesStack(tag, htmlMarkStack) {
-				htmlMarkStack = htmlMarkStack[:len(htmlMarkStack)-1]
-				continue
-			}
-		}
-
-		var marks []jira4claude.ADFMark
-		if len(htmlMarkStack) > 0 {
-			marks = cloneMarks(htmlMarkStack)
-		}
-		inlineContent = append(inlineContent, convertInlineNode(child, source, marks, skipped)...)
 	}
 
-	inlineContent = consolidateTextNodes(inlineContent)
+	inlineContent := consolidateTextNodes(convertInlineRun(first, source, nil, skipped))
 	if len(inlineContent) == 0 {
 		return nil
 	}
@@ -585,33 +564,9 @@ func collectExpandContent(start ast.Node, source []byte, skipped *skippedCollect
 }
 
 // convertInlineContent converts the inline content of a block node to ADF text nodes.
-// It tracks inline HTML tags (<u>, <sub>, <sup>) as a mark stack so that text nodes
-// between matching open/close tags receive the appropriate ADF marks.
+// Inline HTML tags (<u>, <sub>, <sup>) are resolved by a markTracker.
 func convertInlineContent(node ast.Node, source []byte, skipped *skippedCollector) []jira4claude.ADFNode {
-	var content []jira4claude.ADFNode
-	var htmlMarkStack []jira4claude.ADFMark
-
-	for child := node.FirstChild(); child != nil; child = child.NextSibling() {
-		if rh, ok := child.(*ast.RawHTML); ok {
-			tag := rawHTMLContent(rh, source)
-			if mark, ok := openingHTMLTagToMark(tag); ok {
-				htmlMarkStack = append(htmlMarkStack, mark)
-				continue
-			}
-			if closingHTMLTagMatchesStack(tag, htmlMarkStack) {
-				htmlMarkStack = htmlMarkStack[:len(htmlMarkStack)-1]
-				continue
-			}
-		}
-
-		var marks []jira4claude.ADFMark
-		if len(htmlMarkStack) > 0 {
-			marks = cloneMarks(htmlMarkStack)
-		}
-		inlineNodes := convertInlineNode(child, source, marks, skipped)
-		content = append(content, inlineNodes...)
-	}
-	return consolidateTextNodes(content)
+	return consolidateTextNodes(convertInlineRun(node.FirstChild(), source, nil, skipped))
 }
 
 // rawHTMLContent extracts the text content from a goldmark RawHTML inline node.
@@ -639,37 +594,6 @@ func openingHTMLTagToMark(tag string) (jira4claude.ADFMark, bool) {
 	default:
 		return jira4claude.ADFMark{}, false
 	}
-}
-
-// closingHTMLTagMatchesStack checks if a closing HTML tag matches the top of the mark stack.
-func closingHTMLTagMatchesStack(tag string, stack []jira4claude.ADFMark) bool {
-	if len(stack) == 0 {
-		return false
-	}
-	top := stack[len(stack)-1]
-	switch tag {
-	case "</u>":
-		return top.Type == "underline"
-	case "</sub>":
-		return top.Type == "subsup" && subsupAttrType(top) == "sub"
-	case "</sup>":
-		return top.Type == "subsup" && subsupAttrType(top) == "sup"
-	default:
-		return false
-	}
-}
-
-// subsupAttrType extracts the "type" field from a subsup mark's attrs.
-func subsupAttrType(mark jira4claude.ADFMark) string {
-	if mark.Attrs == nil {
-		return ""
-	}
-	var attrs map[string]any
-	if err := json.Unmarshal(mark.Attrs, &attrs); err != nil {
-		return ""
-	}
-	t, _ := attrs["type"].(string)
-	return t
 }
 
 // consolidateTextNodes merges adjacent text nodes with identical marks.
@@ -735,31 +659,9 @@ func textNodeWithMarks(text string, marks []jira4claude.ADFMark) jira4claude.ADF
 }
 
 // convertChildren recursively converts all children of a node with the given marks.
-// It tracks inline HTML tags (<u>, <sub>, <sup>) as additional marks on the stack.
+// Inline HTML tags (<u>, <sub>, <sup>) are resolved by a markTracker.
 func convertChildren(node ast.Node, source []byte, marks []jira4claude.ADFMark, skipped *skippedCollector) []jira4claude.ADFNode {
-	var content []jira4claude.ADFNode
-	var htmlMarkStack []jira4claude.ADFMark
-
-	for child := node.FirstChild(); child != nil; child = child.NextSibling() {
-		if rh, ok := child.(*ast.RawHTML); ok {
-			tag := rawHTMLContent(rh, source)
-			if mark, ok := openingHTMLTagToMark(tag); ok {
-				htmlMarkStack = append(htmlMarkStack, mark)
-				continue
-			}
-			if closingHTMLTagMatchesStack(tag, htmlMarkStack) {
-				htmlMarkStack = htmlMarkStack[:len(htmlMarkStack)-1]
-				continue
-			}
-		}
-
-		combinedMarks := marks
-		if len(htmlMarkStack) > 0 {
-			combinedMarks = append(cloneMarks(marks), htmlMarkStack...)
-		}
-		content = append(content, convertInlineNode(child, source, combinedMarks, skipped)...)
-	}
-	return content
+	return convertInlineRun(node.FirstChild(), source, marks, skipped)
 }
 
 // convertInlineNode converts inline nodes (text, emphasis, etc.) to ADF text nodes.
@@ -907,33 +809,8 @@ func convertTaskItem(node *ast.ListItem, source []byte, skipped *skippedCollecto
 func convertTaskItemContent(node *ast.ListItem, source []byte, skipped *skippedCollector) []jira4claude.ADFNode {
 	var content []jira4claude.ADFNode
 	for block := node.FirstChild(); block != nil; block = block.NextSibling() {
-		// Convert inline content, skipping TaskCheckBox nodes
-		var inlineContent []jira4claude.ADFNode
-		var htmlMarkStack []jira4claude.ADFMark
-		for child := block.FirstChild(); child != nil; child = child.NextSibling() {
-			if _, ok := child.(*extast.TaskCheckBox); ok {
-				continue
-			}
-
-			if rh, ok := child.(*ast.RawHTML); ok {
-				tag := rawHTMLContent(rh, source)
-				if mark, ok := openingHTMLTagToMark(tag); ok {
-					htmlMarkStack = append(htmlMarkStack, mark)
-					continue
-				}
-				if closingHTMLTagMatchesStack(tag, htmlMarkStack) {
-					htmlMarkStack = htmlMarkStack[:len(htmlMarkStack)-1]
-					continue
-				}
-			}
-
-			var marks []jira4claude.ADFMark
-			if len(htmlMarkStack) > 0 {
-				marks = cloneMarks(htmlMarkStack)
-			}
-			inlineContent = append(inlineContent, convertInlineNode(child, source, marks, skipped)...)
-		}
-		inlineContent = consolidateTextNodes(inlineContent)
+		// convertInlineRun skips the TaskCheckBox node.
+		inlineContent := consolidateTextNodes(convertInlineRun(block.FirstChild(), source, nil, skipped))
 		content = append(content, inlineContent...)
 	}
 	return content
