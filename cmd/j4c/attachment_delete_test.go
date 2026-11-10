@@ -9,6 +9,7 @@ import (
 	"github.com/fwojciec/jira4claude"
 	"github.com/fwojciec/jira4claude/mock"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // deleter is an attachment service holding sampleAttachments()[0] (ID
@@ -106,19 +107,34 @@ func TestRun_AttachmentDelete(t *testing.T) {
 		assert.Equal(t, "[error] Forbidden\n", res.stderr)
 	})
 
-	t.Run("an attachment gone between the read and the delete is not found, and says so", func(t *testing.T) {
+	t.Run("a delete answered not found after the read is success, with a warning", func(t *testing.T) {
 		t.Parallel()
 
 		d := &deleter{deleteErr: &jira4claude.Error{Code: jira4claude.ENotFound, Message: "Not Found"}}
 
 		res := runCLI(t, attachmentDeps(t, d.service()), "attachment", "delete", "10000")
 
-		assert.Equal(t, 4, res.code)
-		assert.Empty(t, res.stdout)
+		assert.Equal(t, 0, res.code)
+		assert.Equal(t, "10000\t23123\timage/jpeg\tpicture.jpg\n", res.stdout)
 		assert.Equal(t,
-			"[error] attachment 10000 (\"picture.jpg\") was found but the delete answered not found: "+
-				"it is gone, deleted meanwhile or by a retried attempt of this delete: Not Found\n",
+			"[warn] attachment 10000 (\"picture.jpg\") was read, but the delete answered not found: "+
+				"it was already gone, deleted by a retried attempt of this delete or by someone else meanwhile\n",
 			res.stderr)
+		assert.Equal(t, []string{"get 10000", "delete 10000"}, d.recorded())
+	})
+
+	t.Run("in --json the already-gone warning is a JSON line on stderr", func(t *testing.T) {
+		t.Parallel()
+
+		d := &deleter{deleteErr: &jira4claude.Error{Code: jira4claude.ENotFound, Message: "Not Found"}}
+
+		res := runCLI(t, attachmentDeps(t, d.service()), "--json", "attachment", "delete", "10000")
+
+		assert.Equal(t, 0, res.code)
+		assertOneJSONValue(t, res.stdout)
+		lines := stderrLines(t, res.stderr)
+		require.Len(t, lines, 1)
+		assert.Equal(t, "warning", lines[0]["level"])
 	})
 
 	t.Run("another delete failure is passed on as it is", func(t *testing.T) {
@@ -140,6 +156,7 @@ func TestRun_AttachmentDelete(t *testing.T) {
 		assert.Equal(t, 0, res.code)
 		assert.Contains(t, res.stdout, "Delete an attachment permanently")
 		assert.Contains(t, res.stdout, "no confirmation")
+		assert.Contains(t, res.stdout, "already gone")
 	})
 
 	t.Run("no ID is a usage error", func(t *testing.T) {

@@ -220,6 +220,16 @@ func TestRun_AttachmentUpload(t *testing.T) {
 		assert.Equal(t, []string{"log.txt", "log.txt"}, u.names())
 	})
 
+	t.Run("help says attachment list shows what an interrupted run attached", func(t *testing.T) {
+		t.Parallel()
+
+		res := runCLI(t, unreachableDeps(t), "attachment", "upload", "--help")
+
+		assert.Equal(t, 0, res.code)
+		assert.Contains(t, res.stdout, "attachment list KEY")
+		assert.Contains(t, res.stdout, "interrupted")
+	})
+
 	t.Run("a single file that fails is reported as its error alone", func(t *testing.T) {
 		t.Parallel()
 
@@ -314,7 +324,7 @@ func TestRun_AttachmentUploadPartialFailure(t *testing.T) {
 	})
 
 	for _, asJSON := range []bool{false, true} {
-		t.Run("every file failing prints no data, json="+strconv.FormatBool(asJSON), func(t *testing.T) {
+		t.Run("every file failing prints no attachment, json="+strconv.FormatBool(asJSON), func(t *testing.T) {
 			t.Parallel()
 
 			paths := three(t)[:2]
@@ -327,8 +337,15 @@ func TestRun_AttachmentUploadPartialFailure(t *testing.T) {
 			res := runCLI(t, attachmentDeps(t, u.service(t)), args...)
 
 			assert.Equal(t, 7, res.code)
-			assert.Empty(t, res.stdout, "nothing was attached, so there is no result")
-			assert.Contains(t, res.stderr, "could not upload 2 of 2 files")
+			if asJSON {
+				// stdout still parses: the result, with no attachment.
+				assert.JSONEq(t, `{"key":"TEST-1","url":"https://test.atlassian.net/browse/TEST-1",
+					"action":"attachment_added","changes":{},"attachments":[]}`, res.stdout)
+				assert.Len(t, stderrLines(t, res.stderr), 3)
+			} else {
+				assert.Empty(t, res.stdout, "text mode prints a line per attachment, so none")
+				assert.Contains(t, res.stderr, "could not upload 2 of 2 files")
+			}
 		})
 	}
 

@@ -128,12 +128,28 @@ func (p *Printer) SavedAttachments(_ string, saved []jira4claude.SavedAttachment
 }
 
 // Mutation prints the result of a write as one JSON object. changes is
-// always an object, {} when the command reports none.
+// always an object, {} when the command reports none. For an attachment
+// action, attachments is always an array, [] when none was attached (every
+// upload failed), so that a script can read it without testing for it.
 func (p *Printer) Mutation(result jira4claude.MutationResult) {
 	if result.Changes == nil {
 		result.Changes = map[string]jira4claude.Change{}
 	}
-	p.encode(result)
+	switch result.Action {
+	case jira4claude.ActionAttachmentAdded, jira4claude.ActionAttachmentDeleted:
+		attachments := result.Attachments
+		if attachments == nil {
+			attachments = []jira4claude.AttachmentView{}
+		}
+		// The outer field, being shallower, replaces the embedded
+		// omitempty one; it is encoded last, where that one would be.
+		p.encode(struct {
+			jira4claude.MutationResult
+			Attachments []jira4claude.AttachmentView `json:"attachments"`
+		}{result, attachments})
+	default:
+		p.encode(result)
+	}
 }
 
 // Initialized prints what init wrote as one JSON object.

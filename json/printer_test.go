@@ -1031,6 +1031,16 @@ func TestPrinter_Mutation(t *testing.T) {
 		assert.JSONEq(t, `{"project":"TEST","action":"would_create","dryRun":true,"changes":{},"text":"Some *text*"}`, out.String())
 	})
 
+	t.Run("an attachment result with no attachment has attachments [], not absent", func(t *testing.T) {
+		t.Parallel()
+		var out bytes.Buffer
+		p := jsonpkg.NewPrinter(&out)
+
+		p.Mutation(jira4claude.MutationResult{Key: "TEST-1", Action: jira4claude.ActionAttachmentAdded})
+
+		assert.JSONEq(t, `{"key":"TEST-1","action":"attachment_added","changes":{},"attachments":[]}`, out.String())
+	})
+
 	t.Run("attachments are listed as attachment list prints them", func(t *testing.T) {
 		t.Parallel()
 		var out bytes.Buffer

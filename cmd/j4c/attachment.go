@@ -15,8 +15,8 @@ import (
 type AttachmentCmd struct {
 	List     AttachmentListCmd     `cmd:"" help:"List the attachments of an issue"`
 	Download AttachmentDownloadCmd `cmd:"" help:"Save attachments of an issue into a directory; prints one saved path per line"`
-	Upload   AttachmentUploadCmd   `cmd:"" help:"Attach local files to an issue; prints one line per new attachment: ID, bytes, MIME type, filename"`
-	Delete   AttachmentDeleteCmd   `cmd:"" help:"Delete an attachment permanently, with no confirmation; prints the deleted attachment: ID, bytes, MIME type, filename"`
+	Upload   AttachmentUploadCmd   `cmd:"" help:"Attach local files to an issue, one request per file; prints one line per new attachment (ID, bytes, MIME type, filename) when the run ends. If a run is interrupted, attachment list KEY shows what was attached"`
+	Delete   AttachmentDeleteCmd   `cmd:"" help:"Delete an attachment permanently, with no confirmation; prints the deleted attachment (ID, bytes, MIME type, filename). A delete Jira answers not found after the attachment was read counts as done: it was already gone"`
 }
 
 // AttachmentDeleteCmd deletes one attachment.
@@ -32,25 +32,23 @@ type AttachmentDeleteCmd struct {
 // so the result has no key. There is no confirmation: the tool never
 // prompts, and the delete cannot be undone.
 //
-// A delete answered not found after the read found the attachment means it
-// is gone: deleted meanwhile, or by an earlier attempt of this delete that
-// the server applied before failing (DELETE is retried on 5xx and connection
-// errors). It is still reported as not found, with that explanation.
+// A delete answered not found after the read found the attachment is
+// success: the attachment is gone, as asked, deleted by an earlier attempt of
+// this delete that the server applied before failing (DELETE is retried on
+// 5xx and connection errors) or by someone else meanwhile. The result is
+// printed as usual, with a warning saying so. A not found on the read is an
+// error.
 func (c *AttachmentDeleteCmd) Run(ctx *AttachmentContext) error {
 	a, err := ctx.Service.Get(context.Background(), c.ID)
 	if err != nil {
 		return err
 	}
 	if err := ctx.Service.Delete(context.Background(), c.ID); err != nil {
-		if jira4claude.ErrorCode(err) == jira4claude.ENotFound {
-			return &jira4claude.Error{
-				Code: jira4claude.ENotFound,
-				Message: fmt.Sprintf("attachment %s (%q) was found but the delete answered not found: it is gone, deleted meanwhile or by a retried attempt of this delete",
-					c.ID, a.Filename),
-				Inner: err,
-			}
+		if jira4claude.ErrorCode(err) != jira4claude.ENotFound {
+			return err
 		}
-		return err
+		ctx.Printer.Warning(fmt.Sprintf("attachment %s (%q) was read, but the delete answered not found: it was already gone, deleted by a retried attempt of this delete or by someone else meanwhile",
+			c.ID, a.Filename))
 	}
 	ctx.Printer.Mutation(jira4claude.MutationResult{
 		Action:      jira4claude.ActionAttachmentDeleted,
@@ -262,9 +260,13 @@ type AttachmentUploadCmd struct {
 // unauthorized, forbidden, not-found or rate-limit error, which would repeat
 // for each (the issue is the same for all of them; see stopsUpload). The
 // attachments created are printed as one result, and a summary error naming
-// the failed files is returned with the code of the first failure. A single
-// file that fails is returned as it is. With nothing attached, nothing is
-// printed on stdout.
+// the failed files is returned with the code of the first failure; with none
+// attached, --json still prints the result, with attachments []. A single
+// file that fails is returned as it is, with nothing on stdout, as for any
+// failed write.
+//
+// The result is printed when the run ends. If a run is interrupted, attachment
+// list KEY shows what was attached.
 func (c *AttachmentUploadCmd) Run(ctx *AttachmentContext) error {
 	uploads, err := fs.OpenUploads(c.Files)
 	if err != nil {
@@ -307,11 +309,12 @@ func (c *AttachmentUploadCmd) Run(ctx *AttachmentContext) error {
 		added = append(added, a)
 	}
 
-	if len(added) > 0 {
-		result := newResult(ctx.Config, c.Key, jira4claude.ActionAttachmentAdded)
-		result.Attachments = jira4claude.ToAttachmentViews(added)
-		ctx.Printer.Mutation(result)
-	}
+	// Printed even when every file failed: --json then prints the result
+	// with attachments [], so that stdout always parses; text mode prints a
+	// line per attachment, so nothing.
+	result := newResult(ctx.Config, c.Key, jira4claude.ActionAttachmentAdded)
+	result.Attachments = jira4claude.ToAttachmentViews(added)
+	ctx.Printer.Mutation(result)
 	if len(failed) == 0 {
 		return nil
 	}

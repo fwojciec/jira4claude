@@ -195,7 +195,8 @@ non-regular file, or the same file given twice, fails the command with
 nothing sent. Each file is sent under its base name (symlinks are followed),
 one request per file; a file that fails is reported and the others are still
 sent. An upload is not retried after a server error, which may already have
-attached the file: check with `attachment list` before sending it again.
+attached the file: check with `attachment list` before sending it again, and
+after an interrupted run, whose results print only when it ends.
 
 Downloads keep only the base name of Jira's filename (a repeated name gets
 the attachment ID: `report-10001.pdf`), never write outside `--dir` (which
