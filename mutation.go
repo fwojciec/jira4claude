@@ -21,6 +21,9 @@ const (
 	// ActionAttachmentAdded reports files attached to an issue; the
 	// attachments Jira created are in Attachments.
 	ActionAttachmentAdded = "attachment_added"
+	// ActionAttachmentDeleted reports an attachment deleted, in
+	// Attachments as it was read just before the delete.
+	ActionAttachmentDeleted = "attachment_deleted"
 
 	// Actions of a dry run (--dry-run): what the command would do. They
 	// differ from the actions of real writes, so that a script testing for
@@ -43,7 +46,9 @@ const (
 type MutationResult struct {
 	// Key is the issue written: the new issue for a create, the issue
 	// commented on, the source issue of a link. It is empty for the dry run
-	// of a create, which has no key yet; Project names the project then.
+	// of a create, which has no key yet (Project names the project then), and
+	// for an attachment delete: Jira's attachment metadata does not name the
+	// issue.
 	Key     string `json:"key,omitempty"`
 	Project string `json:"project,omitempty"`
 	// URL browses the issue. It is empty for a deleted issue and for the dry

@@ -744,6 +744,14 @@ func TestPrinter_Mutation(t *testing.T) {
 			},
 			want: "10001\t5\ttext/plain\ta.txt\n10002\t2048\timage/png\ttab\\there.png\n",
 		},
+		{
+			name: "attachment deleted",
+			result: jira4claude.MutationResult{
+				Action:      jira4claude.ActionAttachmentDeleted,
+				Attachments: []jira4claude.AttachmentView{{ID: "10001", Filename: "a.txt", MimeType: "text/plain", Size: 5}},
+			},
+			want: "10001\t5\ttext/plain\ta.txt\n",
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

@@ -187,6 +187,7 @@ j4c attachment download PROJ-123 --all --dir ./files      # Prints one saved pat
 j4c attachment download PROJ-123 --id 10000 --dir ./files
 j4c attachment download PROJ-123 --name "log.txt" --dir ./files --overwrite
 j4c attachment upload PROJ-123 shot.png logs/run.txt   # One line per new attachment: ID, bytes, MIME type, filename
+j4c attachment delete 10000                # Deletes permanently, without asking; prints the deleted attachment's line
 ```
 
 Uploads check every file before sending anything: a missing, unreadable or

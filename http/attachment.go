@@ -79,13 +79,77 @@ func (s *AttachmentService) List(ctx context.Context, key string) ([]*jira4claud
 // The ID must be a plain token of letters, digits, '-' and '_' (Jira's IDs
 // are numeric), so it cannot change the request path.
 func (s *AttachmentService) Download(ctx context.Context, id string, w io.Writer) (int64, error) {
+	if err := checkID(id); err != nil {
+		return 0, err
+	}
+	return s.client.Stream(ctx, "/rest/api/3/attachment/content/"+id+"?redirect=false", w)
+}
+
+// Get reads an attachment's metadata from GET /rest/api/3/attachment/{id},
+// operation getAttachment of Atlassian's REST v3 OpenAPI document (the
+// version Upload names): schema AttachmentMetadata has id (int64), filename,
+// mimeType, size, author and created, and no field naming the issue. Its
+// example gives id as a number and created in Jira's timestamp form; both
+// forms of each are accepted, as for List. Not verified against a live site.
+//
+// The ID must be a plain token, as for Download.
+func (s *AttachmentService) Get(ctx context.Context, id string) (*jira4claude.Attachment, error) {
+	if err := checkID(id); err != nil {
+		return nil, err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, attachmentPath(id), nil)
+	if err != nil {
+		return nil, &jira4claude.Error{Code: jira4claude.EInternal, Message: "failed to create request", Inner: err}
+	}
+	body, err := s.client.DoRequest(req, http.StatusOK)
+	if err != nil {
+		return nil, err
+	}
+	var entry attachmentResponse
+	if err := json.Unmarshal(body, &entry); err != nil {
+		return nil, &jira4claude.Error{Code: jira4claude.EInternal, Message: "failed to parse response", Inner: err}
+	}
+	return mapAttachments([]attachmentResponse{entry})[0], nil
+}
+
+// Delete deletes an attachment with DELETE /rest/api/3/attachment/{id},
+// operation removeAttachment of Atlassian's REST v3 OpenAPI document (the
+// version Upload names), answered 204 on success, 403 without permission and
+// 404 when the attachment is not found or attachments are disabled. Not
+// verified against a live site.
+//
+// DELETE is idempotent, so DoRequest retries it on 429, 5xx and connection
+// errors (design 1.5): a delete that the server applied before failing is
+// answered 404 on the retry. The ID must be a plain token, as for Download.
+func (s *AttachmentService) Delete(ctx context.Context, id string) error {
+	if err := checkID(id); err != nil {
+		return err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, attachmentPath(id), nil)
+	if err != nil {
+		return &jira4claude.Error{Code: jira4claude.EInternal, Message: "failed to create request", Inner: err}
+	}
+	_, err = s.client.DoRequest(req, http.StatusNoContent)
+	return err
+}
+
+// attachmentPath is the path of an attachment's metadata; id is a plain token
+// (checkID), so it needs no escaping.
+func attachmentPath(id string) string {
+	return "/rest/api/3/attachment/" + id
+}
+
+// checkID refuses an attachment ID that is not a plain token of letters,
+// digits, '-' and '_' (Jira's IDs are numeric), so that it cannot change the
+// request path.
+func checkID(id string) error {
 	if !isPlainID(id) {
-		return 0, &jira4claude.Error{
+		return &jira4claude.Error{
 			Code:    jira4claude.EValidation,
 			Message: "invalid attachment id " + strconv.Quote(id),
 		}
 	}
-	return s.client.Stream(ctx, "/rest/api/3/attachment/content/"+id+"?redirect=false", w)
+	return nil
 }
 
 // Upload attaches one file to an issue with a multipart/form-data POST to

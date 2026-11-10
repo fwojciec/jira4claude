@@ -52,6 +52,12 @@ type AttachmentService interface {
 	// Upload attaches one file to the issue with the given key and returns
 	// the attachment Jira created.
 	Upload(ctx context.Context, key string, file AttachmentFile) (*Attachment, error)
+
+	// Get returns the attachment with the given ID.
+	Get(ctx context.Context, id string) (*Attachment, error)
+
+	// Delete deletes the attachment with the given ID. It cannot be undone.
+	Delete(ctx context.Context, id string) error
 }
 
 // maxFilenameBytes bounds a local file name. Most file systems allow 255

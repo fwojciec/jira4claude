@@ -16,6 +16,47 @@ type AttachmentCmd struct {
 	List     AttachmentListCmd     `cmd:"" help:"List the attachments of an issue"`
 	Download AttachmentDownloadCmd `cmd:"" help:"Save attachments of an issue into a directory; prints one saved path per line"`
 	Upload   AttachmentUploadCmd   `cmd:"" help:"Attach local files to an issue; prints one line per new attachment: ID, bytes, MIME type, filename"`
+	Delete   AttachmentDeleteCmd   `cmd:"" help:"Delete an attachment permanently, with no confirmation; prints the deleted attachment: ID, bytes, MIME type, filename"`
+}
+
+// AttachmentDeleteCmd deletes one attachment.
+type AttachmentDeleteCmd struct {
+	ID string `arg:"" help:"Attachment ID, as attachment list prints it"`
+}
+
+// Run executes the attachment delete command.
+//
+// The attachment is read first (one more request), so that the result names
+// what was deleted, its filename and size, and a wrong ID fails before
+// anything is deleted. Jira's attachment metadata does not name the issue,
+// so the result has no key. There is no confirmation: the tool never
+// prompts, and the delete cannot be undone.
+//
+// A delete answered not found after the read found the attachment means it
+// is gone: deleted meanwhile, or by an earlier attempt of this delete that
+// the server applied before failing (DELETE is retried on 5xx and connection
+// errors). It is still reported as not found, with that explanation.
+func (c *AttachmentDeleteCmd) Run(ctx *AttachmentContext) error {
+	a, err := ctx.Service.Get(context.Background(), c.ID)
+	if err != nil {
+		return err
+	}
+	if err := ctx.Service.Delete(context.Background(), c.ID); err != nil {
+		if jira4claude.ErrorCode(err) == jira4claude.ENotFound {
+			return &jira4claude.Error{
+				Code: jira4claude.ENotFound,
+				Message: fmt.Sprintf("attachment %s (%q) was found but the delete answered not found: it is gone, deleted meanwhile or by a retried attempt of this delete",
+					c.ID, a.Filename),
+				Inner: err,
+			}
+		}
+		return err
+	}
+	ctx.Printer.Mutation(jira4claude.MutationResult{
+		Action:      jira4claude.ActionAttachmentDeleted,
+		Attachments: jira4claude.ToAttachmentViews([]*jira4claude.Attachment{a}),
+	})
+	return nil
 }
 
 // AttachmentContext provides dependencies for attachment commands.

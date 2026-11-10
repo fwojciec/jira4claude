@@ -375,6 +375,15 @@ func mutationCases() []mutationCase {
 			},
 			text: "10001\t5\ttext/plain\ta.txt\n10002\t6\ttext/plain\tb.txt\n",
 		},
+		{
+			name: "attachment-delete",
+			args: fixedArgs("attachment", "delete", "10000"),
+			deps: func(t *testing.T) main.Deps {
+				t.Helper()
+				return attachmentDeps(t, (&deleter{}).service())
+			},
+			text: "10000\t23123\timage/jpeg\tpicture.jpg\n",
+		},
 	}
 }
 

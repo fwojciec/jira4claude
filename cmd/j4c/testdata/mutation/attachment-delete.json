@@ -1,0 +1,14 @@
+{
+  "action": "attachment_deleted",
+  "changes": {},
+  "attachments": [
+    {
+      "id": "10000",
+      "filename": "picture.jpg",
+      "mimeType": "image/jpeg",
+      "size": 23123,
+      "author": "Mia Krystof",
+      "created": "2022-10-06T07:32:47Z"
+    }
+  ]
+}

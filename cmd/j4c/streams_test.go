@@ -133,6 +133,13 @@ func everyCommand() []commandCase {
 				},
 			})
 		}},
+		// The read before the delete fails, so nothing is deleted.
+		{"attachment delete", []string{"attachment", "delete", "10000"}, func(t *testing.T, err error) main.Deps {
+			t.Helper()
+			return attachmentDeps(t, &mock.AttachmentService{
+				GetFn: func(context.Context, string) (*jira4claude.Attachment, error) { return nil, err },
+			})
+		}},
 		{"init", []string{"init", "--server=https://test.atlassian.net", "--project=TEST"}, func(t *testing.T, err error) main.Deps {
 			t.Helper()
 			deps := unreachableDeps(t)
