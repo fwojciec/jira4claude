@@ -1,6 +1,6 @@
 ---
 id: jir-zb7m
-status: open
+status: in_progress
 deps: [jir-hodd]
 links: []
 created: 2026-11-10T07:47:17Z
