@@ -20,14 +20,22 @@ Strategic guidance for LLMs working with this codebase.
 `make validate` is the quality gate (fmt, vet, tidy, lint, race tests). There is no CI on
 branches, so a change is done only when the gate is green on the tree that will be `main`.
 
+**Tickets**: the work graph lives in `.tickets/`, managed by the vendored tracker
+(`tools/ticket/README.md`): one epic per milestone, tasks as children, blocking edges
+with `dep`. `tools/ticket/ticket ready` lists unblocked work (not a claim);
+`ticket show <id>` is the task's contract (description and acceptance criteria); run
+`ticket dep cycle` after editing dependencies. `docs/plans/` stays the spec. Create
+tickets from the main checkout: in a worktree the tracker takes its id prefix from the
+directory name. GitHub issues are the inbox for outside reports only; turn one into a
+ticket (`--external-ref gh-<n>`) before working on it.
+
 **New work**:
 1. Research the problem; for anything beyond a small fix, write a design doc to `docs/plans/`.
-2. Use the `gh-workflow` skill to create issues, with dependencies, in a milestone. The
-   issue body is the contract.
-3. Implement each issue on a local branch (a worktree when several run in parallel), tests first.
-4. Review the diff against the issue's validation requirements.
-5. Rebase onto `main`, run `make validate`, merge to `main`, push, close the issue with the
-   commit reference.
+2. Create tickets with dependencies under the milestone's epic. The ticket is the contract.
+3. Implement each ticket on a local branch (a worktree when several run in parallel), tests first.
+4. Review the diff against the ticket's acceptance criteria.
+5. Rebase onto `main`, run `make validate`, merge to `main`, close the ticket
+   (`ticket close <id>`, with `ticket add-note` naming the commit), push.
 
 No pull requests for routine work: local validation is the gate. Pull requests are for
 outside contributions.
@@ -48,14 +56,6 @@ outside contributions.
 When uncertain about where code belongs, use the `go-standard-package-layout` skill.
 
 ## Skills
-
-### Task Management
-
-**`gh-workflow`** - Use when:
-- Creating new issues or subtasks
-- Checking what work is ready (unblocked)
-- Linking issues with dependencies
-- Managing milestones
 
 ### Architecture
 
