@@ -22,8 +22,15 @@ import (
 // Each unique (kind, node type) pair produces one jira4claude.ConversionIssue:
 // add records content omitted from the output (dropped), degrade records
 // content that is kept but changed form (degraded).
+//
+// On the write side the collector also carries the conversion's localId
+// source, because it is the one value already threaded through every
+// conversion function.
 type skippedCollector struct {
 	types map[issueKey]jira4claude.ConversionIssue
+
+	localID  func(n int) string // write side only: source of localId values
+	localIDs int                // number of localId values generated so far
 }
 
 // issueKey identifies one recorded issue, so a node type can be both dropped
@@ -54,6 +61,13 @@ func (s *skippedCollector) degrade(nodeType, detail string) {
 		Node:   nodeType,
 		Detail: detail,
 	})
+}
+
+// nextLocalID returns the next localId of this conversion.
+func (s *skippedCollector) nextLocalID() string {
+	id := s.localID(s.localIDs)
+	s.localIDs++
+	return id
 }
 
 func (s *skippedCollector) record(issue jira4claude.ConversionIssue) {
@@ -97,13 +111,18 @@ func newMarkdownParser() parser.Parser {
 // The result can be used directly in Jira API requests for description and comment fields.
 // Returns a ConversionIssue for any content that was dropped or degraded.
 // Always returns a non-nil *ADFNode.
-func toADF(markdown string) (*jira4claude.ADFNode, []jira4claude.ConversionIssue) {
+// localID supplies task list and task item localId values; nil means random.
+func toADF(markdown string, localID func(n int) string) (*jira4claude.ADFNode, []jira4claude.ConversionIssue) {
 	markdown = NormalizeUnicode(markdown)
 
 	reader := text.NewReader([]byte(markdown))
 	doc := newMarkdownParser().Parse(reader)
 
 	skipped := newSkippedCollector()
+	skipped.localID = localID
+	if skipped.localID == nil {
+		skipped.localID = randomLocalID
+	}
 	content := convertNode(doc, []byte(markdown), skipped)
 	if content == nil {
 		content = []jira4claude.ADFNode{}
@@ -983,7 +1002,7 @@ func convertTaskList(node *ast.List, source []byte, skipped *skippedCollector) j
 		items = append(items, nested...)
 	}
 	attrs, _ := json.Marshal(map[string]any{
-		"localId": generateLocalID(),
+		"localId": skipped.nextLocalID(),
 	})
 	return jira4claude.ADFNode{
 		Type:    "taskList",
@@ -1010,7 +1029,7 @@ func convertTaskItem(node *ast.ListItem, source []byte, skipped *skippedCollecto
 	}
 
 	attrs, _ := json.Marshal(map[string]any{
-		"localId": generateLocalID(),
+		"localId": skipped.nextLocalID(),
 		"state":   state,
 	})
 
@@ -1096,8 +1115,9 @@ func appendAfterBreak(content, inline []jira4claude.ADFNode) []jira4claude.ADFNo
 	return append(content, inline...)
 }
 
-// generateLocalID creates a random UUID-like identifier for ADF nodes that require localId.
-func generateLocalID() string {
+// randomLocalID creates a random UUID-like identifier for ADF nodes that
+// require localId. It is the default localId source; n is ignored.
+func randomLocalID(int) string {
 	b := make([]byte, 16)
 	_, _ = rand.Read(b)
 	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:16])
