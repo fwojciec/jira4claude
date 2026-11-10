@@ -347,6 +347,10 @@ Jira; to keep an inline comment, leave its paragraph unchanged.
   not name the issue.
 - In text mode, values printed after `==> KEY FIELD <==` headers are not
   escaped; use `--json` for free text.
+- The `text` of an `issue update --dry-run` is what `issue view` would print
+  after the write, so like it, it leaves out what has no Markdown form
+  (inline comments, colours, a layout's columns); the write keeps that
+  content. Markdown has no way to show it.
 
 ## v0.3.0 (unreleased): write safety
 

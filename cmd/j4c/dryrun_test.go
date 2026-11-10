@@ -259,3 +259,66 @@ func TestRun_DryRunServiceErrorStreams(t *testing.T) {
 		})
 	}
 }
+
+// richDescription holds what a preview could leave out: protected nodes
+// (a mention, an extension, a node type the reader does not know) and
+// content with no Markdown form (an inline comment, a text colour, a
+// panel's custom colour, a layout's columns, a line break ending a
+// paragraph, a control character).
+const richDescription = `{"type":"doc","version":1,"content":[` +
+	`{"type":"paragraph","content":[{"type":"text","text":"commented","marks":[{"type":"annotation","attrs":{"id":"a1","annotationType":"inlineComment"}}]},` +
+	`{"type":"text","text":" red","marks":[{"type":"textColor","attrs":{"color":"#ff0000"}}]},{"type":"text","text":" for "},` +
+	`{"type":"mention","attrs":{"id":"u1","text":"@Jane Doe"}}]},` +
+	`{"type":"paragraph","content":[{"type":"text","text":"bell\u0007here"},{"type":"hardBreak"}]},` +
+	`{"type":"extension","attrs":{"extensionType":"t","extensionKey":"toc"}},` +
+	`{"type":"panel","attrs":{"panelType":"custom","panelColor":"#abcdef"},"content":[{"type":"paragraph","content":[{"type":"text","text":"in panel"}]}]},` +
+	`{"type":"layoutSection","content":[{"type":"layoutColumn","attrs":{"width":50},"content":[{"type":"paragraph","content":[{"type":"text","text":"col1"}]}]},` +
+	`{"type":"layoutColumn","attrs":{"width":50},"content":[{"type":"paragraph","content":[{"type":"text","text":"col2"}]}]}]},` +
+	`{"type":"weirdNode","content":[{"type":"paragraph","content":[{"type":"text","text":"inside"}]}]}]}`
+
+// jir-3rwv: the text of an append's dry run is the description issue view
+// prints after the real write, byte for byte: existing protected nodes are
+// tokens, numbered for that description, and what has no Markdown form
+// (inline comments, colours, layouts) is left out of both, as issue view
+// leaves it out, while the write sends it back unchanged.
+func TestRun_DryRunAppendTextIsIssueViewAfterTheWrite(t *testing.T) {
+	t.Parallel()
+
+	var doc jira4claude.ADFNode
+	require.NoError(t, json.Unmarshal([]byte(richDescription), &doc))
+	current := &jira4claude.Issue{Key: "TEST-1", Summary: "S", Description: &doc}
+	path := writeFile(t, "more.md", []byte("More *text*.\n"))
+
+	dry := runCLI(t, testDeps(noWrites(t, issueGetter(current, nil)), &mock.UserService{}),
+		"--json", "issue", "update", "TEST-1", "--append-description-file", path, "--dry-run")
+	require.Equal(t, 0, dry.code, "stderr: %s", dry.stderr)
+	var result struct {
+		Text string `json:"text"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(dry.stdout), &result))
+
+	rec := &recorder{}
+	wrote := runCLI(t, testDeps(rec.service(current), &mock.UserService{}),
+		"issue", "update", "TEST-1", "--append-description-file", path)
+	require.Equal(t, 0, wrote.code, "stderr: %s", wrote.stderr)
+	rec.mu.Lock()
+	written := rec.update.Description.Document()
+	rec.mu.Unlock()
+	view := runCLI(t, testDeps(issueGetter(&jira4claude.Issue{Key: "TEST-1", Description: written}, nil), &mock.UserService{}),
+		"issue", "view", "TEST-1", "--field", "description")
+	require.Equal(t, 0, view.code, "stderr: %s", view.stderr)
+
+	assert.Equal(t, view.stdout, result.Text+"\n")
+	for _, want := range []string{"commented red for {{mention:1 Jane Doe}}", "{{extension:2 toc}}", "{{weirdNode:3}}", "More *text*."} {
+		assert.Contains(t, result.Text, want)
+	}
+	assert.Equal(t, mustMarshal(t, doc.Content), mustMarshal(t, written.Content[:len(doc.Content)]),
+		"the existing content is sent back as it was, what the preview leaves out included")
+}
+
+func mustMarshal(t *testing.T, v any) string {
+	t.Helper()
+	data, err := json.Marshal(v)
+	require.NoError(t, err)
+	return string(data)
+}

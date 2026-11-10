@@ -353,7 +353,13 @@ Logs at &#104;ttps://logs.example.test/run/42
 ```
 
 The tokens in the preview are numbered for the description after the write.
-Keep editing your own file, not the preview. With `--json` the action is
+Keep editing your own file, not the preview. The preview is exactly what
+`issue view --field description` would print after the write, for
+`--append-description` too: existing images, mentions and other nodes
+appear as tokens, and what has no Markdown form (inline comments, text
+colour, a panel's colour, a layout's columns) is left out of the text, as
+`issue view` leaves it out, but is written back unchanged. The read
+warnings `issue view` would print about it are not repeated. With `--json` the action is
 `would_create`, `would_update` or `would_add_comment`, `dryRun` is `true`,
 and the text is in `text`:
 
