@@ -558,12 +558,15 @@ func emittingInline(content []jira4claude.ADFNode, skipped *skippedCollector) []
 	// text with the same marks: written separately, the two would get
 	// delimiters between them ("**a\***" + "**b**") that do not read back.
 	// Label nodes merge too: they are written as plain text with no syntax
-	// of their own, so merging changes nothing but the delimiters.
+	// of their own, so merging changes nothing but the delimiters. Code is
+	// not merged: a code span strips one blank or newline from each end, so
+	// one span would lose characters that two spans keep.
 	label := func(text string, marks []jira4claude.ADFMark) {
 		if text == "" {
 			return
 		}
-		if last := len(items) - 1; last >= 0 && items[last].Type == "text" && marksEqual(items[last].Marks, marks) {
+		if last := len(items) - 1; last >= 0 && items[last].Type == "text" &&
+			!hasCodeMark(marks) && marksEqual(items[last].Marks, marks) {
 			items[last].Text += text
 			return
 		}

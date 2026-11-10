@@ -874,6 +874,63 @@ func TestRoundTrip_AdjacentTextNodesWithSameMarks(t *testing.T) {
 		md, _ = converter.ToMarkdown(paragraphDoc(node("a", strong), node(" b", strong, em)))
 		assert.Equal(t, "**a** ***b***", md)
 	})
+
+	// Code spans are not merged: one span would strip a newline or a space
+	// at its edge that two spans keep. The blank between the spans comes
+	// back unmarked, as it does without merging.
+	t.Run("code is not merged", func(t *testing.T) {
+		t.Parallel()
+
+		code := jira4claude.ADFMark{Type: "code"}
+		converter := markdown.New()
+		md, _ := converter.ToMarkdown(paragraphDoc(node("a\n", code), node(" b", code)))
+
+		result, warnings := converter.ToADF(md)
+		assert.Empty(t, warnings)
+		requireValidADF(t, result)
+		var got string
+		spans := 0
+		for _, n := range result.Content[0].Content {
+			require.Equal(t, "text", n.Type)
+			if len(n.Marks) == 1 && n.Marks[0].Type == code.Type {
+				spans++
+			}
+			got += n.Text
+		}
+		assert.Equal(t, 2, spans, "markdown was %q", md)
+		assert.Equal(t, "a\n b", got, "markdown was %q", md)
+	})
+}
+
+func TestRoundTrip_TrailingBlanksOfPlainText(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		inline []jira4claude.ADFNode
+	}{
+		{"tag-like word and a space", []jira4claude.ADFNode{txt("<word> ")}},
+		{"two spaces", []jira4claude.ADFNode{txt("plain text  ")}},
+		{"tab", []jira4claude.ADFNode{txt("plain text\t")}},
+		{"space before a hard break", []jira4claude.ADFNode{txt("a "), hardBreak(), txt("b")}},
+		{"spaces before a hard break", []jira4claude.ADFNode{txt("a  "), hardBreak(), txt("b")}},
+		{"space after a hard break", []jira4claude.ADFNode{txt("a"), hardBreak(), txt("b ")}}}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			converter := markdown.New()
+			original := paragraphDoc(tt.inline...)
+			md, w1 := converter.ToMarkdown(original)
+			assert.Empty(t, w1)
+
+			result, w2 := converter.ToADF(md)
+			assert.Empty(t, w2)
+			requireValidADF(t, result)
+			assert.Equal(t, original, result, "markdown was %q", md)
+		})
+	}
 }
 
 func TestToADF_DecodesTextAroundLiteralInlineTag(t *testing.T) {
@@ -890,7 +947,7 @@ func TestToADF_DecodesTextAroundLiteralInlineTag(t *testing.T) {
 func TestRoundTrip_HeadingTextFromJira(t *testing.T) {
 	t.Parallel()
 
-	for _, text := range []string{"issue #", "a ##", "# x", "a *b* #", "C# and F#"} {
+	for _, text := range []string{"issue #", "a ##", "# x", "a *b* #", "C# and F#", "trailing space ", "issue # "} {
 		t.Run(text, func(t *testing.T) {
 			t.Parallel()
 

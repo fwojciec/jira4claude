@@ -172,6 +172,9 @@ type textContext struct {
 	// textAfter: the next inline node is text written with no delimiter in
 	// between, so an autolink at the end of this text could run into it.
 	textAfter bool
+	// lineEnd: the text is unmarked and its end is the end of the inline
+	// content, where a paragraph, heading or cell loses trailing blanks.
+	lineEnd bool
 }
 
 // tildeEdge reports whether nodes[k] is a text node whose Markdown starts
@@ -185,15 +188,23 @@ func tildeEdge(nodes []jira4claude.ADFNode, k int, atStart bool) bool {
 	if n.Type != "text" || n.Text == "" {
 		return false
 	}
-	for _, m := range n.Marks {
-		if m.Type == "code" {
-			return false
-		}
+	if hasCodeMark(n.Marks) {
+		return false
 	}
 	if atStart {
 		return n.Text[0] == '~'
 	}
 	return n.Text[len(n.Text)-1] == '~'
+}
+
+// hasCodeMark reports whether marks include code.
+func hasCodeMark(marks []jira4claude.ADFMark) bool {
+	for _, m := range marks {
+		if m.Type == "code" {
+			return true
+		}
+	}
+	return false
 }
 
 // renderedMarks are the marks applyMarks writes as Markdown or HTML syntax.
@@ -237,6 +248,7 @@ func escapeTextNode(siblings []jira4claude.ADFNode, i int, lineStart bool) strin
 		tildeAfter:     tildeEdge(siblings, i+1, true),
 		textAfter: i+1 < len(siblings) && siblings[i+1].Type == "text" &&
 			!hasRenderedMark(siblings[i+1].Marks),
+		lineEnd: len(node.Marks) == 0 && onlyHardBreaksFrom(siblings, i+1),
 	})
 }
 
@@ -313,6 +325,23 @@ func escapeTextWith(s string, ctx textContext, keepAutolinks bool) (string, bool
 			i++
 			atLineStart = true
 			continue
+		}
+		// The content loses its trailing blanks on parse too, so blanks that
+		// end unmarked text at the end of the content are written as
+		// character references as well. Marked text there is left to
+		// applyMarks.
+		if ctx.lineEnd && (c == ' ' || c == '\t') {
+			j := i
+			for j < len(s) && (s[j] == ' ' || s[j] == '\t') {
+				j++
+			}
+			if j == len(s) {
+				for ; i < j; i++ {
+					b.WriteString("&#" + strconv.Itoa(int(s[i])) + ";")
+				}
+				afterEncodedBlank = true
+				continue
+			}
 		}
 		// A paragraph line loses its leading blanks on parse, so they are
 		// written as character references, which decodeText turns back.
