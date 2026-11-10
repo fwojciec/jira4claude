@@ -851,7 +851,7 @@ func joinInline(items []jira4claude.ADFNode, texts []string, singleLine bool, sk
 		case tokenItemType:
 			result.WriteString(child.Text)
 		case "inlineCard":
-			result.WriteString(adfInlineCardToGFM(child, skipped))
+			result.WriteString(adfInlineCardToGFM(child, isLineStart(items, i), skipped))
 		}
 	}
 	return result.String()
@@ -1045,12 +1045,12 @@ func inlineCardURL(node *jira4claude.ADFNode) string {
 // side decodes, so it is escaped as link text; the destination is written by
 // linkDestination. A URL the write side would change is written as it would
 // read it, and reported.
-func adfInlineCardToGFM(node *jira4claude.ADFNode, skipped *skippedCollector) string {
+func adfInlineCardToGFM(node *jira4claude.ADFNode, lineStart bool, skipped *skippedCollector) string {
 	url, changed := writableText(inlineCardURL(node))
 	if changed && skipped != nil {
 		skipped.degrade("inlineCard", hrefDetail)
 	}
-	return bracketedURL(url)
+	return bracketedURL(url, lineStart)
 }
 
 // adfStatusToGFM returns the label of an ADF status node, which is read out

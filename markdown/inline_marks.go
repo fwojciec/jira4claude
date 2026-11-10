@@ -342,7 +342,7 @@ func renderTextItems(items []jira4claude.ADFNode, bracket []bool) ([]string, tex
 	render := func(i int) {
 		if href, ok := bareURL(&items[i]); ok {
 			if edges[i].breakLinks {
-				out[i] = bracketedURL(href)
+				out[i] = bracketedURL(href, isLineStart(items, i))
 			} else {
 				out[i] = items[i].Text // read back by Linkify
 			}
@@ -486,9 +486,9 @@ func autolinkCrossings(items []jira4claude.ADFNode, out []string) []int {
 }
 
 // bracketedURL writes a link whose text is its href in brackets rather than
-// as a bare URL.
-func bracketedURL(href string) string {
-	return "[" + escapeText(href, textContext{inLink: true}) + "](" + linkDestination(href) + ")"
+// as a bare URL. lineStart: the link begins a line.
+func bracketedURL(href string, lineStart bool) string {
+	return "[" + escapeText(href, textContext{inLink: true, lineStart: lineStart}) + "](" + linkDestination(href) + ")"
 }
 
 // linkDestination writes href as a CommonMark link destination that the
@@ -605,7 +605,7 @@ func fitDelimiter(items []jira4claude.ADFNode, out []string, edges []textEdges, 
 	if href, ok := bareURL(&items[j]); ok {
 		// A link written as its bare URL is written in brackets instead.
 		edges[j].breakLinks = true
-		out[j] = bracketedURL(href)
+		out[j] = bracketedURL(href, isLineStart(items, j))
 		return true
 	}
 	var r rune

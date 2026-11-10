@@ -13,13 +13,18 @@ import (
 // Links (#161). The rule for when a link is written bare, in brackets or
 // reported is at the top of inline_marks.go.
 
-// hrefLink builds a text node marked as a link to href.
-func hrefLink(text, href string) jira4claude.ADFNode {
+// hrefLink builds a text node marked as a link to href, and with marks after
+// it (in canonical order).
+func hrefLink(text, href string, marks ...string) jira4claude.ADFNode {
 	attrs, err := json.Marshal(map[string]any{"href": href})
 	if err != nil {
 		panic(err)
 	}
-	return jira4claude.ADFNode{Type: "text", Text: text, Marks: []jira4claude.ADFMark{{Type: "link", Attrs: attrs}}}
+	n := jira4claude.ADFNode{Type: "text", Text: text, Marks: []jira4claude.ADFMark{{Type: "link", Attrs: attrs}}}
+	for _, m := range marks {
+		n.Marks = append(n.Marks, jira4claude.ADFMark{Type: m})
+	}
+	return n
 }
 
 // A link destination is CommonMark: backslash escapes and character
@@ -276,6 +281,45 @@ func TestRoundTrip_LinkNeighbours(t *testing.T) {
 					}
 				}
 			}
+		}
+	}
+}
+
+// A link whose text is one character a task box takes (" ", "x", "X"), at
+// the start of a list item, would read back as a task box: "- [X](a)". Its
+// text is written as a character reference instead.
+func TestRoundTrip_LinkThatLooksLikeATaskBox(t *testing.T) {
+	t.Parallel()
+
+	for _, text := range []string{" ", "\t", "x", "X"} {
+		card, err := json.Marshal(map[string]any{"url": text})
+		require.NoError(t, err)
+		for _, inline := range [][]jira4claude.ADFNode{
+			{hrefLink(text, "a"), txt("b")},
+			{hrefLink(text, ""), hrefLink("0", "", "em")},
+			{hrefLink(text, text)},
+			{{Type: "inlineCard", Attrs: card}, txt(" b")},
+		} {
+			t.Run(text, func(t *testing.T) {
+				t.Parallel()
+
+				doc := &jira4claude.ADFNode{Type: "doc", Version: 1, Content: []jira4claude.ADFNode{{
+					Type: "bulletList",
+					Content: []jira4claude.ADFNode{{
+						Type:    "listItem",
+						Content: []jira4claude.ADFNode{{Type: "paragraph", Content: inline}},
+					}},
+				}}}
+				md, readIssues := markdown.New().ToMarkdown(doc)
+				back, writeIssues := markdown.New().ToADF(md)
+				assert.Empty(t, readIssues, "read as %q", md)
+				assert.Empty(t, writeIssues, "read as %q", md)
+				require.Len(t, back.Content, 1, "read as %q", md)
+				assert.Equal(t, "bulletList", back.Content[0].Type, "read as %q", md)
+				if inline[0].Type != "inlineCard" {
+					assert.Equal(t, mustJSON(doc), mustJSON(back), "read as %q", md)
+				}
+			})
 		}
 	}
 }

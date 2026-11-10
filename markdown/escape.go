@@ -307,11 +307,19 @@ func linkHref(mark jira4claude.ADFMark) string {
 // same text; ctx says where it lands. The rule is described at the top of
 // this file.
 func escapeText(s string, ctx textContext) string {
+	if ctx.inLink && ctx.lineStart && len(s) == 1 && strings.IndexByte(taskBoxMarks, s[0]) >= 0 {
+		// "[x](a)" at the start of a list item reads back as a task box.
+		return charRef(rune(s[0]))
+	}
 	if ctx.encodeFirst || ctx.encodeLast {
 		return escapeTextEncodingEdges(s, ctx)
 	}
 	return withBreakBackslash(escapeTextWith(s, ctx), ctx)
 }
+
+// taskBoxMarks are the characters a task box holds ("[ ]", "[x]"), in
+// goldmark's task list extension.
+const taskBoxMarks = " \txX"
 
 // unclosableURLDetail explains the degraded issue reported when Linkify
 // would read an autolink on past the end of its node's text and no repair
