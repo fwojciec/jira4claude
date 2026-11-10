@@ -404,8 +404,8 @@ The actions are `created`, `updated`, `transitioned`, `assigned`,
 `unlinked`, `attachment_added` and `attachment_deleted`, and for a dry run
 `would_create`, `would_update` and `would_add_comment`.
 
-JSON on stdout is standard JSON in which `&`, `<` and `>` inside strings are
-written as `&`, `<` and `>`; any JSON parser decodes them.
+JSON on stdout and stderr keeps `&`, `<` and `>` inside strings as they are,
+not escaped as `&`, `<` and `>`.
 
 ### Lists
 

@@ -175,6 +175,9 @@ one.
   argument.
 - Unknown priorities were shown as `P2` in lists; the priority is now printed
   as Jira names it, and an empty one as `-`.
+- JSON on stdout wrote `&`, `<` and `>` inside strings as `&`, `<`
+  and `>`; it now keeps them as they are, as the stderr lines always
+  did. A JSON parser reads both forms the same; a `grep` for `<` now matches.
 
 ### Known limits
 

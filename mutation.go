@@ -1,7 +1,6 @@
 package jira4claude
 
 import (
-	"encoding/json"
 	"strconv"
 	"strings"
 )
@@ -102,11 +101,11 @@ type Change struct {
 // MarshalJSON writes {"from":...,"to":...}, or {"edit":...} for a description.
 func (c Change) MarshalJSON() ([]byte, error) {
 	if c.Edit != "" {
-		return json.Marshal(struct {
+		return marshalLiteral(struct {
 			Edit string `json:"edit"`
 		}{c.Edit})
 	}
-	return json.Marshal(struct {
+	return marshalLiteral(struct {
 		From any `json:"from"`
 		To   any `json:"to"`
 	}{c.From, c.To})

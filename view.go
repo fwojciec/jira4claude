@@ -39,13 +39,28 @@ type IssueView struct {
 	AllCustomFields bool `json:"-"`
 }
 
+// marshalLiteral is json.Marshal without HTML escaping: &, < and > stay as
+// they are, as the JSON printer writes them. An encoder escapes again what a
+// MarshalJSON method returns only when told to, so a view that json.Marshal
+// encoded inside its own MarshalJSON would come out escaped whatever the
+// printer asks.
+func marshalLiteral(v any) ([]byte, error) {
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(v); err != nil {
+		return nil, err
+	}
+	return bytes.TrimSuffix(buf.Bytes(), []byte("\n")), nil
+}
+
 // MarshalJSON ensures RelatedIssues is always an array, never null.
 func (v IssueView) MarshalJSON() ([]byte, error) {
 	type Alias IssueView
 	if v.RelatedIssues == nil {
 		v.RelatedIssues = []RelatedIssueView{}
 	}
-	return json.Marshal(Alias(v))
+	return marshalLiteral(Alias(v))
 }
 
 // CommentView is a display-ready representation of a comment with ADF converted to markdown.
@@ -204,7 +219,7 @@ type SelectedIssueView struct {
 func (s SelectedIssueView) MarshalJSON() ([]byte, error) {
 	var buf bytes.Buffer
 	buf.WriteString(`{"key":`)
-	key, err := json.Marshal(s.Key)
+	key, err := marshalLiteral(s.Key)
 	if err != nil {
 		return nil, err
 	}
@@ -213,11 +228,11 @@ func (s SelectedIssueView) MarshalJSON() ([]byte, error) {
 		if f.Name == "key" {
 			continue
 		}
-		name, err := json.Marshal(f.Name)
+		name, err := marshalLiteral(f.Name)
 		if err != nil {
 			return nil, err
 		}
-		value, err := json.Marshal(f.Value)
+		value, err := marshalLiteral(f.Value)
 		if err != nil {
 			return nil, err
 		}

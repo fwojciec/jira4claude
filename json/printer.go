@@ -28,6 +28,8 @@ func NewPrinterWithIO(out, err io.Writer) *Printer {
 func (p *Printer) encode(v any) {
 	enc := json.NewEncoder(p.out)
 	enc.SetIndent("", "  ")
+	// As on stderr: keep <, > and & as they are, for the people who read it.
+	enc.SetEscapeHTML(false)
 	// Error ignored: encoding known map structures should not fail.
 	// If the writer fails, CLI output has no useful recovery path.
 	_ = enc.Encode(v)
