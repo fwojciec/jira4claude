@@ -301,6 +301,64 @@ func TestRun_FileInputValidationErrors(t *testing.T) {
 	})
 }
 
+// jir-3rwv: inline text is held to the rule of the file flags. Bytes that
+// are not UTF-8 were replaced (by U+FFFD) without a word; they are refused,
+// in the file flags' words, before any request.
+func TestRun_InlineInputInvalidUTF8(t *testing.T) {
+	t.Parallel()
+
+	const latin1 = "caf\xe9 au lait"
+	cases := []struct {
+		name string
+		args []string
+		flag string
+	}{
+		{"create --summary", []string{"issue", "create", "--summary=" + latin1}, "--summary"},
+		{"create -s VALUE", []string{"issue", "create", "-s", latin1}, "--summary"},
+		{"update -d VALUE", []string{"issue", "update", "TEST-1", "-d", latin1}, "--description"},
+		{"comment -b VALUE", []string{"issue", "comment", "TEST-1", "-b", latin1}, "--body"},
+		{"create --description", []string{"issue", "create", "-s", "New", "--description=" + latin1}, "--description"},
+		{"update --summary", []string{"issue", "update", "TEST-1", "--summary=" + latin1}, "--summary"},
+		{"update --description", []string{"issue", "update", "TEST-1", "--description=" + latin1}, "--description"},
+		{"update --append-description", []string{"issue", "update", "TEST-1", "--append-description=" + latin1}, "--append-description"},
+		{"comment --body", []string{"issue", "comment", "TEST-1", "--body=" + latin1}, "--body"},
+		{"comment --body --dry-run", []string{"issue", "comment", "TEST-1", "--dry-run", "--body=" + latin1}, "--body"},
+	}
+	for _, tc := range cases {
+		want := tc.flag + " is not valid UTF-8 (first invalid byte at offset 3)"
+
+		t.Run(tc.name+"/text", func(t *testing.T) {
+			t.Parallel()
+
+			// A zero-value service panics on any call: none may happen.
+			res := runCLI(t, testDeps(&mock.IssueService{}, &mock.UserService{}), tc.args...)
+
+			assert.Equal(t, 1, res.code)
+			assert.Empty(t, res.stdout)
+			assert.Equal(t, "[error] "+want+"\n", res.stderr)
+		})
+
+		t.Run(tc.name+"/json", func(t *testing.T) {
+			t.Parallel()
+
+			res := runCLI(t, testDeps(&mock.IssueService{}, &mock.UserService{}), append([]string{"--json"}, tc.args...)...)
+
+			assert.Equal(t, 1, res.code)
+			assert.Empty(t, res.stdout)
+			assertJSONError(t, res.stderr, jira4claude.EValidation, want)
+		})
+	}
+
+	t.Run("valid UTF-8 beyond ASCII is accepted", func(t *testing.T) {
+		t.Parallel()
+
+		rec := &recorder{}
+		res := runCLI(t, testDeps(rec.service(nil), &mock.UserService{}), "issue", "comment", "TEST-1", "--body=café ☕")
+
+		assert.Equal(t, 0, res.code, "stderr: %s", res.stderr)
+	})
+}
+
 func TestRun_FileInputEmpty(t *testing.T) {
 	t.Parallel()
 

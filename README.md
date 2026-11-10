@@ -311,6 +311,9 @@ update.
 standard input for `-`. A leading byte order mark and one trailing newline
 are removed, so the output of `--field description` goes back unchanged.
 `--append-description-file` and `issue comment --body-file` read the same way.
+Inline text (`--summary`, `--description`, `--append-description`, `--body`)
+must be valid UTF-8 too: bytes that are not are refused with exit 1, as in a
+file, rather than replaced.
 
 The `updated` value in an update's result is the time to pass to the next
 guarded update.

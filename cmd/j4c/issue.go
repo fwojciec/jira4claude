@@ -237,6 +237,9 @@ type IssueCreateCmd struct {
 
 // Run executes the create command.
 func (c *IssueCreateCmd) Run(ctx *IssueContext) error {
+	if err := checkUTF8("--summary", c.Summary); err != nil {
+		return err
+	}
 	customFields, err := ParseFieldJSON(c.FieldJSON)
 	if err != nil {
 		return err
@@ -437,6 +440,11 @@ func (c *IssueUpdateCmd) Run(ctx *IssueContext) error {
 	// Validate and convert the new Markdown first, so a refusal that does not
 	// depend on the current issue happens before any service call, including
 	// assignee lookup.
+	if c.Summary != nil {
+		if err := checkUTF8("--summary", *c.Summary); err != nil {
+			return err
+		}
+	}
 	customFields, err := ParseFieldJSON(c.FieldJSON)
 	if err != nil {
 		return err

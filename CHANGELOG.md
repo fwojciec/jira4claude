@@ -164,6 +164,18 @@ empty one. In `issue create` a blank description still means none.
 
 Migration: use `--clear-description` to remove a description.
 
+**Inline text that is not UTF-8 is refused.** `--summary`, `--description`,
+`--append-description` and `--body` replaced each byte that is not UTF-8
+with U+FFFD without a word; they now refuse it, as the file flags do, with
+exit 1 and nothing sent.
+
+```text
+before: j4c issue comment PROJ-123 --body $'caf\xe9'  ->  Jira gets "caf�"
+after:  [error] --body is not valid UTF-8 (first invalid byte at offset 3)
+```
+
+Migration: convert the text to UTF-8 first (`iconv -f latin1 -t utf-8`).
+
 **`--field-json` refuses two cases.** `--field-json description=...` is
 refused (it would bypass the protection of images and mentions), and so is a
 `--field-json` for a field that a typed flag of the same command also sets,

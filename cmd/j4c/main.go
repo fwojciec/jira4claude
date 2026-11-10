@@ -222,13 +222,13 @@ type kongExit struct {
 // usage text and the parser's message; in --json mode it gets only the message,
 // as one JSON error line. stdout stays empty.
 func parse(cli *CLI, args []string, stdout, stderr io.Writer, versionText string) (ctx *kong.Context, code int, exited bool) {
-	parser, err := kong.New(cli,
+	parser, err := kong.New(cli, append([]kong.Option{
 		kong.Name("j4c"),
 		kong.Description(description),
 		kong.Vars{"version": versionText},
 		kong.Writers(stdout, stderr),
 		kong.Exit(func(code int) { panic(kongExit{code: code}) }),
-	)
+	}, textFlags(cli)...)...)
 	if err != nil {
 		// The CLI grammar is static, so this is a programming error (kong.Parse
 		// panics here too).

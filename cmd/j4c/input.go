@@ -6,9 +6,11 @@ import (
 	"io"
 	"io/fs"
 	"os"
+	"reflect"
 	"strings"
 	"unicode/utf8"
 
+	"github.com/alecthomas/kong"
 	"github.com/fwojciec/jira4claude"
 )
 
@@ -34,9 +36,15 @@ type textInput struct {
 
 // read returns the text and the flag it came from, as an error message names
 // it ("--description" or "--description-file PATH"); text is nil when neither
-// flag was given. A file is read as described in readFile.
+// flag was given. A file is read as described in readFile; inline text must
+// be valid UTF-8, as a file must.
 func (in textInput) read(stdin io.Reader) (text *string, source string, err error) {
 	if in.path == nil {
+		if in.inline != nil {
+			if err := checkUTF8("--"+in.inlineFlag, *in.inline); err != nil {
+				return nil, "", err
+			}
+		}
 		return in.inline, "--" + in.inlineFlag, nil
 	}
 	s, err := readFile(in.fileFlag, *in.path, stdin)
@@ -91,7 +99,9 @@ func readFile(flag, path string, stdin io.Reader) (string, error) {
 	}
 	text := strings.TrimPrefix(string(data), utf8BOM)
 	if !utf8.ValidString(text) {
-		return "", invalid(fmt.Sprintf("%s is not valid UTF-8 (first invalid byte at offset %d)", name, invalidOffset(string(data))))
+		// The offset counts from the start of the file, byte order mark
+		// included.
+		return "", checkUTF8(name, string(data))
 	}
 	if s, ok := strings.CutSuffix(text, "\r\n"); ok {
 		return s, nil
@@ -123,6 +133,58 @@ func readPath(path string) ([]byte, error) {
 // tell an oversized input without reading all of it.
 func readBounded(r io.Reader) ([]byte, error) {
 	return io.ReadAll(io.LimitReader(r, maxInputBytes+1))
+}
+
+// checkUTF8 refuses text that is not valid UTF-8, naming where it came from
+// (a flag, or a flag and its path) and the offset of the first bad byte.
+// Text sent to Jira as JSON would otherwise have each bad byte replaced by
+// U+FFFD without a word.
+func checkUTF8(name, text string) error {
+	if utf8.ValidString(text) {
+		return nil
+	}
+	return invalid(fmt.Sprintf("%s is not valid UTF-8 (first invalid byte at offset %d)", name, invalidOffset(text)))
+}
+
+// rawText decodes the value of a flag whose text goes to Jira (--summary,
+// --description, --append-description, --body) as the bytes given, into a
+// string or *string field. kong's own string mapper passes every value
+// through JSON, which replaces bytes that are not UTF-8 by U+FFFD; the
+// command then could not refuse them, as checkUTF8 does for a file.
+func rawText() kong.MapperFunc {
+	return func(ctx *kong.DecodeContext, target reflect.Value) error {
+		token, err := ctx.Scan.PopValue("text")
+		if err != nil {
+			return err
+		}
+		s, ok := token.Value.(string)
+		if !ok {
+			return fmt.Errorf("expected text but got %v (%T)", token.Value, token.Value)
+		}
+		if target.Kind() == reflect.Pointer {
+			v := reflect.New(target.Type().Elem())
+			v.Elem().SetString(s)
+			target.Set(v)
+			return nil
+		}
+		target.SetString(s)
+		return nil
+	}
+}
+
+// textFlags returns the kong options that decode the text flags of cli with
+// rawText.
+func textFlags(cli *CLI) []kong.Option {
+	fields := []any{
+		&cli.Issue.Create.Summary, &cli.Issue.Create.Description,
+		&cli.Issue.Update.Summary, &cli.Issue.Update.Description, &cli.Issue.Update.AppendDescription,
+		&cli.Issue.Comment.Body,
+	}
+	opts := make([]kong.Option, 0, len(fields))
+	for _, f := range fields {
+		opts = append(opts, kong.ValueMapper(f, rawText()))
+	}
+	return opts
 }
 
 // invalidOffset returns the offset in s of the first byte that does not start
