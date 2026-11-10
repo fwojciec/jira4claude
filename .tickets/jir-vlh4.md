@@ -1,6 +1,6 @@
 ---
 id: jir-vlh4
-status: in_progress
+status: closed
 deps: []
 links: []
 created: 2026-11-10T07:47:17Z
@@ -17,3 +17,9 @@ Design 2.1. Errors and warnings go to stderr in both modes; in --json mode they 
 
 For every command, text and --json: on failure stdout is empty and stderr holds the error; conversion warnings are on stderr; exit codes table-tested (validation 1, conflict 5, and the rest as error.go maps them); the pinned quirk tests are replaced, not deleted. Tests first, in external test packages with t.Parallel(). make validate passes on the tree that becomes main.
 
+
+## Notes
+
+**2026-11-10T08:50:06Z**
+
+Merged to main in 9beda14. --json errors and warnings are one-line JSON objects on stderr with a level key; text-mode [info] notices go to stderr; usage errors exit 1. Kept on stdout with a failing exit: issue create whose follow-up assignment fails (the script needs the key). Success messages stay on stdout until jir-mi82.
