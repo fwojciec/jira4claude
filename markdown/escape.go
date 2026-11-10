@@ -209,11 +209,13 @@ func hasRenderedMark(marks []jira4claude.ADFMark) bool {
 
 // escapeTextNode returns the text of an ADF text node escaped for Markdown
 // output. Code text is verbatim, and link text equal to its href is left as
-// is so that it is still read out as a bare URL. The node is siblings[i];
-// its neighbours decide what may join its edges.
+// is so that it is still read out as a bare URL. The node is siblings[i],
+// where siblings holds only nodes that emit output (see emittingInline), so
+// its neighbours there are the ones that meet its edges in the Markdown.
 func escapeTextNode(siblings []jira4claude.ADFNode, i int, lineStart bool) string {
 	node := &siblings[i]
-	afterConstruct := i > 0 && siblings[i-1].Type == "text" && hasRenderedMark(siblings[i-1].Marks)
+	afterConstruct := i > 0 && (siblings[i-1].Type == "inlineCard" ||
+		siblings[i-1].Type == "text" && hasRenderedMark(siblings[i-1].Marks))
 	inLink := false
 	for _, mark := range node.Marks {
 		switch mark.Type {

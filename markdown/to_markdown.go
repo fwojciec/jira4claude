@@ -495,13 +495,18 @@ func adfInlineLineToGFM(node *jira4claude.ADFNode, skipped *skippedCollector, si
 		return ""
 	}
 
+	// Every escaping rule that looks at a neighbour sees this list, which
+	// holds only nodes that emit something, with label nodes already turned
+	// into the text they read as.
+	items := emittingInline(node.Content, skipped)
+
 	var result strings.Builder
-	for i := range node.Content {
-		child := &node.Content[i]
+	for i := range items {
+		child := &items[i]
 		switch child.Type {
 		case "text":
-			lineStart := i == 0 || node.Content[i-1].Type == "hardBreak"
-			text := escapeTextNode(node.Content, i, lineStart)
+			lineStart := i == 0 || items[i-1].Type == "hardBreak"
+			text := escapeTextNode(items, i, lineStart)
 			if len(child.Marks) == 0 {
 				result.WriteString(text)
 			} else {
@@ -509,7 +514,7 @@ func adfInlineLineToGFM(node *jira4claude.ADFNode, skipped *skippedCollector, si
 			}
 		case "hardBreak":
 			switch {
-			case onlyHardBreaksFrom(node.Content, i):
+			case onlyHardBreaksFrom(items, i):
 				if skipped != nil {
 					skipped.degrade("hardBreak", hardBreakDetail)
 				}
@@ -522,8 +527,8 @@ func adfInlineLineToGFM(node *jira4claude.ADFNode, skipped *skippedCollector, si
 				// goldmark does not take "\\\" before a newline as an
 				// escaped backslash and a hard break, so a plain text that
 				// ends in a backslash writes it as a character reference.
-				if prev := i - 1; prev >= 0 && node.Content[prev].Type == "text" &&
-					len(node.Content[prev].Marks) == 0 && strings.HasSuffix(node.Content[prev].Text, `\`) {
+				if prev := i - 1; prev >= 0 && items[prev].Type == "text" &&
+					len(items[prev].Marks) == 0 && strings.HasSuffix(items[prev].Text, `\`) {
 					out := result.String()
 					if strings.HasSuffix(out, `\\`) {
 						result.Reset()
@@ -533,35 +538,76 @@ func adfInlineLineToGFM(node *jira4claude.ADFNode, skipped *skippedCollector, si
 				result.WriteString("\\\n")
 			}
 		case "mediaInline":
-			result.WriteString(adfMediaInlineToGFM(child))
-		case "mention":
-			result.WriteString(adfMentionToGFM(child))
-		case "emoji":
-			result.WriteString(adfEmojiToGFM(child))
+			result.WriteString(adfMediaInlineToGFM(child, nextStartsWith(items, i)))
 		case "inlineCard":
-			if text := adfInlineCardToGFM(child); text != "" {
-				result.WriteString(text)
+			result.WriteString(adfInlineCardToGFM(child))
+		}
+	}
+
+	return result.String()
+}
+
+// emittingInline returns the inline nodes that produce output, in order.
+// Nodes whose output is a plain label (mention, emoji, date, status) become
+// text nodes holding that label, so it is escaped like any other text; a
+// status keeps its bold. Nodes that emit nothing are left out, and the ones
+// that are not supported are recorded as dropped.
+func emittingInline(content []jira4claude.ADFNode, skipped *skippedCollector) []jira4claude.ADFNode {
+	items := make([]jira4claude.ADFNode, 0, len(content))
+	label := func(text string, marks []jira4claude.ADFMark) {
+		if text != "" {
+			items = append(items, jira4claude.ADFNode{Type: "text", Text: text, Marks: marks})
+		}
+	}
+	for i := range content {
+		child := &content[i]
+		switch child.Type {
+		case "text":
+			label(child.Text, child.Marks)
+		case "hardBreak", "mediaInline":
+			items = append(items, *child)
+		case "mention":
+			label(adfMentionToGFM(child), nil)
+		case "emoji":
+			label(adfEmojiToGFM(child), nil)
+		case "date":
+			label(adfDateToGFM(child), nil)
+		case "status":
+			label(adfStatusToGFM(child), []jira4claude.ADFMark{{Type: "strong"}})
+		case "inlineCard":
+			if inlineCardURL(child) != "" {
+				items = append(items, *child)
 			} else if skipped != nil {
 				skipped.add("inlineCard")
 			}
-		case "status":
-			result.WriteString(adfStatusToGFM(child))
-		case "date":
-			result.WriteString(adfDateToGFM(child))
 		case "placeholder":
 			// Drop silently — placeholder nodes produce no output.
-		case "inlineExtension":
-			if skipped != nil {
-				skipped.add("inlineExtension")
-			}
 		default:
 			if skipped != nil {
 				skipped.add(child.Type)
 			}
 		}
 	}
+	return items
+}
 
-	return result.String()
+// nextStartsWith returns the first byte the node after items[i] emits, or 0.
+func nextStartsWith(items []jira4claude.ADFNode, i int) byte {
+	if i+1 >= len(items) {
+		return 0
+	}
+	switch next := items[i+1]; next.Type {
+	case "text":
+		if hasRenderedMark(next.Marks) {
+			return '*' // any delimiter; only "(" and ":" matter to callers
+		}
+		return next.Text[0]
+	case "inlineCard":
+		return '['
+	case "mediaInline":
+		return '['
+	}
+	return 0
 }
 
 // onlyHardBreaksFrom reports whether nodes[i:] holds nothing but hardBreaks.
@@ -700,8 +746,8 @@ func adfEmojiToGFM(node *jira4claude.ADFNode) string {
 	return ""
 }
 
-// adfInlineCardToGFM converts an ADF inlineCard node to a markdown link.
-func adfInlineCardToGFM(node *jira4claude.ADFNode) string {
+// inlineCardURL returns the url of an ADF inlineCard node, or "".
+func inlineCardURL(node *jira4claude.ADFNode) string {
 	if node.Attrs == nil {
 		return ""
 	}
@@ -709,13 +755,20 @@ func adfInlineCardToGFM(node *jira4claude.ADFNode) string {
 	if err := json.Unmarshal(node.Attrs, &attrs); err != nil {
 		return ""
 	}
-	if url, ok := attrs["url"].(string); ok && url != "" {
-		return fmt.Sprintf("[%s](%s)", url, url)
-	}
-	return ""
+	url, _ := attrs["url"].(string)
+	return url
 }
 
-// adfStatusToGFM converts an ADF status node to bold text.
+// adfInlineCardToGFM converts an ADF inlineCard node to a markdown link whose
+// text is its URL. Inside the brackets the URL is link text, which the write
+// side decodes, so it is escaped as link text.
+func adfInlineCardToGFM(node *jira4claude.ADFNode) string {
+	url := inlineCardURL(node)
+	return "[" + escapeText(url, textContext{inLink: true}) + "](" + url + ")"
+}
+
+// adfStatusToGFM returns the label of an ADF status node, which is read out
+// in bold.
 func adfStatusToGFM(node *jira4claude.ADFNode) string {
 	if node.Attrs == nil {
 		return ""
@@ -724,10 +777,8 @@ func adfStatusToGFM(node *jira4claude.ADFNode) string {
 	if err := json.Unmarshal(node.Attrs, &attrs); err != nil {
 		return ""
 	}
-	if text, ok := attrs["text"].(string); ok && text != "" {
-		return "**" + text + "**"
-	}
-	return ""
+	text, _ := attrs["text"].(string)
+	return text
 }
 
 // adfDateToGFM converts an ADF date node to a human-readable date string.
@@ -777,10 +828,10 @@ func adfMediaToGFM(node *jira4claude.ADFNode) string {
 		if alt == "" {
 			alt = fileName
 		}
-		return fmt.Sprintf("![%s](%s)", alt, url)
+		return fmt.Sprintf("![%s](%s)", escapeBracketed(alt), url)
 	}
 	if fileName != "" {
-		return fmt.Sprintf("[image: %s]", fileName)
+		return fmt.Sprintf("[image: %s]", escapeBracketed(fileName))
 	}
 	return "[image]"
 }
@@ -806,11 +857,24 @@ func adfMediaGroupToGFM(node *jira4claude.ADFNode) string {
 	return strings.Join(parts, "\n")
 }
 
-// adfMediaInlineToGFM converts an ADF mediaInline node to inline markdown text.
-func adfMediaInlineToGFM(node *jira4claude.ADFNode) string {
+// escapeBracketed escapes a label written inside brackets the read side
+// supplies, so it cannot close them early or turn into formatting.
+func escapeBracketed(label string) string {
+	return escapeText(label, textContext{inLink: true})
+}
+
+// adfMediaInlineToGFM converts an ADF mediaInline node to inline markdown
+// text. next is the first character the following node emits: a "(" or ":"
+// right after the closing bracket would turn the bracketed name into a link
+// or a link reference definition, so the opening bracket is escaped then.
+func adfMediaInlineToGFM(node *jira4claude.ADFNode, next byte) string {
+	open := "["
+	if next == '(' || next == ':' {
+		open = `\[`
+	}
 	_, _, fileName := mediaAttrs(node)
 	if fileName != "" {
-		return fmt.Sprintf("[%s]", fileName)
+		return open + escapeBracketed(fileName) + "]"
 	}
-	return "[attachment]"
+	return open + "attachment]"
 }

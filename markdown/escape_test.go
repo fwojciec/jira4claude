@@ -671,6 +671,155 @@ func TestRoundTrip_BareURLWithEntities(t *testing.T) {
 	}
 }
 
+func TestRoundTrip_NeighbourRulesSkipNodesThatEmitNothing(t *testing.T) {
+	t.Parallel()
+
+	placeholder := jira4claude.ADFNode{Type: "placeholder", Attrs: []byte(`{"text":"type here"}`)}
+	plain := func(s string) jira4claude.ADFNode { return jira4claude.ADFNode{Type: "text", Text: s} }
+
+	for _, tc := range []struct {
+		name   string
+		inline []jira4claude.ADFNode
+	}{
+		{"autolink entity", []jira4claude.ADFNode{plain("https://example.com/?x=&am"), placeholder, plain("p;")}},
+		{"entity prefix", []jira4claude.ADFNode{plain("a &am"), placeholder, plain("p;")}},
+		{"tilde edges", []jira4claude.ADFNode{plain("a~"), placeholder, plain("~b~"), placeholder, plain("~c")}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			converter := markdown.New()
+			md, _ := converter.ToMarkdown(paragraphDoc(tc.inline...))
+			result, _ := converter.ToADF(md)
+
+			var want, got string
+			for _, n := range tc.inline {
+				want += n.Text
+			}
+			for _, n := range result.Content[0].Content {
+				got += n.Text
+				for _, m := range n.Marks {
+					assert.NotEqual(t, "strike", m.Type, "markdown was %q", md)
+				}
+			}
+			assert.Equal(t, want, got, "markdown was %q", md)
+		})
+	}
+}
+
+func TestRoundTrip_InlineNodeLabels(t *testing.T) {
+	t.Parallel()
+
+	labels := []string{"A &amp; B", "*x*", "a_b_ _c_", `a\*b`, "<b>bold</b>", "~~x~~", "[x](y)", "`c`"}
+	strong := []jira4claude.ADFMark{{Type: "strong"}}
+
+	type kind struct {
+		name string
+		node func(label string) jira4claude.ADFNode
+		// text is the label as written back, marks what main gives a
+		// harmless label.
+		text  func(label string) string
+		marks []jira4claude.ADFMark
+	}
+	attrs := func(m map[string]any) []byte {
+		b, err := json.Marshal(m)
+		require.NoError(t, err)
+		return b
+	}
+	kinds := []kind{
+		{
+			name: "status",
+			node: func(l string) jira4claude.ADFNode {
+				return jira4claude.ADFNode{Type: "status", Attrs: attrs(map[string]any{"text": l})}
+			},
+			text:  func(l string) string { return l },
+			marks: strong,
+		},
+		{
+			name: "mention",
+			node: func(l string) jira4claude.ADFNode {
+				return jira4claude.ADFNode{Type: "mention", Attrs: attrs(map[string]any{"id": "1", "text": "@" + l})}
+			},
+			text: func(l string) string { return "see @" + l + " now" },
+		},
+		{
+			name: "emoji shortname",
+			node: func(l string) jira4claude.ADFNode {
+				return jira4claude.ADFNode{Type: "emoji", Attrs: attrs(map[string]any{"shortName": ":" + l + ":"})}
+			},
+			text: func(l string) string { return "see :" + l + ": now" },
+		},
+		{
+			name: "inline media file name",
+			node: func(l string) jira4claude.ADFNode {
+				return jira4claude.ADFNode{Type: "mediaInline", Attrs: attrs(map[string]any{"id": "1", "__fileName": l})}
+			},
+			text: func(l string) string { return "see [" + l + "] now" },
+		},
+	}
+
+	for _, k := range kinds {
+		for _, label := range labels {
+			t.Run(k.name+"/"+label, func(t *testing.T) {
+				t.Parallel()
+
+				inline := []jira4claude.ADFNode{k.node(label)}
+				if k.name != "status" {
+					inline = []jira4claude.ADFNode{
+						{Type: "text", Text: "see "}, k.node(label), {Type: "text", Text: " now"},
+					}
+				}
+
+				converter := markdown.New()
+				md, _ := converter.ToMarkdown(paragraphDoc(inline...))
+				result, _ := converter.ToADF(md)
+
+				var got string
+				for _, n := range result.Content[0].Content {
+					got += n.Text
+					if k.marks == nil {
+						assert.Empty(t, n.Marks, "markdown was %q", md)
+					} else {
+						assert.Equal(t, k.marks, n.Marks, "markdown was %q", md)
+					}
+				}
+				assert.Equal(t, k.text(label), got, "markdown was %q", md)
+			})
+		}
+	}
+
+	t.Run("block media file name", func(t *testing.T) {
+		t.Parallel()
+
+		for _, label := range labels {
+			doc := &jira4claude.ADFNode{Type: "doc", Version: 1, Content: []jira4claude.ADFNode{{
+				Type: "mediaSingle",
+				Content: []jira4claude.ADFNode{{
+					Type: "media", Attrs: attrs(map[string]any{"id": "1", "type": "file", "__fileName": label}),
+				}},
+			}}}
+
+			converter := markdown.New()
+			md, _ := converter.ToMarkdown(doc)
+			result, _ := converter.ToADF(md)
+			assert.Equal(t, paragraphDoc(jira4claude.ADFNode{Type: "text", Text: "[image: " + label + "]"}), result, "markdown was %q", md)
+		}
+	})
+
+	t.Run("inline card url", func(t *testing.T) {
+		t.Parallel()
+
+		const url = "https://example.com/?a=1&amp;b=*x*"
+		converter := markdown.New()
+		md, _ := converter.ToMarkdown(paragraphDoc(jira4claude.ADFNode{Type: "inlineCard", Attrs: attrs(map[string]any{"url": url})}))
+		result, _ := converter.ToADF(md)
+		assert.Equal(t, paragraphDoc(jira4claude.ADFNode{
+			Type: "text", Text: url,
+			Marks: []jira4claude.ADFMark{{Type: "link", Attrs: attrs(map[string]any{"href": url})}},
+		}), result, "markdown was %q", md)
+	})
+}
+
 func TestToADF_DecodesTextAroundLiteralInlineTag(t *testing.T) {
 	t.Parallel()
 
