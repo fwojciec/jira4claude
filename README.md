@@ -762,7 +762,10 @@ was read:
   next to it, as many of them as before, inside a container that matches the
   same way. A value you changed (a heading level, a panel type, a list's
   first number) is yours; table cell widths and spans are kept only while
-  every row has as many cells as before.
+  every row has as many cells as before. A limit, not reported: if you remove
+  a block and add another of the same kind in the same container, the new
+  one is taken for the old one edited, and gets the old one's hidden values
+  (a removed custom-colour panel passes its colour to a newly written panel).
 - A smart link in a changed paragraph is put back when its link can only be
   that card: the link text is its URL, the link is a whole text node with no
   other formatting, the cards with that URL are identical, and your text
