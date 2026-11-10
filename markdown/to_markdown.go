@@ -1050,7 +1050,7 @@ func adfInlineCardToGFM(node *jira4claude.ADFNode, lineStart bool, skipped *skip
 	if changed && skipped != nil {
 		skipped.degrade("inlineCard", hrefDetail)
 	}
-	return bracketedURL(url, lineStart)
+	return bracketedLink(url, url, lineStart)
 }
 
 // adfStatusToGFM returns the label of an ADF status node, which is read out

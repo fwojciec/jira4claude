@@ -66,10 +66,11 @@ import (
 // adfInlineLineToGFM), so the next line starts a line of the same paragraph.
 //
 // Text never forms a link (#161): where goldmark's Linkify would read an
-// autolink in it (a bare "http://", "https://", "ftp://" or "www." URL, or
-// an email address), the first character of the span is written as a
-// numeric character reference, so Linkify does not start there (break mode,
-// textContext.breakAutolinks). Linkify is tried at a line head, after a blank
+// autolink in it (a bare "http://", "https://", "ftp://" or "www." URL), the
+// first character of the span is written as a numeric character reference,
+// so Linkify does not start there (break mode, textContext.breakAutolinks).
+// The write side's Linkify links no email address (noEmail), so one in text
+// is written as it is. Linkify is tried at a line head, after a blank
 // or "(", and right after another inline construct such as a formatting
 // delimiter; break mode errs towards trying it (linkifyTriggers). A link is
 // written bare, as its URL verbatim, only where Linkify reads it back
@@ -389,19 +390,12 @@ func linkifySpans(scan, md string, atStart bool, canStart func(p int) bool) [][2
 }
 
 // autolinkScanner is autolinkLen over positions of one string, asked in
-// increasing order, without a parse per position: a word's end is found
-// once, and an email is parsed once per "@" (where it ends does not depend
-// on where in its local part Linkify starts).
+// increasing order: a word's end is found once, and a URL is parsed to its
+// end only when its length is asked for.
 type autolinkScanner struct {
 	s       string
 	started bool
 	wordEnd int // the end of the word holding the last position asked
-	// at is the next "@" in the word, or wordEnd if there is none;
-	// localStart, the first position the local part before it can start
-	// at; emailEnd, where an email through it ends (0: not parsed yet,
-	// -1: none).
-	at, localStart, emailEnd int
-	local                    [256]int8 // per byte: 1 an email local-part byte, -1 not, 0 unknown
 }
 
 // urlDecidedWithin bounds how much of a word after a URL start Linkify's URL
@@ -431,82 +425,24 @@ func (a *autolinkScanner) scan(p int, full bool) int {
 		if sp := strings.IndexAny(a.s[p:], " \t\n"); sp >= 0 {
 			a.wordEnd = p + sp
 		}
-		a.at = -1
 	}
 	word := a.s[p:a.wordEnd]
-	if word == "" || strings.IndexByte(" *_~(", word[0]) >= 0 {
+	if !strings.HasPrefix(word, "http://") && !strings.HasPrefix(word, "https://") &&
+		!strings.HasPrefix(word, "ftp://") && !strings.HasPrefix(word, "www.") {
+		// Linkify's URL patterns need "://" after the scheme.
 		return 0
 	}
-	if strings.HasPrefix(word, "http://") || strings.HasPrefix(word, "https://") ||
-		strings.HasPrefix(word, "ftp://") || strings.HasPrefix(word, "www.") {
-		// Linkify's URL patterns need "://" after the scheme. Whether a URL
-		// starts is decided within urlDecidedWithin; only a URL that does is
-		// parsed to its end, and only when its length is asked for, so a
-		// word full of URL starts is not parsed again at each.
-		if len(word) <= urlDecidedWithin {
-			return autolinkLen(word)
-		}
-		if n := autolinkLen(word[:urlDecidedWithin]); n > 0 {
-			if full {
-				return autolinkLen(word)
-			}
-			return n
-		}
-		// No URL starts here. Linkify tries an email address next, which a
-		// word starting with a scheme cannot be (no local part takes ":"),
-		// but a "www." word can: that is the email scan below.
-		if !strings.HasPrefix(word, "www.") {
-			return 0
-		}
+	// Whether a URL starts is decided within urlDecidedWithin; only a URL
+	// that does is parsed to its end, and only when its length is asked for,
+	// so a word full of URL starts is not parsed again at each.
+	if len(word) <= urlDecidedWithin {
+		return autolinkLen(word)
 	}
-	if a.at < p {
-		a.at = a.wordEnd
-		if k := strings.IndexByte(word, '@'); k >= 0 {
-			a.at = p + k
-		}
-		a.localStart = a.at
-		for a.localStart > 0 && a.isLocal(a.s[a.localStart-1]) {
-			a.localStart--
-		}
-		a.emailEnd = 0
+	n := autolinkLen(word[:urlDecidedWithin])
+	if n > 0 && full {
+		return autolinkLen(word)
 	}
-	if a.at == a.wordEnd || p < a.localStart || util.IsPunct(word[0]) {
-		return 0
-	}
-	if a.emailEnd == 0 {
-		a.emailEnd = -1
-		// The email cannot run past the next "@", so only up to there is
-		// parsed.
-		email := word
-		if k := strings.IndexByte(a.s[a.at+1:a.wordEnd], '@'); k >= 0 {
-			email = a.s[p : a.at+1+k]
-		}
-		// Linkify takes no email whose domain an "_" follows, but text
-		// writes that "_" escaped, and "\" does not stop it. So an email is
-		// taken to end before an "_" after its "@" (no domain holds one),
-		// erring towards an autolink.
-		if k := strings.IndexByte(email[a.at-p:], '_'); k >= 0 {
-			email = email[:a.at-p+k]
-		}
-		if n := autolinkLen(email); n > 0 {
-			a.emailEnd = p + n
-		}
-	}
-	if a.emailEnd < 0 {
-		return 0
-	}
-	return a.emailEnd - p
-}
-
-// isLocal reports whether Linkify takes c into an email's local part.
-func (a *autolinkScanner) isLocal(c byte) bool {
-	if a.local[c] == 0 {
-		a.local[c] = -1
-		if c != '@' && util.FindEmailIndex([]byte{c, '@', 'a', '.', 'c', 'o'}) == 6 {
-			a.local[c] = 1
-		}
-	}
-	return a.local[c] == 1
+	return n
 }
 
 // charRef returns the decimal numeric character reference for r.
@@ -675,12 +611,11 @@ func autolinkLen(s string) int {
 		s = s[:sp]
 	}
 	if !strings.HasPrefix(s, "http:") && !strings.HasPrefix(s, "https:") &&
-		!strings.HasPrefix(s, "ftp:") && !strings.HasPrefix(s, "www.") &&
-		!strings.Contains(s, "@") {
+		!strings.HasPrefix(s, "ftp:") && !strings.HasPrefix(s, "www.") {
 		return 0
 	}
 	source := []byte(s)
-	node := extension.NewLinkifyParser().Parse(ast.NewParagraph(), text.NewReader(source), parser.NewContext())
+	node := extension.NewLinkifyParser(linkifyOptions()...).Parse(ast.NewParagraph(), text.NewReader(source), parser.NewContext())
 	link, ok := node.(*ast.AutoLink)
 	if !ok {
 		return 0

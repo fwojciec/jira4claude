@@ -316,6 +316,9 @@ func TestRoundTrip_BareURLBeforeCharacterReference(t *testing.T) {
 		{"email before a line feed", []jira4claude.ADFNode{link("a@b.co"), txt("\nx")}},
 		{"email before a trailing space", []jira4claude.ADFNode{link("a@b.co"), txt(" ")}},
 		{"email before a hard break", []jira4claude.ADFNode{link("a@b.co"), txt(`\`), br, txt("b")}},
+		{"mailto link before a line feed", []jira4claude.ADFNode{hrefLink("a@b.co", "mailto:a@b.co"), txt("\nx")}},
+		{"mailto link before a trailing space", []jira4claude.ADFNode{hrefLink("a@b.co", "mailto:a@b.co"), txt(" ")}},
+		{"mailto link before a hard break", []jira4claude.ADFNode{hrefLink("a@b.co", "mailto:a@b.co"), txt(`\`), br, txt("b")}},
 		// Linkify gives a www. URL an http:// scheme in its text and href.
 		{"www URL before a line feed", []jira4claude.ADFNode{link("http://www.example.com/path"), txt("\nnext")}},
 		{"www URL before a trailing space", []jira4claude.ADFNode{txt("see "), link("http://www.x.com/a"), txt(" ")}},
@@ -459,8 +462,9 @@ func TestRoundTrip_BareLinkThatCannotBeClosed(t *testing.T) {
 }
 
 // goldmark's Linkify drops an escaping backslash right after an autolink, so
-// "a@b.co\\[" would read back as "a@b.co[" and let the "[" open a link. A
-// link written bare is followed by a backslash only where that reads back
+// an escaped "[" after one would read back as "[" and could open a link
+// (before #161 Linkify also linked email addresses, "a@b.co\\["). A link
+// written bare is followed by a backslash only where that reads back
 // (#161). Before #161 the inputs were the plain text the links came from;
 // plain text now stays plain, so the links are the input.
 func TestRoundTrip_BackslashAfterAutolink(t *testing.T) {
@@ -477,6 +481,10 @@ func TestRoundTrip_BackslashAfterAutolink(t *testing.T) {
 	}{
 		{"email before a link", []jira4claude.ADFNode{txt("see "), link("a@b.co", "a@b.co"), txt(`\`), link(";", "https://example.com")}},
 		{"email before punctuation", []jira4claude.ADFNode{txt("see "), link("a@b.co", "a@b.co"), txt(`\! x`)}},
+		{"mailto link before a link", []jira4claude.ADFNode{
+			txt("see "), link("a@b.co", "mailto:a@b.co"), txt(`\`), link(";", "https://example.com"),
+		}},
+		{"mailto link before punctuation", []jira4claude.ADFNode{txt("see "), link("a@b.co", "mailto:a@b.co"), txt(`\! x`)}},
 		{"URL before punctuation", []jira4claude.ADFNode{txt("see "), link("https://x.com/b", "https://x.com/b"), txt(`\. x`)}},
 		{"www URL holding @ before a link", []jira4claude.ADFNode{
 			txt("see "), link("http://www.x.com/a@b.co", "http://www.x.com/a@b.co"), txt(`\`), link(";", "https://example.com"),
@@ -503,7 +511,7 @@ func TestRoundTrip_BackslashAfterAutolink(t *testing.T) {
 // a letter outside that would stop the run opening or closing is a reference
 // too. A carriage return or control character there becomes a line feed or a
 // space first (reported), then follows the same rule. Plain text ending in
-// an email address next to a delimiter is kept from being linked.
+// an email address next to a delimiter stays text.
 func TestRoundTrip_UnusualCharacterAtMarkEdge(t *testing.T) {
 	t.Parallel()
 

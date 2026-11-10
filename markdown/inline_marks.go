@@ -51,7 +51,7 @@ import (
 
 // Links on read (#161).
 //
-// A link is written one of two ways:
+// A link is written one of three ways:
 //
 //   - Bare, as its URL verbatim, which goldmark's Linkify reads back: only
 //     when its text is its href, it has no other mark Markdown writes, and
@@ -62,11 +62,16 @@ import (
 //     or right after another inline construct), must end there (not taking
 //     in a letter, a backtick or a reference after it, nor dropping a
 //     trailing "*", "_", "~", "." or ")"), and must give the same href
-//     (a "www." URL gains "http://"; "0@0" or "A0:" is no autolink at all).
-//     renderLinks checks this by parsing the line, and brackets the links
+//     (a "www." URL gains "http://"; "A0:" is no autolink at all, and
+//     Linkify links no email address).
+//   - As a CommonMark autolink, "<a@b.co>": a link to "mailto:" its text, an
+//     email address, with no other mark Markdown writes, again only where
+//     the line reads back with that link exactly.
+//   - renderLinks checks both by parsing the line, and brackets the links
 //     that fail; the analytic repairs in renderTextItems (autolink crossings,
 //     delimiter flanking) bracket most of them before that.
-//   - Otherwise in brackets: "[text](destination)", the text escaped as link
+//
+// Otherwise a link is written in brackets: "[text](destination)", the text escaped as link
 //     text and the destination written by linkDestination, which every
 //     writable href has. An href holding a character Markdown cannot carry
 //     (a control character, a carriage return) is written as the write side
@@ -200,11 +205,12 @@ func renderLinks(items []jira4claude.ADFNode, singleLine bool, skipped *skippedC
 	}
 }
 
-// bareLinks returns the items written as their bare URL.
+// bareLinks returns the items written in their autolink form (see
+// autolinkForm).
 func bareLinks(items []jira4claude.ADFNode, out []string) []int {
 	var bare []int
 	for i := range items {
-		if _, ok := bareURL(&items[i]); ok && out[i] == items[i].Text {
+		if form, _, ok := autolinkForm(&items[i]); ok && out[i] == form {
 			bare = append(bare, i)
 		}
 	}
@@ -213,7 +219,7 @@ func bareLinks(items []jira4claude.ADFNode, out []string) []int {
 
 // misreadBareLinks parses md, the Markdown of items with their text items
 // written as out, as the write side does, and returns the items written as
-// their bare URL that do not read back as themselves: where the links read
+// their autolink form that do not read back as themselves: where the links read
 // back (each character's href, or none) differ from items within a bare
 // link or next to it. If the text itself reads back differently, or a
 // difference lies away from every bare link, all of them are returned.
@@ -340,11 +346,11 @@ func renderTextItems(items []jira4claude.ADFNode, bracket []bool) ([]string, tex
 	var issues textIssues
 	stuck := make([]bool, len(items))
 	render := func(i int) {
-		if href, ok := bareURL(&items[i]); ok {
+		if form, href, ok := autolinkForm(&items[i]); ok {
 			if edges[i].breakLinks {
-				out[i] = bracketedURL(href, isLineStart(items, i))
+				out[i] = bracketedLink(items[i].Text, href, isLineStart(items, i))
 			} else {
-				out[i] = items[i].Text // read back by Linkify
+				out[i] = form // read back as an autolink
 			}
 			return
 		}
@@ -385,11 +391,11 @@ func renderTextItems(items []jira4claude.ADFNode, bracket []bool) ([]string, tex
 	// neighbours, plain text with the edges asked for, and autolinks. No
 	// autolink may run across the edge of a node's text: into its closing
 	// delimiters or the next node, or back from an earlier node into this
-	// one (an email's local part takes "*" and "~"). A crossing is repaired
-	// by keeping autolinks from forming in the node before it, then in the
-	// node after it, then by encoding the last character of the text
-	// before it. Each repair can change what a delimiter run sees, so the
-	// passes repeat; a crossing no repair removes is degraded.
+	// one. A crossing is repaired by keeping autolinks from forming in the
+	// node before it, then in the node after it, then by encoding the last
+	// character of the text before it. Each repair can change what a
+	// delimiter run sees, so the passes repeat; a crossing no repair removes
+	// is degraded.
 	for range 4*len(items) + 1 {
 		before := slices.Clone(edges)
 		for i := range items {
@@ -459,7 +465,9 @@ func autolinkCrossings(items []jira4claude.ADFNode, out []string) []int {
 				end = md.Len() + len(strings.TrimRight(out[stop], "*_~"))
 			}
 			ends = append(ends, end)
-			closed := hasCodeMark(items[stop].Marks) || hasMark(items[stop].Marks, "link") && strings.HasPrefix(out[stop], "[")
+			// A CommonMark autolink, "<a@b.co>", is closed like link text.
+			closed := hasCodeMark(items[stop].Marks) || hasMark(items[stop].Marks, "link") &&
+				(strings.HasPrefix(out[stop], "[") || strings.HasPrefix(out[stop], "<"))
 			for range len(out[stop]) {
 				noStart = append(noStart, closed)
 			}
@@ -485,10 +493,11 @@ func autolinkCrossings(items []jira4claude.ADFNode, out []string) []int {
 	return crossings
 }
 
-// bracketedURL writes a link whose text is its href in brackets rather than
-// as a bare URL. lineStart: the link begins a line.
-func bracketedURL(href string, lineStart bool) string {
-	return "[" + escapeText(href, textContext{inLink: true, lineStart: lineStart}) + "](" + linkDestination(href) + ")"
+// bracketedLink writes a link to href with text, and no other mark that is
+// written, in brackets rather than in an autolink form. lineStart: the link
+// begins a line.
+func bracketedLink(text, href string, lineStart bool) string {
+	return "[" + escapeText(text, textContext{inLink: true, lineStart: lineStart}) + "](" + linkDestination(href) + ")"
 }
 
 // linkDestination writes href as a CommonMark link destination that the
@@ -602,10 +611,10 @@ func fitDelimiter(items []jira4claude.ADFNode, out []string, edges []textEdges, 
 	if items[j].Type != "text" {
 		return true // inline nodes are written in brackets
 	}
-	if href, ok := bareURL(&items[j]); ok {
-		// A link written as its bare URL is written in brackets instead.
+	if _, href, ok := autolinkForm(&items[j]); ok {
+		// A link written in its autolink form is written in brackets instead.
 		edges[j].breakLinks = true
-		out[j] = bracketedURL(href, isLineStart(items, j))
+		out[j] = bracketedLink(items[j].Text, href, isLineStart(items, j))
 		return true
 	}
 	var r rune
@@ -617,20 +626,28 @@ func fitDelimiter(items []jira4claude.ADFNode, out []string, edges []textEdges, 
 	return fits(r)
 }
 
-// bareURL reports whether node is a link that applyMarks writes as its bare
-// URL (its text is its href and it has no other mark that is written),
-// returning the href.
-func bareURL(node *jira4claude.ADFNode) (string, bool) {
-	href := ""
+// autolinkForm reports whether node, a link with no other mark that is
+// written, may be written as an autolink, and returns that form: its text
+// bare when the text is its href, or "<text>" when the href is "mailto:" and
+// the text, an email address a CommonMark autolink takes whole. It also
+// returns the href. Where the form reads back is checked by renderLinks.
+func autolinkForm(node *jira4claude.ADFNode) (form, href string, ok bool) {
 	for _, m := range node.Marks {
 		switch {
 		case m.Type == "link":
 			href = linkHref(m)
 		case hasRenderedMark([]jira4claude.ADFMark{m}):
-			return "", false
+			return "", "", false
 		}
 	}
-	return href, href != "" && href == node.Text
+	switch {
+	case href != "" && href == node.Text:
+		return node.Text, href, true
+	case node.Text != "" && href == "mailto:"+node.Text &&
+		util.FindEmailIndex([]byte(node.Text)) == len(node.Text):
+		return "<" + node.Text + ">", href, true
+	}
+	return "", href, false
 }
 
 // checkMarksReadBack is the backstop described at the top of this file. md

@@ -309,9 +309,10 @@ func TestToMarkdown_ManyMarkedNodes(t *testing.T) {
 		// URLs each closed in angle brackets before the reference that
 		// writes the backslash before a hard break (#162).
 		"URLs before hard breaks": "see https://x.test/a\\",
-		// Links whose text is their href (#161): bare between blanks, bare
-		// emails, links that run into each other and are bracketed, and
-		// links Linkify would cut short, bracketed after a parse.
+		// Links whose text is their href (#161): bare between blanks,
+		// mailto links written as autolinks, links that run into each other
+		// and are bracketed, and links Linkify would cut short, bracketed
+		// after a parse.
 		"bare links":      "https://x.test/",
 		"bare emails":     "a@b.co",
 		"adjacent links":  "https://x.test/",
@@ -326,6 +327,11 @@ func TestToMarkdown_ManyMarkedNodes(t *testing.T) {
 				case name == "adjacent links":
 					href := text + strconv.Itoa(i%2)
 					inline[i] = hrefLink(href, href)
+				case name == "bare emails":
+					inline[i] = hrefLink(text, "mailto:"+text)
+					if i%2 == 1 {
+						inline[i] = textNode(" ")
+					}
 				case strings.HasPrefix(name, "bare ") || name == "links cut short":
 					inline[i] = hrefLink(text, text)
 					if i%2 == 1 {
@@ -395,6 +401,33 @@ func TestToMarkdown_LongToken(t *testing.T) {
 				assert.Less(t, time.Since(start), 60*time.Second, "markdown was %d bytes", len(md))
 			})
 		}
+	}
+}
+
+// TestToADF_LongLine bounds the write side's work for one long line:
+// Linkify tries an email at each word, and an email pattern that scanned the
+// rest of the line there made a line of ordinary words quadratic (#161).
+// Each case takes milliseconds; with that pattern, "words" took 7 s and
+// "many words", four times as long, would take about 2 minutes.
+func TestToADF_LongLine(t *testing.T) {
+	t.Parallel()
+
+	for name, line := range map[string]string{
+		"words":        strings.Repeat("word ", 16000),
+		"many words":   strings.Repeat("word ", 64000),
+		"addresses":    strings.Repeat("a@b.co ", 16000),
+		"at signs":     strings.Repeat("@", 64000),
+		"www starts":   strings.Repeat("www.a ", 16000),
+		"http starts":  strings.Repeat("http://a ", 16000),
+		"mixed starts": strings.Repeat("a@b.co www.a http://a (x@y.z ", 4000),
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			start := time.Now()
+			markdown.New().ToADF(line)
+			assert.Less(t, time.Since(start), 60*time.Second, "line was %d bytes", len(line))
+		})
 	}
 }
 

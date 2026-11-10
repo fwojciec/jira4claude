@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"reflect"
+	"regexp"
 	"slices"
 	"sort"
 	"strings"
@@ -98,12 +99,24 @@ func (s *skippedCollector) issues() []jira4claude.ConversionIssue {
 	return issues
 }
 
+// noEmail is an email pattern that matches nothing: Linkify links no bare
+// email address, as Jira links no typed one (#161). A CommonMark autolink,
+// <a@b.co>, still links one. goldmark tries it at each word against the
+// rest of the line, so it is anchored: it fails at the first position rather
+// than scanning the line, which would make a line of words quadratic.
+var noEmail = regexp.MustCompile(`^[^\x00-\x{10FFFF}]`)
+
+// linkifyOptions configure goldmark's Linkify the same way wherever it runs.
+func linkifyOptions() []extension.LinkifyOption {
+	return []extension.LinkifyOption{extension.WithLinkifyEmailRegexp(noEmail)}
+}
+
 // newMarkdownParser returns the goldmark parser used on write. The read side
 // also uses it to check its own output.
 func newMarkdownParser() parser.Parser {
 	return goldmark.New(
 		// GFM minus its strikethrough, which also strikes on a single tilde.
-		goldmark.WithExtensions(extension.Linkify, extension.Table, extension.TaskList),
+		goldmark.WithExtensions(extension.NewLinkify(linkifyOptions()...), extension.Table, extension.TaskList),
 		goldmark.WithParserOptions(
 			parser.WithAutoHeadingID(),
 			parser.WithInlineParsers(util.Prioritized(newStrikethroughParser(), 500)),
@@ -1169,13 +1182,19 @@ func convertInlineNode(node ast.Node, source []byte, marks []jira4claude.ADFMark
 		return nodes
 
 	case *ast.AutoLink:
-		url := string(n.URL(source))
-		attrs, _ := json.Marshal(map[string]any{"href": url})
+		// Only a CommonMark autolink, <a@b.co>, is an email autolink: it
+		// links to mailto: the address it shows.
+		label, href := string(n.URL(source)), string(n.URL(source))
+		if n.AutoLinkType == ast.AutoLinkEmail {
+			label = string(n.Label(source))
+			href = "mailto:" + label
+		}
+		attrs, _ := json.Marshal(map[string]any{"href": href})
 		newMark := jira4claude.ADFMark{
 			Type:  "link",
 			Attrs: attrs,
 		}
-		return []jira4claude.ADFNode{textNodeWithMarks(url, append(cloneMarks(marks), newMark), skipped)}
+		return []jira4claude.ADFNode{textNodeWithMarks(label, append(cloneMarks(marks), newMark), skipped)}
 
 	case *extast.Strikethrough:
 		newMarks := append(cloneMarks(marks), jira4claude.ADFMark{Type: "strike"})

@@ -295,16 +295,16 @@ func sanitizeLabel(s string) string {
 
 // escapeLabel escapes a label for Markdown. On top of the escaping of link
 // text, it keeps Linkify from turning part of the label into a link, which
-// would change the text: an "@" (email), the ":" of "http:", "https:" and
-// "ftp:", and the "." of "www.".
+// would change the text: the ":" of "http:", "https:" and "ftp:", and the
+// "." of "www.". Linkify links no email address (noEmail), so an "@" is left
+// as it is.
 func escapeLabel(label string) string {
 	s := escapeText(label, textContext{inLink: true})
 	var b strings.Builder
 	for i := 0; i < len(s); i++ {
 		c := s[i]
 		switch {
-		case c == '@',
-			c == ':' && (hasSuffixFold(s[:i], "http") || hasSuffixFold(s[:i], "https") || hasSuffixFold(s[:i], "ftp")),
+		case c == ':' && (hasSuffixFold(s[:i], "http") || hasSuffixFold(s[:i], "https") || hasSuffixFold(s[:i], "ftp")),
 			c == '.' && hasSuffixFold(s[:i], "www"):
 			b.WriteByte('\\')
 		}

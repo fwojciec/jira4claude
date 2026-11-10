@@ -172,7 +172,11 @@ func TestToMarkdown_OrdinaryLinkForms(t *testing.T) {
 		{"bare URL in parentheses", []jira4claude.ADFNode{
 			txt("(see "), hrefLink("https://example.com", "https://example.com"), txt(")"),
 		}, "(see https://example.com)"},
-		{"bare email", []jira4claude.ADFNode{txt("mail "), hrefLink("a@b.co", "a@b.co"), txt(" now")}, "mail a@b.co now"},
+		// An email in text is text, written as it is; a mailto link to it is
+		// a CommonMark autolink.
+		{"plain email", []jira4claude.ADFNode{txt("mail alice@example.com now")}, "mail alice@example.com now"},
+		{"email link", []jira4claude.ADFNode{txt("mail "), hrefLink("a@b.co", "mailto:a@b.co"), txt(" now")}, "mail <a@b.co> now"},
+		{"email link that is its href", []jira4claude.ADFNode{hrefLink("a@b.co", "a@b.co")}, "[a@b.co](a@b.co)"},
 		{"empty href", []jira4claude.ADFNode{hrefLink("text", "")}, "[text](<>)"},
 		{"href with a blank", []jira4claude.ADFNode{hrefLink("text", "a b")}, "[text](<a b>)"},
 	}
@@ -200,10 +204,14 @@ func TestRoundTrip_LinkWhoseTextIsItsHref(t *testing.T) {
 	tests := []struct {
 		name   string
 		inline []jira4claude.ADFNode
-		bare   bool // the link is written as its bare URL
+		bare   bool // the link is written as its bare URL or an autolink
 	}{
 		{"URL in a sentence", []jira4claude.ADFNode{txt("see "), self("https://x.test/a"), txt(" now")}, true},
-		{"email in a sentence", []jira4claude.ADFNode{txt("mail "), self("a@b.co"), txt(" now")}, true},
+		{"email in a sentence", []jira4claude.ADFNode{txt("mail "), self("a@b.co"), txt(" now")}, false},
+		{"mailto link in a sentence", []jira4claude.ADFNode{txt("mail "), hrefLink("a@b.co", "mailto:a@b.co"), txt(" now")}, true},
+		{"mailto link that is no autolink", []jira4claude.ADFNode{hrefLink("a b@c.co", "mailto:a b@c.co")}, false},
+		{"mailto link before code", []jira4claude.ADFNode{hrefLink("a@b.co", "mailto:a@b.co"), textNode("x", "code")}, true},
+		{"mailto link after a letter", []jira4claude.ADFNode{txt("a"), hrefLink("a@b.co", "mailto:a@b.co"), txt("b")}, true},
 		{"non-URL href", []jira4claude.ADFNode{txt("a "), self("0")}, false},
 		{"scheme only", []jira4claude.ADFNode{self("A0:")}, false},
 		{"email without a dot", []jira4claude.ADFNode{self("0@0")}, false},
@@ -256,7 +264,8 @@ func TestRoundTrip_LinkNeighbours(t *testing.T) {
 		hrefLink("l", "https://l.test"),
 	}
 	links := []jira4claude.ADFNode{
-		hrefLink("https://x.test", "https://x.test"), hrefLink("a@b.co", "a@b.co"), hrefLink("www.x.test", "www.x.test"),
+		hrefLink("https://x.test", "https://x.test"), hrefLink("a@b.co", "a@b.co"), hrefLink("a@b.co", "mailto:a@b.co"),
+		hrefLink("www.x.test", "www.x.test"),
 		hrefLink("http://www.x.test", "http://www.x.test"), hrefLink("https://x.test/*", "https://x.test/*"),
 		hrefLink("t", "https://x.test"), hrefLink("x", "x"),
 	}
@@ -382,6 +391,9 @@ func TestRoundTrip_EmailInUnderscoreEmphasis(t *testing.T) {
 		"linked em after strong": {
 			textNode("s", "strong"), hrefLink("a@b.co", "a@b.co", "em"), textNode(" x", "em"),
 		},
+		"mailto em after strong": {
+			textNode("s", "strong"), hrefLink("a@b.co", "mailto:a@b.co", "em"), textNode(" x", "em"),
+		},
 		"plain email after em": {textNode("e", "em"), txt("_a@b.co x_")},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -403,9 +415,10 @@ func roundTripsExactly(t *testing.T, doc *jira4claude.ADFNode) {
 	assert.Equal(t, doc, back, "read as %q", md)
 }
 
-// Text that is not a link stays text: where Linkify would read a URL or an
-// email address in it, the read keeps it from forming a link (the break mode
-// in escape.go), so a link appears only where ADF has one (#161).
+// Text that is not a link stays text: where Linkify would read a URL in it,
+// the read keeps it from forming a link (the break mode in escape.go), so a
+// link appears only where ADF has one (#161). The write side links no bare
+// email address, so one in text needs nothing.
 func TestRoundTrip_TextThatLooksLikeALinkStaysText(t *testing.T) {
 	t.Parallel()
 
@@ -418,8 +431,6 @@ func TestRoundTrip_TextThatLooksLikeALinkStaysText(t *testing.T) {
 		{"www URL", []jira4claude.ADFNode{txt("see www.x.test now")}},
 		{"email", []jira4claude.ADFNode{txt("mail a@b.co now")}},
 		{"email with punctuation", []jira4claude.ADFNode{txt("0!@0.0")}},
-		// Linkify takes no email right before "_", but the "_" is written
-		// escaped, and "\" does not stop it.
 		{"email before an underscore", []jira4claude.ADFNode{txt("0@0.0_")}},
 		{"email before an underscore in a sentence", []jira4claude.ADFNode{txt("mail a@b.co_ now")}},
 		{"URL after a parenthesis", []jira4claude.ADFNode{txt("(https://0.a")}},
@@ -431,11 +442,63 @@ func TestRoundTrip_TextThatLooksLikeALinkStaysText(t *testing.T) {
 		{"underlined URL", []jira4claude.ADFNode{textNode("https://x.test", "underline")}},
 		{"URL after a link", []jira4claude.ADFNode{hrefLink("a", "https://y.test"), txt("https://x.test")}},
 		{"URL after code", []jira4claude.ADFNode{textNode("c", "code"), txt("https://x.test")}},
+		{"email after a URL", []jira4claude.ADFNode{txt("https://x.co/a@b.co")}},
+		{"email after www", []jira4claude.ADFNode{txt("www.x.com/a@b.co")}},
+		{"email after a scheme", []jira4claude.ADFNode{txt("mailto:a@b.co")}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			roundTripsExactly(t, paragraphDoc(tt.inline...))
+		})
+	}
+}
+
+// An email address in text is written as it is: scripts grep and copy what
+// a read gives (#161).
+func TestToMarkdown_EmailInTextIsWrittenAsIs(t *testing.T) {
+	t.Parallel()
+
+	for _, text := range []string{
+		"mail alice@example.com now", "alice@example.com", "a_b@c.co", "mail a@b.co_x now", "to a@b.co, b@c.co",
+		"a@b.co.", "(a@b.co)",
+	} {
+		t.Run(text, func(t *testing.T) {
+			t.Parallel()
+
+			md, issues := markdown.New().ToMarkdown(paragraphDoc(txt(text)))
+			assert.Empty(t, issues)
+			assert.Equal(t, text, md)
+		})
+	}
+}
+
+// The write side links no bare email address: Jira does not link a typed
+// one either. A CommonMark autolink to an address is a mailto link, and an
+// address inside a URL stays part of that URL.
+func TestToADF_Email(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		md     string
+		inline []jira4claude.ADFNode
+	}{
+		{"mail a@b.co now", []jira4claude.ADFNode{txt("mail a@b.co now")}},
+		{"a@b.co", []jira4claude.ADFNode{txt("a@b.co")}},
+		{"<a@b.co>", []jira4claude.ADFNode{hrefLink("a@b.co", "mailto:a@b.co")}},
+		{"mail <a@b.co> now", []jira4claude.ADFNode{txt("mail "), hrefLink("a@b.co", "mailto:a@b.co"), txt(" now")}},
+		{"<mailto:a@b.co>", []jira4claude.ADFNode{hrefLink("mailto:a@b.co", "mailto:a@b.co")}},
+		// Linkify gives a www. URL an http:// scheme in its text and href.
+		{"www.x.com/a@b.co", []jira4claude.ADFNode{hrefLink("http://www.x.com/a@b.co", "http://www.x.com/a@b.co")}},
+		{"http://x.co/a@b.co", []jira4claude.ADFNode{hrefLink("http://x.co/a@b.co", "http://x.co/a@b.co")}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.md, func(t *testing.T) {
+			t.Parallel()
+
+			got, issues := markdown.New().ToADF(tt.md)
+			assert.Empty(t, issues)
+			assert.Equal(t, paragraphDoc(tt.inline...), got)
 		})
 	}
 }
