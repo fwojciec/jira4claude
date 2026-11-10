@@ -43,6 +43,8 @@ type IssueContext struct {
 	Printer     jira4claude.Printer
 	Converter   jira4claude.Converter
 	Config      *jira4claude.Config
+	// Stdin is read by a file flag given "-" (--description-file -).
+	Stdin io.Reader
 }
 
 // LinkContext provides dependencies for link commands.
@@ -104,10 +106,9 @@ func defaultDeps() Deps {
 }
 
 // Run executes the CLI with the given arguments (without the program name)
-// and streams, and returns the process exit code. The stdin parameter is
-// unnamed because no command reads standard input yet; it is part of the
-// signature so that callers and tests already pass it.
-func Run(args []string, _ io.Reader, stdout, stderr io.Writer, deps Deps) int {
+// and streams, and returns the process exit code. stdin is read only by a file
+// flag given "-".
+func Run(args []string, stdin io.Reader, stdout, stderr io.Writer, deps Deps) int {
 	var cli CLI
 	ctx, code, exited := parse(&cli, args, stdout, stderr, deps.Version)
 	if exited {
@@ -154,7 +155,7 @@ func Run(args []string, _ io.Reader, stdout, stderr io.Writer, deps Deps) int {
 
 	// Build contexts
 	conv := markdown.New()
-	issueCtx := &IssueContext{Service: svc, UserService: userSvc, Printer: printer, Converter: conv, Config: cfg}
+	issueCtx := &IssueContext{Service: svc, UserService: userSvc, Printer: printer, Converter: conv, Config: cfg, Stdin: stdin}
 	linkCtx := &LinkContext{Service: svc, Printer: printer, Config: cfg}
 
 	// Run command

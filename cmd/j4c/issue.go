@@ -211,16 +211,19 @@ func (c *IssueReadyCmd) Run(ctx *IssueContext) error {
 
 // IssueCreateCmd creates an issue.
 type IssueCreateCmd struct {
-	Project     string   `help:"Project key" short:"p"`
-	Type        string   `help:"Issue type" short:"t" default:"Task"`
-	Summary     string   `help:"Issue summary" short:"s" required:""`
-	Description string   `help:"Issue description" short:"d"`
-	Priority    string   `help:"Issue priority"`
-	Labels      []string `help:"Issue labels" short:"l"`
-	Parent      string   `help:"Parent issue key (pass --type=Sub-task explicitly for classic-project sub-tasks)" short:"P"`
-	Assignee    string   `help:"Assignee: 'me', email, or account ID" short:"A"`
-	FieldJSON   []string `name:"field-json" sep:"none" help:"Set field by ID, value is JSON (repeatable). Example: customfield_10801='{\"value\":\"High\"}'"`
-	Force       bool     `help:"Write even if Markdown conversion drops content (e.g. images); dropped content is reported as a warning"`
+	Project     string `help:"Project key" short:"p"`
+	Type        string `help:"Issue type" short:"t" default:"Task"`
+	Summary     string `help:"Issue summary" short:"s" required:""`
+	Description string `help:"Issue description" short:"d" xor:"description"`
+	// DescriptionFile is a pointer so that an empty path is an error, not
+	// the flag's absence.
+	DescriptionFile *string  `name:"description-file" placeholder:"PATH" help:"Read the description from this file, or from standard input for -: UTF-8, at most 1 MiB; a leading byte order mark and one trailing newline are removed, so the output of issue view KEY --field description can be passed back as it is" xor:"description"`
+	Priority        string   `help:"Issue priority"`
+	Labels          []string `help:"Issue labels" short:"l"`
+	Parent          string   `help:"Parent issue key (pass --type=Sub-task explicitly for classic-project sub-tasks)" short:"P"`
+	Assignee        string   `help:"Assignee: 'me', email, or account ID" short:"A"`
+	FieldJSON       []string `name:"field-json" sep:"none" help:"Set field by ID, value is JSON (repeatable). Example: customfield_10801='{\"value\":\"High\"}'"`
+	Force           bool     `help:"Write even if Markdown conversion drops content (e.g. images); dropped content is reported as a warning"`
 }
 
 // Run executes the create command.
@@ -230,11 +233,16 @@ func (c *IssueCreateCmd) Run(ctx *IssueContext) error {
 		project = ctx.Config.Project
 	}
 
-	// Convert description to ADF (plain text is valid GFM)
+	text, _, err := textInput{"description", &c.Description, "description-file", c.DescriptionFile}.read(ctx.Stdin)
+	if err != nil {
+		return err
+	}
+
+	// Convert description to ADF (plain text is valid GFM). An empty or
+	// blank text, inline or from a file, means no description.
 	var description *jira4claude.ADFNode
-	if c.Description != "" {
-		var err error
-		description, err = convertForWrite(ctx, "description", c.Description, c.Force)
+	if !blank(*text) {
+		description, err = convertForWrite(ctx, "description", *text, c.Force)
 		if err != nil {
 			return err
 		}
@@ -325,20 +333,22 @@ func rejectsAssigneeField(err error) bool {
 
 // IssueUpdateCmd updates an issue.
 type IssueUpdateCmd struct {
-	Key               string   `arg:"" help:"Issue key"`
-	Summary           *string  `help:"New summary" short:"s"`
-	Description       *string  `help:"Replace the description. Edit the Markdown issue view prints: each {{...}} token in it stands for an existing image, mention or other node that Markdown cannot carry, and is put back unchanged; leaving a token out is refused unless --force" short:"d" xor:"description"`
-	AppendDescription *string  `help:"Add text after the current description; the existing content is kept as it is, never converted" xor:"description"`
-	ClearDescription  bool     `help:"Remove the description; refused unless --force when it holds images, mentions or other nodes Markdown cannot carry" xor:"description"`
-	Priority          *string  `help:"New priority"`
-	Assignee          *string  `help:"Assignee: 'me', email, or account ID" short:"a"`
-	Labels            []string `help:"New labels" short:"l"`
-	ClearLabels       bool     `help:"Clear all labels" name:"clear-labels"`
-	Parent            *string  `help:"Parent issue key" short:"P" xor:"parent"`
-	ClearParent       bool     `help:"Remove from parent" name:"clear-parent" xor:"parent"`
-	FieldJSON         []string `name:"field-json" sep:"none" help:"Set field by ID, value is JSON (repeatable). Example: customfield_10801='{\"value\":\"High\"}'"`
-	IfUpdated         *string  `name:"if-updated" help:"Write only if the issue was last updated at this time, as issue view --json prints it in 'updated' (compared to the millisecond); otherwise exit 5 and write nothing. The check is made just before the write, so a change landing in between is not caught"`
-	Force             bool     `help:"Write even if content would be lost: new Markdown that does not convert (e.g. images), existing nodes whose tokens were left out, or a cleared description that holds them; what is lost is reported as a warning"`
+	Key                   string   `arg:"" help:"Issue key"`
+	Summary               *string  `help:"New summary" short:"s"`
+	Description           *string  `help:"Replace the description. Edit the Markdown issue view prints: each {{...}} token in it stands for an existing image, mention or other node that Markdown cannot carry, and is put back unchanged; leaving a token out is refused unless --force" short:"d" xor:"description"`
+	DescriptionFile       *string  `name:"description-file" placeholder:"PATH" help:"Read the new description (as --description) from this file, or from standard input for -: UTF-8, at most 1 MiB; a leading byte order mark and one trailing newline are removed, so the output of issue view KEY --field description can be passed back as it is. The guarded edit: issue view KEY --field description > d.md, edit d.md, then --description-file d.md --if-updated TIME" xor:"description"`
+	AppendDescription     *string  `help:"Add text after the current description; the existing content is kept as it is, never converted" xor:"description"`
+	AppendDescriptionFile *string  `name:"append-description-file" placeholder:"PATH" help:"Read the text to append (as --append-description) from this file, or from standard input for -: UTF-8, at most 1 MiB; a leading byte order mark and one trailing newline are removed, so the output of a command can be passed back as it is" xor:"description"`
+	ClearDescription      bool     `help:"Remove the description; refused unless --force when it holds images, mentions or other nodes Markdown cannot carry" xor:"description"`
+	Priority              *string  `help:"New priority"`
+	Assignee              *string  `help:"Assignee: 'me', email, or account ID" short:"a"`
+	Labels                []string `help:"New labels" short:"l"`
+	ClearLabels           bool     `help:"Clear all labels" name:"clear-labels"`
+	Parent                *string  `help:"Parent issue key" short:"P" xor:"parent"`
+	ClearParent           bool     `help:"Remove from parent" name:"clear-parent" xor:"parent"`
+	FieldJSON             []string `name:"field-json" sep:"none" help:"Set field by ID, value is JSON (repeatable). Example: customfield_10801='{\"value\":\"High\"}'"`
+	IfUpdated             *string  `name:"if-updated" help:"Write only if the issue was last updated at this time, as issue view --json prints it in 'updated' (compared to the millisecond); otherwise exit 5 and write nothing. The check is made just before the write, so a change landing in between is not caught"`
+	Force                 bool     `help:"Write even if content would be lost: new Markdown that does not convert (e.g. images), existing nodes whose tokens were left out, or a cleared description that holds them; what is lost is reported as a warning"`
 }
 
 // Run executes the update command. Every update reads the issue first: the
@@ -359,30 +369,32 @@ func (c *IssueUpdateCmd) Run(ctx *IssueContext) error {
 		}
 		ifUpdated = &t
 	}
+	set, setSource, err := textInput{"description", c.Description, "description-file", c.DescriptionFile}.read(ctx.Stdin)
+	if err != nil {
+		return err
+	}
+	appended, appendSource, err := textInput{"append-description", c.AppendDescription, "append-description-file", c.AppendDescriptionFile}.read(ctx.Stdin)
+	if err != nil {
+		return err
+	}
 	var edited, addition *jira4claude.ADFNode
 	var warnings []jira4claude.ConversionIssue
 	switch {
-	case c.Description != nil:
-		if *c.Description == "" {
-			return &jira4claude.Error{
-				Code:    jira4claude.EValidation,
-				Message: "--description cannot be empty; use --clear-description to remove the description",
-			}
+	case set != nil:
+		if blank(*set) {
+			return invalid(emptyMessage(setSource) + "; use --clear-description to remove the description")
 		}
 		// Plain text is valid GFM.
-		doc, issues, err := convert(ctx, "description", *c.Description, c.Force)
+		doc, issues, err := convert(ctx, "description", *set, c.Force)
 		if err != nil {
 			return err
 		}
 		edited, warnings = doc, issues
-	case c.AppendDescription != nil:
-		if *c.AppendDescription == "" {
-			return &jira4claude.Error{
-				Code:    jira4claude.EValidation,
-				Message: "--append-description cannot be empty",
-			}
+	case appended != nil:
+		if blank(*appended) {
+			return invalid(emptyMessage(appendSource))
 		}
-		doc, issues, err := convert(ctx, "description", *c.AppendDescription, c.Force)
+		doc, issues, err := convert(ctx, "description", *appended, c.Force)
 		if err != nil {
 			return err
 		}
@@ -657,15 +669,24 @@ func (c *IssueAssignCmd) Run(ctx *IssueContext) error {
 
 // IssueCommentCmd adds a comment.
 type IssueCommentCmd struct {
-	Key   string `arg:"" help:"Issue key"`
-	Body  string `help:"Comment body" short:"b" required:""`
-	Force bool   `help:"Write even if Markdown conversion drops content (e.g. images); dropped content is reported as a warning"`
+	Key      string  `arg:"" help:"Issue key"`
+	Body     string  `help:"Comment body" short:"b" required:"" xor:"body"`
+	BodyFile *string `name:"body-file" placeholder:"PATH" help:"Read the comment body from this file, or from standard input for -: UTF-8, at most 1 MiB; a leading byte order mark and one trailing newline are removed, so the output of a command can be passed back as it is" required:"" xor:"body"`
+	Force    bool    `help:"Write even if Markdown conversion drops content (e.g. images); dropped content is reported as a warning"`
 }
 
 // Run executes the comment command.
 func (c *IssueCommentCmd) Run(ctx *IssueContext) error {
+	text, source, err := textInput{"body", &c.Body, "body-file", c.BodyFile}.read(ctx.Stdin)
+	if err != nil {
+		return err
+	}
+	if blank(*text) {
+		return invalid(emptyMessage(source))
+	}
+
 	// Convert body to ADF (plain text is valid GFM)
-	body, err := convertForWrite(ctx, "comment body", c.Body, c.Force)
+	body, err := convertForWrite(ctx, "comment body", *text, c.Force)
 	if err != nil {
 		return err
 	}
@@ -712,6 +733,22 @@ func (c *IssueDeleteCommentCmd) Run(ctx *IssueContext) error {
 	result.CommentID = c.CommentID
 	ctx.Printer.Mutation(result)
 	return nil
+}
+
+// blank reports whether text holds nothing but spaces, tabs and line breaks,
+// which the converter turns into an empty document: such a text counts as
+// empty.
+func blank(text string) bool {
+	return strings.Trim(text, " \t\r\n") == ""
+}
+
+// emptyMessage says that the text from source, a flag as textInput.read names
+// it, is empty.
+func emptyMessage(source string) string {
+	if strings.Contains(source, " ") {
+		return source + " is empty"
+	}
+	return source + " cannot be empty"
 }
 
 // convertForWrite converts markdown to ADF for a write. Every conversion issue
