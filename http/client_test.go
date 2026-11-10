@@ -474,13 +474,31 @@ func newTestClient(t *testing.T, baseURL, username, password string, opts ...jir
 	netrcContent := fmt.Sprintf("machine %s\n  login %s\n  password %s\n", u.Host, username, password)
 	require.NoError(t, os.WriteFile(netrcPath, []byte(netrcContent), 0o600))
 
-	// Prepend netrc path option, then user options
-	allOpts := append([]jirahttp.Option{jirahttp.WithNetrcPath(netrcPath)}, opts...)
+	// Prepend netrc path option and a private transport, then user options.
+	allOpts := append([]jirahttp.Option{
+		jirahttp.WithNetrcPath(netrcPath),
+		jirahttp.WithHTTPClient(&http.Client{Transport: privateTransport(t)}),
+	}, opts...)
 
 	client, err := jirahttp.NewClient(baseURL, allOpts...)
 	require.NoError(t, err)
 
 	return client
+}
+
+// privateTransport returns a transport of the test's own. Tests must not
+// share http.DefaultTransport: every httptest.Server.Close calls its
+// CloseIdleConnections, which can break a keep-alive connection another
+// test is about to reuse ("http: CloseIdleConnections called"). The client
+// counts that as a transient failure and retries, so a test counting
+// requests sees more than it should (jir-dxpy).
+func privateTransport(t *testing.T) *http.Transport {
+	t.Helper()
+	tr, ok := http.DefaultTransport.(*http.Transport)
+	require.True(t, ok, "http.DefaultTransport is not an *http.Transport")
+	own := tr.Clone()
+	t.Cleanup(own.CloseIdleConnections)
+	return own
 }
 
 func TestClient_DoRequest_Retry(t *testing.T) {

@@ -317,7 +317,8 @@ func (c *Client) withoutRedirects() *Client {
 	return &cp
 }
 
-// maxStreamRedirects caps the redirects one Stream attempt follows.
+// maxStreamRedirects caps the redirects one Stream attempt follows. The cap
+// is per attempt: a retried attempt starts again from the first URL.
 const maxStreamRedirects = 5
 
 // maxErrorBodyBytes bounds how much of an error response Stream reads.
@@ -339,8 +340,12 @@ const maxErrorBodyBytes = 64 << 10
 //     one to plain http when the configured server uses https.
 //
 // GET is idempotent, so an attempt is retried with backoff, as in DoRequest,
-// on a connection error, 429 or 5xx, but only until the first byte reaches
-// w: w cannot be rewound, so a failure while copying is returned as it is.
+// on a connection error, 429 or 5xx, on any hop, but only until the first
+// byte reaches w: w cannot be rewound, so a failure while copying is
+// returned as it is. A retried attempt starts again from path and follows
+// the redirects again, so a server can see up to maxStreamRedirects+1
+// requests per attempt. Too many redirects, or a refused redirect, is not
+// transient and is never retried.
 //
 // No error that leaves Stream carries a URL the server supplied (a media
 // URL carries a signed query string). Requests go straight to the

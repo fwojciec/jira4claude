@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/fwojciec/jira4claude"
 	jirahttp "github.com/fwojciec/jira4claude/http"
@@ -59,6 +60,22 @@ func assertNoSecret(t *testing.T, err error, secret string) {
 		assert.NotContains(t, e.Error(), secret, "wrapped %T", e)
 		assert.NotContains(t, fmt.Sprintf("%+v", e), secret, "wrapped %T", e)
 	}
+}
+
+// failOnce is a RoundTripper that fails its at-th call with err, before
+// anything reaches the server, and passes every other call to next.
+type failOnce struct {
+	next  http.RoundTripper
+	at    int32
+	err   error
+	calls atomic.Int32
+}
+
+func (f *failOnce) RoundTrip(r *http.Request) (*http.Response, error) {
+	if f.calls.Add(1) == f.at {
+		return nil, f.err
+	}
+	return f.next.RoundTrip(r)
 }
 
 // redirectingJira answers every request with a 303 to location.
@@ -344,6 +361,36 @@ func TestAttachmentService_Download(t *testing.T) {
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "too many redirects")
 		assert.Equal(t, int32(6), requests.Load(), "the first request and 5 redirects, not retried")
+	})
+
+	// jir-dxpy: the cap holds per attempt. A transport error on a hop is
+	// transient, so the attempt is retried from the first URL; the server
+	// then sees the hops of the failed attempt and the 6 of the capped one.
+	// That is the 11 requests once seen in a full test run, where another
+	// test's httptest.Server.Close broke a shared keep-alive connection.
+	t.Run("a transport error mid-chain restarts the chain; the cap itself is not retried", func(t *testing.T) {
+		t.Parallel()
+
+		var requests atomic.Int32
+		var self string
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			n := requests.Add(1)
+			w.Header().Set("Location", self+"/loop/"+strconv.Itoa(int(n)))
+			w.WriteHeader(http.StatusFound)
+		}))
+		defer server.Close()
+		self = server.URL
+		rt := &failOnce{next: privateTransport(t), at: 6, err: errors.New("http: CloseIdleConnections called")}
+		svc := jirahttp.NewAttachmentService(newTestClient(t, server.URL, "user", "pass",
+			jirahttp.WithMaxRetries(3), jirahttp.WithRetryBaseDelay(time.Millisecond),
+			jirahttp.WithHTTPClient(&http.Client{Transport: rt})))
+
+		_, err := svc.Download(context.Background(), "10000", &bytes.Buffer{})
+
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "too many redirects")
+		assert.Equal(t, int32(5+6), requests.Load(), "5 hops, the failed sixth, then a whole capped attempt")
+		assert.Equal(t, int32(5+1+6), rt.calls.Load())
 	})
 
 	t.Run("a 404 is a not-found error with nothing written", func(t *testing.T) {
