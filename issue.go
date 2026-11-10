@@ -119,12 +119,73 @@ type IssueFilter struct {
 // For Parent: nil means no change, empty string means clear, non-empty means set.
 type IssueUpdate struct {
 	Summary      *string
-	Description  **ADFNode // nil = no change, non-nil = set; conversion from markdown happens at CLI boundary
+	Description  DescriptionUpdate // zero value = no change; conversion from markdown happens at CLI boundary
 	Priority     *string
 	Assignee     *string
 	Labels       *[]string
 	Parent       *string                    // nil = no change, "" = clear parent, "KEY" = set parent
 	CustomFields map[string]json.RawMessage // nil = no change
+}
+
+// DescriptionMode says what an update does to an issue's description.
+type DescriptionMode int
+
+// Description update modes. DescriptionKeep is the zero value.
+const (
+	DescriptionKeep   DescriptionMode = iota // leave the description unchanged
+	DescriptionSet                           // replace it with a new document
+	DescriptionAppend                        // add nodes after the current content
+	DescriptionClear                         // remove it
+)
+
+// DescriptionUpdate is the description part of an IssueUpdate. The zero value
+// keeps the description; the other modes are built with SetDescription,
+// AppendDescription and ClearDescription, so an append always carries the
+// current description it extends.
+type DescriptionUpdate struct {
+	mode DescriptionMode
+	doc  *ADFNode
+}
+
+// SetDescription replaces the description with doc.
+func SetDescription(doc *ADFNode) DescriptionUpdate {
+	return DescriptionUpdate{mode: DescriptionSet, doc: doc}
+}
+
+// AppendDescription adds the top-level nodes of addition after those of
+// current, the issue's description as read before the update. The current
+// nodes are kept as they are, never converted. When current is nil (the issue
+// has no description), the update is a set of addition.
+func AppendDescription(current, addition *ADFNode) DescriptionUpdate {
+	if current == nil {
+		return SetDescription(addition)
+	}
+	content := make([]ADFNode, 0, len(current.Content)+len(addition.Content))
+	content = append(content, current.Content...)
+	content = append(content, addition.Content...)
+	doc := *current
+	if doc.Version == 0 {
+		doc.Version = addition.Version
+	}
+	doc.Content = content
+	return DescriptionUpdate{mode: DescriptionAppend, doc: &doc}
+}
+
+// ClearDescription removes the description.
+func ClearDescription() DescriptionUpdate {
+	return DescriptionUpdate{mode: DescriptionClear}
+}
+
+// Mode reports what the update does to the description.
+func (u DescriptionUpdate) Mode() DescriptionMode {
+	return u.mode
+}
+
+// Document returns the full description to write for DescriptionSet and
+// DescriptionAppend (for an append, the current nodes followed by the new
+// ones). It is nil for DescriptionKeep and DescriptionClear.
+func (u DescriptionUpdate) Document() *ADFNode {
+	return u.doc
 }
 
 // IssueField describes a single settable field as reported by Jira's

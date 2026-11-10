@@ -138,7 +138,7 @@ Jira stores content in Atlassian Document Format (ADF), not markdown. This CLI h
 - **Storage**: CLI converts to ADF when sending to Jira API
 - **Output**: CLI converts ADF back to markdown when displaying
 
-Conversion problems are reported as `dropped` (content would be lost) or `degraded` (content kept in another form). On write, `issue create`, `issue update --description` and `issue comment` refuse with exit code 1 if any content would be dropped (for example a Markdown image), and write nothing; pass `--force` to write anyway, with the dropped content reported as a warning. `degraded` content, and anything unsupported when reading an issue, only produces a warning.
+Conversion problems are reported as `dropped` (content would be lost) or `degraded` (content kept in another form). On write, `issue create`, `issue update --description`/`--append-description` and `issue comment` refuse with exit code 1 if any content would be dropped (for example a Markdown image), and write nothing; pass `--force` to write anyway, with the dropped content reported as a warning. `degraded` content, and anything unsupported when reading an issue, only produces a warning.
 
 ## Commands
 
@@ -154,6 +154,8 @@ j4c issue list --jql="priority = High"     # Raw JQL query
 j4c issue ready                            # Issues with no blockers
 j4c issue create --summary="Title"         # Create issue
 j4c issue update PROJ-123 --priority=High  # Update issue
+j4c issue update PROJ-123 --append-description="More" # Add to description, keep the rest
+j4c issue update PROJ-123 --clear-description # Remove description
 j4c issue delete PROJ-123                  # Delete issue
 j4c issue delete PROJ-123 --delete-subtasks # Delete issue and its sub-tasks
 j4c issue transitions PROJ-123             # List available transitions

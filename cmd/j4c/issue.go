@@ -265,30 +265,55 @@ func rejectsAssigneeField(err error) bool {
 
 // IssueUpdateCmd updates an issue.
 type IssueUpdateCmd struct {
-	Key         string   `arg:"" help:"Issue key"`
-	Summary     *string  `help:"New summary" short:"s"`
-	Description *string  `help:"New description" short:"d"`
-	Priority    *string  `help:"New priority"`
-	Assignee    *string  `help:"Assignee: 'me', email, or account ID" short:"a"`
-	Labels      []string `help:"New labels" short:"l"`
-	ClearLabels bool     `help:"Clear all labels" name:"clear-labels"`
-	Parent      *string  `help:"Parent issue key" short:"P" xor:"parent"`
-	ClearParent bool     `help:"Remove from parent" name:"clear-parent" xor:"parent"`
-	FieldJSON   []string `name:"field-json" sep:"none" help:"Set field by ID, value is JSON (repeatable). Example: customfield_10801='{\"value\":\"High\"}'"`
-	Force       bool     `help:"Write even if Markdown conversion drops content (e.g. images); dropped content is reported as a warning"`
+	Key               string   `arg:"" help:"Issue key"`
+	Summary           *string  `help:"New summary" short:"s"`
+	Description       *string  `help:"Replace the description" short:"d" xor:"description"`
+	AppendDescription *string  `help:"Add text after the current description; the existing content is kept as it is, never converted" xor:"description"`
+	ClearDescription  bool     `help:"Remove the description" xor:"description"`
+	Priority          *string  `help:"New priority"`
+	Assignee          *string  `help:"Assignee: 'me', email, or account ID" short:"a"`
+	Labels            []string `help:"New labels" short:"l"`
+	ClearLabels       bool     `help:"Clear all labels" name:"clear-labels"`
+	Parent            *string  `help:"Parent issue key" short:"P" xor:"parent"`
+	ClearParent       bool     `help:"Remove from parent" name:"clear-parent" xor:"parent"`
+	FieldJSON         []string `name:"field-json" sep:"none" help:"Set field by ID, value is JSON (repeatable). Example: customfield_10801='{\"value\":\"High\"}'"`
+	Force             bool     `help:"Write even if Markdown conversion drops content (e.g. images); dropped content is reported as a warning"`
 }
 
 // Run executes the update command.
 func (c *IssueUpdateCmd) Run(ctx *IssueContext) error {
-	// Convert description to ADF (plain text is valid GFM). This runs first so
-	// a refusal happens before any service call, including assignee lookup.
-	var description **jira4claude.ADFNode
-	if c.Description != nil && *c.Description != "" {
+	// Validate and convert the description first, so a refusal happens before
+	// any service call, including assignee lookup.
+	var description jira4claude.DescriptionUpdate
+	var addition *jira4claude.ADFNode
+	switch {
+	case c.Description != nil:
+		if *c.Description == "" {
+			return &jira4claude.Error{
+				Code:    jira4claude.EValidation,
+				Message: "--description cannot be empty; use --clear-description to remove the description",
+			}
+		}
+		// Plain text is valid GFM.
 		adfDoc, err := convertForWrite(ctx, "description", *c.Description, c.Force)
 		if err != nil {
 			return err
 		}
-		description = &adfDoc
+		description = jira4claude.SetDescription(adfDoc)
+	case c.AppendDescription != nil:
+		if *c.AppendDescription == "" {
+			return &jira4claude.Error{
+				Code:    jira4claude.EValidation,
+				Message: "--append-description cannot be empty",
+			}
+		}
+		adfDoc, err := convertForWrite(ctx, "description", *c.AppendDescription, c.Force)
+		if err != nil {
+			return err
+		}
+		addition = adfDoc
+	case c.ClearDescription:
+		description = jira4claude.ClearDescription()
 	}
 
 	// Resolve assignee if provided
@@ -303,6 +328,17 @@ func (c *IssueUpdateCmd) Run(ctx *IssueContext) error {
 	customFields, err := ParseFieldJSON(c.FieldJSON)
 	if err != nil {
 		return err
+	}
+
+	if addition != nil {
+		// Append at the ADF level: the current nodes are sent back as read,
+		// never through Markdown. The read comes last to keep the window
+		// before the write short.
+		current, err := ctx.Service.Get(context.Background(), c.Key)
+		if err != nil {
+			return err
+		}
+		description = jira4claude.AppendDescription(current.Description, addition)
 	}
 
 	update := jira4claude.IssueUpdate{

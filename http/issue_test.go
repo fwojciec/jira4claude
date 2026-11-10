@@ -1591,7 +1591,7 @@ func TestIssueService_Update(t *testing.T) {
 		}
 
 		_, err := svc.Update(context.Background(), "TEST-1", jira4claude.IssueUpdate{
-			Description: &adfDoc,
+			Description: jira4claude.SetDescription(adfDoc),
 		})
 
 		require.NoError(t, err)
@@ -1655,7 +1655,7 @@ func TestIssueService_Update(t *testing.T) {
 		newPriority := "High"
 		result, err := svc.Update(context.Background(), "TEST-1", jira4claude.IssueUpdate{
 			Summary:     &newSummary,
-			Description: &newDescription,
+			Description: jira4claude.SetDescription(newDescription),
 			Priority:    &newPriority,
 		})
 
@@ -1862,6 +1862,167 @@ func TestIssueService_Update(t *testing.T) {
 		fields := receivedRequest["fields"].(map[string]any)
 		_, hasParent := fields["parent"]
 		assert.False(t, hasParent)
+	})
+}
+
+// richDescriptionNodes is the content of an ADF description with nodes the
+// Markdown converter cannot round-trip: media, a mention, a status, a mark
+// with attrs, and a node type this code does not know.
+const richDescriptionNodes = `[
+	{"type": "paragraph", "attrs": {"localId": "p-1"}, "content": [
+		{"type": "text", "text": "see <this> & that", "marks": [{"type": "link", "attrs": {"href": "https://example.com/?a=1&b=2"}}]},
+		{"type": "mention", "attrs": {"id": "5b10a2844c20165700ede21g", "text": "@John Doe", "accessLevel": ""}},
+		{"type": "status", "attrs": {"text": "IN PROGRESS", "color": "blue", "localId": "s-1"}}
+	]},
+	{"type": "mediaSingle", "attrs": {"layout": "center", "width": 50}, "content": [
+		{"type": "media", "attrs": {"id": "f00d-1234", "type": "file", "collection": "jira-10001", "width": 640, "height": 480}}
+	]},
+	{"type": "futureWidget", "attrs": {"payload": {"nested": [1, 2, 3]}}, "content": [
+		{"type": "text", "text": "inside"}
+	]}
+]`
+
+// descriptionUpdateServer serves GET with the given description JSON (or no
+// description when it is empty) and records the raw "fields" object of the PUT.
+func descriptionUpdateServer(t *testing.T, description string, putFields *map[string]json.RawMessage) *httptest.Server {
+	t.Helper()
+	descField := ""
+	if description != "" {
+		descField = `"description": ` + description + `,`
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodPut:
+			var body struct {
+				Fields map[string]json.RawMessage `json:"fields"`
+			}
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			*putFields = body.Fields
+			w.WriteHeader(http.StatusNoContent)
+		case http.MethodGet:
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"key": "TEST-1", "fields": {` + descField + `"project": {"key": "TEST"}, "summary": "S", "status": {"name": "To Do"}, "issuetype": {"name": "Task"}}}`))
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	t.Cleanup(server.Close)
+	return server
+}
+
+func TestIssueService_Update_Description(t *testing.T) {
+	t.Parallel()
+
+	t.Run("keep sends no description field", func(t *testing.T) {
+		t.Parallel()
+
+		var putFields map[string]json.RawMessage
+		server := descriptionUpdateServer(t, "", &putFields)
+		svc := jirahttp.NewIssueService(newTestClient(t, server.URL, "user@example.com", "api-token"))
+
+		summary := "S"
+		_, err := svc.Update(context.Background(), "TEST-1", jira4claude.IssueUpdate{Summary: &summary})
+
+		require.NoError(t, err)
+		_, has := putFields["description"]
+		assert.False(t, has)
+	})
+
+	t.Run("clear sends a null description", func(t *testing.T) {
+		t.Parallel()
+
+		var putFields map[string]json.RawMessage
+		server := descriptionUpdateServer(t, "", &putFields)
+		svc := jirahttp.NewIssueService(newTestClient(t, server.URL, "user@example.com", "api-token"))
+
+		_, err := svc.Update(context.Background(), "TEST-1", jira4claude.IssueUpdate{
+			Description: jira4claude.ClearDescription(),
+		})
+
+		require.NoError(t, err)
+		desc, has := putFields["description"]
+		require.True(t, has, "description must be present in the PUT body")
+		assert.JSONEq(t, `null`, string(desc))
+	})
+
+	t.Run("clear sends a null description alongside custom fields", func(t *testing.T) {
+		t.Parallel()
+
+		var putFields map[string]json.RawMessage
+		server := descriptionUpdateServer(t, "", &putFields)
+		svc := jirahttp.NewIssueService(newTestClient(t, server.URL, "user@example.com", "api-token"))
+
+		_, err := svc.Update(context.Background(), "TEST-1", jira4claude.IssueUpdate{
+			Description:  jira4claude.ClearDescription(),
+			CustomFields: map[string]json.RawMessage{"customfield_1": json.RawMessage(`"x"`)},
+		})
+
+		require.NoError(t, err)
+		desc, has := putFields["description"]
+		require.True(t, has, "description must be present in the PUT body")
+		assert.JSONEq(t, `null`, string(desc))
+		assert.JSONEq(t, `"x"`, string(putFields["customfield_1"]))
+	})
+
+	t.Run("append sends the existing nodes as read, then the new nodes", func(t *testing.T) {
+		t.Parallel()
+
+		var putFields map[string]json.RawMessage
+		server := descriptionUpdateServer(t, `{"type": "doc", "version": 1, "content": `+richDescriptionNodes+`}`, &putFields)
+		svc := jirahttp.NewIssueService(newTestClient(t, server.URL, "user@example.com", "api-token"))
+
+		current, err := svc.Get(context.Background(), "TEST-1")
+		require.NoError(t, err)
+		addition := &jira4claude.ADFNode{Type: "doc", Version: 1, Content: []jira4claude.ADFNode{{
+			Type:    "paragraph",
+			Content: []jira4claude.ADFNode{{Type: "text", Text: "appended"}},
+		}}}
+
+		_, err = svc.Update(context.Background(), "TEST-1", jira4claude.IssueUpdate{
+			Description: jira4claude.AppendDescription(current.Description, addition),
+		})
+
+		require.NoError(t, err)
+		var sent struct {
+			Type    string            `json:"type"`
+			Version int               `json:"version"`
+			Content []json.RawMessage `json:"content"`
+		}
+		require.NoError(t, json.Unmarshal(putFields["description"], &sent))
+		assert.Equal(t, "doc", sent.Type)
+		assert.Equal(t, 1, sent.Version)
+		var existing []json.RawMessage
+		require.NoError(t, json.Unmarshal([]byte(richDescriptionNodes), &existing))
+		require.Len(t, sent.Content, len(existing)+1)
+		for i, node := range existing {
+			assert.JSONEq(t, string(node), string(sent.Content[i]), "existing node %d", i)
+		}
+		assert.JSONEq(t, `{"type": "paragraph", "content": [{"type": "text", "text": "appended"}]}`, string(sent.Content[len(existing)]))
+	})
+
+	t.Run("append to an issue with no description sends only the new nodes", func(t *testing.T) {
+		t.Parallel()
+
+		var putFields map[string]json.RawMessage
+		server := descriptionUpdateServer(t, "", &putFields)
+		svc := jirahttp.NewIssueService(newTestClient(t, server.URL, "user@example.com", "api-token"))
+
+		current, err := svc.Get(context.Background(), "TEST-1")
+		require.NoError(t, err)
+		require.Nil(t, current.Description)
+		addition := &jira4claude.ADFNode{Type: "doc", Version: 1, Content: []jira4claude.ADFNode{{
+			Type:    "paragraph",
+			Content: []jira4claude.ADFNode{{Type: "text", Text: "appended"}},
+		}}}
+
+		_, err = svc.Update(context.Background(), "TEST-1", jira4claude.IssueUpdate{
+			Description: jira4claude.AppendDescription(current.Description, addition),
+		})
+
+		require.NoError(t, err)
+		assert.JSONEq(t,
+			`{"type": "doc", "version": 1, "content": [{"type": "paragraph", "content": [{"type": "text", "text": "appended"}]}]}`,
+			string(putFields["description"]))
 	})
 }
 

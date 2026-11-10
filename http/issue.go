@@ -225,8 +225,23 @@ func (s *IssueService) Update(ctx context.Context, key string, update jira4claud
 	if update.Summary != nil {
 		reqBody.Fields.Summary = update.Summary
 	}
-	if update.Description != nil {
-		reqBody.Fields.Description = *update.Description
+	switch update.Description.Mode() {
+	case jira4claude.DescriptionKeep:
+	case jira4claude.DescriptionSet, jira4claude.DescriptionAppend:
+		// For an append, Document is already the current nodes followed by
+		// the new ones (see jira4claude.AppendDescription).
+		reqBody.Fields.Description = update.Description.Document()
+	case jira4claude.DescriptionClear:
+		// Atlassian's OpenAPI spec types "fields" as a free-form object and
+		// does not say how to empty description. JSON null is what this client
+		// already sends to clear assignee and parent, but for description it
+		// is unverified against a live site.
+		reqBody.Fields.Description = json.RawMessage("null")
+	default:
+		return nil, &jira4claude.Error{
+			Code:    jira4claude.EInternal,
+			Message: fmt.Sprintf("unknown description update mode %d", update.Description.Mode()),
+		}
 	}
 	if update.Priority != nil {
 		reqBody.Fields.Priority = &priorityRef{Name: *update.Priority}

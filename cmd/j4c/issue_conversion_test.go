@@ -138,6 +138,26 @@ func TestIssueCreateCmd_DroppedContent(t *testing.T) {
 func TestIssueUpdateCmd_DroppedContent(t *testing.T) {
 	t.Parallel()
 
+	t.Run("refuses an append that drops an image and makes no service call", func(t *testing.T) {
+		t.Parallel()
+
+		// Zero-value mock panics on any call, including the Get for the append.
+		printer := &mock.Printer{}
+		ctx := &main.IssueContext{
+			Service:   &mock.IssueService{},
+			Printer:   printer,
+			Converter: markdown.New(),
+			Config:    &jira4claude.Config{Project: "TEST"},
+		}
+		text := imageMarkdown
+		cmd := main.IssueUpdateCmd{Key: "TEST-1", AppendDescription: &text}
+
+		err := cmd.Run(ctx)
+
+		assertDroppedImageRefusal(t, err)
+		assert.Empty(t, printer.SuccessCalls)
+	})
+
 	t.Run("refuses a description that drops an image and makes no service call", func(t *testing.T) {
 		t.Parallel()
 

@@ -733,9 +733,10 @@ func TestIssueUpdateCmd(t *testing.T) {
 		err := cmd.Run(ctx)
 
 		require.NoError(t, err)
-		require.NotNil(t, capturedUpdate.Description)
+		assert.Equal(t, jira4claude.DescriptionSet, capturedUpdate.Description.Mode())
+		require.NotNil(t, capturedUpdate.Description.Document())
 		// Description should be ADF
-		assert.Equal(t, "doc", (*capturedUpdate.Description).Type)
+		assert.Equal(t, "doc", capturedUpdate.Description.Document().Type)
 	})
 
 	t.Run("plain text input is valid GFM", func(t *testing.T) {
@@ -761,12 +762,56 @@ func TestIssueUpdateCmd(t *testing.T) {
 		err := cmd.Run(ctx)
 
 		require.NoError(t, err)
-		require.NotNil(t, capturedUpdate.Description)
+		assert.Equal(t, jira4claude.DescriptionSet, capturedUpdate.Description.Mode())
+		require.NotNil(t, capturedUpdate.Description.Document())
 		// Plain text is valid GFM and should be converted to ADF
-		assert.Equal(t, "doc", (*capturedUpdate.Description).Type)
+		assert.Equal(t, "doc", capturedUpdate.Description.Document().Type)
 	})
 
-	t.Run("skips conversion when description is empty", func(t *testing.T) {
+	t.Run("empty description is a validation error and makes no service call", func(t *testing.T) {
+		t.Parallel()
+
+		// Zero-value mocks panic on any call, so reaching a service fails the test.
+		printer := &mock.Printer{}
+		ctx := &main.IssueContext{
+			Service:     &mock.IssueService{},
+			UserService: &mock.UserService{},
+			Printer:     printer,
+			Converter:   mockConverter(),
+			Config:      &jira4claude.Config{Project: "TEST", Server: "https://test.atlassian.net"},
+		}
+		description := ""
+		assignee := "me"
+		cmd := main.IssueUpdateCmd{Key: "TEST-1", Description: &description, Assignee: &assignee}
+		err := cmd.Run(ctx)
+
+		require.Error(t, err)
+		assert.Equal(t, jira4claude.EValidation, jira4claude.ErrorCode(err))
+		assert.Contains(t, err.Error(), "--clear-description")
+		assert.Empty(t, printer.SuccessCalls)
+	})
+
+	t.Run("empty append is a validation error and makes no service call", func(t *testing.T) {
+		t.Parallel()
+
+		printer := &mock.Printer{}
+		ctx := &main.IssueContext{
+			Service:     &mock.IssueService{},
+			UserService: &mock.UserService{},
+			Printer:     printer,
+			Converter:   mockConverter(),
+			Config:      &jira4claude.Config{Project: "TEST", Server: "https://test.atlassian.net"},
+		}
+		text := ""
+		cmd := main.IssueUpdateCmd{Key: "TEST-1", AppendDescription: &text}
+		err := cmd.Run(ctx)
+
+		require.Error(t, err)
+		assert.Equal(t, jira4claude.EValidation, jira4claude.ErrorCode(err))
+		assert.Empty(t, printer.SuccessCalls)
+	})
+
+	t.Run("keeps description when no description flag is given", func(t *testing.T) {
 		t.Parallel()
 
 		var capturedUpdate jira4claude.IssueUpdate
@@ -776,7 +821,30 @@ func TestIssueUpdateCmd(t *testing.T) {
 				return makeIssue(key), nil
 			},
 		}
+		ctx := &main.IssueContext{
+			Service:   svc,
+			Printer:   &mock.Printer{},
+			Converter: mockConverter(),
+			Config:    &jira4claude.Config{Project: "TEST", Server: "https://test.atlassian.net"},
+		}
+		summary := "new summary"
+		cmd := main.IssueUpdateCmd{Key: "TEST-1", Summary: &summary}
+		err := cmd.Run(ctx)
 
+		require.NoError(t, err)
+		assert.Equal(t, jira4claude.DescriptionKeep, capturedUpdate.Description.Mode())
+	})
+
+	t.Run("clear-description sends an empty description", func(t *testing.T) {
+		t.Parallel()
+
+		var capturedUpdate jira4claude.IssueUpdate
+		svc := &mock.IssueService{
+			UpdateFn: func(ctx context.Context, key string, update jira4claude.IssueUpdate) (*jira4claude.Issue, error) {
+				capturedUpdate = update
+				return makeIssue(key), nil
+			},
+		}
 		printer := &mock.Printer{}
 		ctx := &main.IssueContext{
 			Service:   svc,
@@ -784,13 +852,120 @@ func TestIssueUpdateCmd(t *testing.T) {
 			Converter: mockConverter(),
 			Config:    &jira4claude.Config{Project: "TEST", Server: "https://test.atlassian.net"},
 		}
-		description := ""
-		cmd := main.IssueUpdateCmd{Key: "TEST-1", Description: &description}
+		cmd := main.IssueUpdateCmd{Key: "TEST-1", ClearDescription: true}
 		err := cmd.Run(ctx)
 
 		require.NoError(t, err)
-		// Empty description is not converted - nil is passed
-		assert.Nil(t, capturedUpdate.Description)
+		assert.Equal(t, jira4claude.DescriptionClear, capturedUpdate.Description.Mode())
+		assert.Nil(t, capturedUpdate.Description.Document())
+		require.Len(t, printer.SuccessCalls, 1)
+	})
+
+	t.Run("append-description sends the existing nodes unchanged followed by the new nodes", func(t *testing.T) {
+		t.Parallel()
+
+		existing := []jira4claude.ADFNode{
+			{Type: "paragraph", Content: []jira4claude.ADFNode{{Type: "text", Text: "old"}}},
+			{Type: "mediaSingle", Attrs: json.RawMessage(`{"layout":"center"}`), Content: []jira4claude.ADFNode{
+				{Type: "media", Attrs: json.RawMessage(`{"id":"abc","type":"file","collection":"c"}`)},
+			}},
+			{Type: "paragraph", Content: []jira4claude.ADFNode{
+				{Type: "mention", Attrs: json.RawMessage(`{"id":"u1","text":"@Jane"}`)},
+			}},
+		}
+		var capturedUpdate jira4claude.IssueUpdate
+		var getKey string
+		svc := &mock.IssueService{
+			GetFn: func(ctx context.Context, key string) (*jira4claude.Issue, error) {
+				getKey = key
+				issue := makeIssue(key)
+				issue.Description = &jira4claude.ADFNode{Type: "doc", Version: 1, Content: existing}
+				return issue, nil
+			},
+			UpdateFn: func(ctx context.Context, key string, update jira4claude.IssueUpdate) (*jira4claude.Issue, error) {
+				capturedUpdate = update
+				return makeIssue(key), nil
+			},
+		}
+		conv := mockConverter()
+		conv.ToMarkdownFn = func(adf *jira4claude.ADFNode) (string, []jira4claude.ConversionIssue) {
+			t.Error("existing description must not be converted to Markdown")
+			return "", nil
+		}
+		printer := &mock.Printer{}
+		ctx := &main.IssueContext{
+			Service:   svc,
+			Printer:   printer,
+			Converter: conv,
+			Config:    &jira4claude.Config{Project: "TEST", Server: "https://test.atlassian.net"},
+		}
+		text := "new"
+		cmd := main.IssueUpdateCmd{Key: "TEST-1", AppendDescription: &text}
+		err := cmd.Run(ctx)
+
+		require.NoError(t, err)
+		assert.Equal(t, "TEST-1", getKey)
+		assert.Equal(t, jira4claude.DescriptionAppend, capturedUpdate.Description.Mode())
+		doc := capturedUpdate.Description.Document()
+		require.NotNil(t, doc)
+		assert.Equal(t, "doc", doc.Type)
+		want := append(append([]jira4claude.ADFNode{}, existing...),
+			jira4claude.ADFNode{Type: "paragraph", Content: []jira4claude.ADFNode{{Type: "text", Text: "new"}}})
+		assert.Equal(t, want, doc.Content)
+		require.Len(t, printer.SuccessCalls, 1)
+	})
+
+	t.Run("append-description to an issue with no description behaves like set", func(t *testing.T) {
+		t.Parallel()
+
+		var capturedUpdate jira4claude.IssueUpdate
+		svc := &mock.IssueService{
+			GetFn: func(ctx context.Context, key string) (*jira4claude.Issue, error) {
+				return makeIssue(key), nil // no description
+			},
+			UpdateFn: func(ctx context.Context, key string, update jira4claude.IssueUpdate) (*jira4claude.Issue, error) {
+				capturedUpdate = update
+				return makeIssue(key), nil
+			},
+		}
+		ctx := &main.IssueContext{
+			Service:   svc,
+			Printer:   &mock.Printer{},
+			Converter: mockConverter(),
+			Config:    &jira4claude.Config{Project: "TEST", Server: "https://test.atlassian.net"},
+		}
+		text := "new"
+		cmd := main.IssueUpdateCmd{Key: "TEST-1", AppendDescription: &text}
+		err := cmd.Run(ctx)
+
+		require.NoError(t, err)
+		assert.Equal(t, jira4claude.DescriptionSet, capturedUpdate.Description.Mode())
+		want, _ := mockConverter().ToADF("new")
+		assert.Equal(t, want, capturedUpdate.Description.Document())
+	})
+
+	t.Run("append-description returns the error when reading the issue fails", func(t *testing.T) {
+		t.Parallel()
+
+		svc := &mock.IssueService{
+			GetFn: func(ctx context.Context, key string) (*jira4claude.Issue, error) {
+				return nil, errors.New("get failed")
+			},
+		}
+		printer := &mock.Printer{}
+		ctx := &main.IssueContext{
+			Service:   svc,
+			Printer:   printer,
+			Converter: mockConverter(),
+			Config:    &jira4claude.Config{Project: "TEST", Server: "https://test.atlassian.net"},
+		}
+		text := "new"
+		cmd := main.IssueUpdateCmd{Key: "TEST-1", AppendDescription: &text}
+		err := cmd.Run(ctx)
+
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "get failed")
+		assert.Empty(t, printer.SuccessCalls)
 	})
 
 	t.Run("sets parent when parent flag provided", func(t *testing.T) {

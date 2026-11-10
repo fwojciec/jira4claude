@@ -640,6 +640,36 @@ func TestRun_UsageError(t *testing.T) {
 	})
 }
 
+func TestRun_IssueUpdateDescriptionFlags(t *testing.T) {
+	t.Parallel()
+
+	t.Run("empty description exits 1 and makes no service call", func(t *testing.T) {
+		t.Parallel()
+
+		// Zero-value mocks panic on any call.
+		res := runCLI(t, testDeps(&mock.IssueService{}, &mock.UserService{}), "issue", "update", "TEST-1", "--description=")
+
+		assert.Equal(t, 1, res.code)
+		assert.Empty(t, res.stdout)
+		assert.Contains(t, res.stderr, "--clear-description")
+	})
+
+	for _, args := range [][]string{
+		{"--description=x", "--clear-description"},
+		{"--description=x", "--append-description=y"},
+		{"--append-description=y", "--clear-description"},
+	} {
+		t.Run(strings.Join(args, " ")+" are mutually exclusive", func(t *testing.T) {
+			t.Parallel()
+
+			res := runCLI(t, unreachableDeps(t), append([]string{"issue", "update", "TEST-1"}, args...)...)
+
+			assert.Equal(t, 80, res.code)
+			assert.Contains(t, res.stderr, "can't be used together")
+		})
+	}
+}
+
 func TestRun_HelpAndVersion(t *testing.T) {
 	t.Parallel()
 
