@@ -110,6 +110,33 @@ The CLI refuses a write with any `dropped` issue (exit 1) unless `--force`.
 - **`<details>` (F6):** the sibling scan keeps a depth count. ADF cannot nest `expand`, so an inner block is flattened into the outer one and reported as `degraded`.
 - **Images:** a new `![alt](url)` on write is `dropped` and therefore refused until new embeds exist. Existing media, including media with an external URL, uses the tokens in 1.4.
 
+Found while fixing the above or by the fuzz properties, all in the same milestone:
+
+| Issue | Fix |
+|-------|-----|
+| #152 | A hard break after an inline element is kept. |
+| #153 | Text is decoded on write and minimally escaped on read (`markdown/escape.go`), so literal Markdown characters in Jira text survive a round trip. Edge blanks read as `&#32;`/`&#9;`; a hard break reads as backslash-newline. |
+| #154 | An indented code block becomes a `codeBlock`. |
+| #155 | A non-`<details>` HTML block becomes a literal paragraph instead of vanishing. |
+| #156 | Block content in a task item: paragraphs are flattened (`degraded`), a nested task list becomes a sibling `taskList`, code, tables and rules are `dropped`. |
+| #157 | Containers on read: blank line between block children, continuation indent by marker width, `>` prefix, nested task lists rendered. |
+| #158 | Adjacent lists must not merge on read; an empty list item must re-parse. |
+| #159 | Marks: edge whitespace, adjacent marks, duplicate marks, canonical mark order. |
+| #160 | Code: backticks in spans and fences, language with trailing tab, newline in a code span. |
+| #161 | Links: hrefs needing escapes, text equal to href, empty href, autolinks re-gained on read. |
+| #162 | Unusual input: lone CR, control-character entities, invalid UTF-8, table delimiter row after a hard break. |
+
+`TestPropertyKnownFailures` holds the minimised inputs for #158 to #162 as
+skipped cases (`J4C_KNOWN_FAILURES=1` runs them). Each fix moves its cases into
+the fuzz seed corpus. The milestone is done when the table is empty and
+`FuzzToADFFixedPoint` runs clean.
+
+Visible consequences for the release notes: more writes are refused (raw
+constructs that used to be dropped silently); `\<` and `&#32;` can appear in
+`issue view`; `<br>` and HTML comments appear as text; a table in a list item is
+flattened with a `degraded` warning; `list --json` and `ready --json` return
+`{"issues": [...], "truncated": bool}`.
+
 #### 1.4 Guarded description update
 
 `ToADF` sees only the new Markdown. It cannot know that the ticket's current
@@ -250,7 +277,10 @@ Referencing an uploaded file from Markdown, for example
 |----------|---------|-------------------------------|
 | Does Jira accept a `media` node echoed back unchanged? | 1.4 | Refuse edits of descriptions that contain media |
 | Does the create payload accept `assignee` on team-managed and company-managed projects? | 1.6 | Create-then-assign with explicit reporting |
-| Exact pagination fields of `/search/jql` | 1.7 | None needed; adjust field names |
+| Exact pagination fields of `/search/jql` (`isLast`, `nextPageToken` taken from Atlassian's OpenAPI document) | 1.7 | None needed; adjust field names |
+| Does create accept `"assignee": {"id": accountId}`? | 1.6 | The create-then-assign fallback already runs on a 400 naming `assignee` |
+| Does `"description": null` clear a description? | `--clear-description` | Send an empty ADF document |
+| Does Jira accept the empty-paragraph placeholder in empty list items, table cells and panels? | 1.3 | Emit a paragraph holding one space |
 | Do comments or transitions change an issue's `updated` value? | 1.4 | Document that `--if-updated` can report a conflict after any activity |
 | Redirect status and auth of `/attachment/content/{id}` | M3 | Use `redirect=false` |
 | Do ADF media IDs match attachment IDs? | Follow-up | Join by filename |
