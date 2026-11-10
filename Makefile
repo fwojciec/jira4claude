@@ -1,4 +1,4 @@
-.PHONY: validate test lint fmt vet tidy build help ready
+.PHONY: validate test lint fmt vet tidy build help
 
 ## Primary target - run before completing any task
 validate: fmt vet tidy lint test ## Run all validation checks
@@ -27,13 +27,6 @@ vet: ## Run go vet
 ## Tidy
 tidy: ## Ensure go.mod is tidy
 	@go mod tidy
-
-## Beads workflow
-ready: ## Show tasks with no blockers
-	@bd ready
-
-list: ## List all beads tasks
-	@bd list
 
 ## Help
 help: ## Show this help

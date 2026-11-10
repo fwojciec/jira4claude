@@ -15,28 +15,22 @@ Strategic guidance for LLMs working with this codebase.
 - **Minimal scope** - only commands agents actually need (~8 endpoints, not 417)
 - **Process over polish** - systematic validation results in quality
 
-## Workflows
+## Workflow
 
-| Command | Purpose |
-|---------|---------|
-| `/work` | Pick a GitHub issue, implement with TDD, review, create PR |
-| `/address-pr-comments` | Fetch, evaluate, and respond to PR feedback |
-| `./ralph.sh "<milestone>"` | Autonomous milestone execution loop |
-| `/ralph-iterate` | Single iteration of the Ralph loop (called by `ralph.sh`) |
-| `/retrospective` | Post-milestone analysis, learnings capture |
+`make validate` is the quality gate (fmt, vet, tidy, lint, race tests). There is no CI on
+branches, so a change is done only when the gate is green on the tree that will be `main`.
 
-**Quick reference**:
-```bash
-make validate     # Quality gate - run before completing any task
-```
+**New work**:
+1. Research the problem; for anything beyond a small fix, write a design doc to `docs/plans/`.
+2. Use the `gh-workflow` skill to create issues, with dependencies, in a milestone. The
+   issue body is the contract.
+3. Implement each issue on a local branch (a worktree when several run in parallel), tests first.
+4. Review the diff against the issue's validation requirements.
+5. Rebase onto `main`, run `make validate`, merge to `main`, push, close the issue with the
+   commit reference.
 
-**Planning workflow** (mandatory for new work):
-1. Research the problem
-2. Use `/brainstorm` to refine into design
-3. Write design doc to `docs/plans/`
-4. Use `gh-workflow` skill to create issues with dependencies in a milestone
-5. Run `./ralph.sh "<milestone>"` for autonomous execution
-6. Run `/retrospective` after milestone completes
+No pull requests for routine work: local validation is the gate. Pull requests are for
+outside contributions.
 
 ## Architecture Patterns
 
@@ -70,12 +64,6 @@ When uncertain about where code belongs, use the `go-standard-package-layout` sk
 - Deciding where code belongs
 - Naming packages or files
 - Writing mocks in `mock/`
-
-### Development (invoked automatically by `/work`)
-
-- **`superpowers:test-driven-development`** - Write test first, watch it fail, implement
-- **`superpowers:systematic-debugging`** - Understand root cause before fixing
-- **`superpowers:verification-before-completion`** - Evidence before assertions
 
 ## Test Philosophy
 
@@ -141,5 +129,4 @@ This project has the `cclsp` MCP configured, providing Go language server integr
 
 ## Reference Documentation
 
-- `.claude/commands/` - Workflow commands
 - `docs/design.md` - Architecture and API design
