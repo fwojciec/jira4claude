@@ -1,0 +1,316 @@
+package markdown_test
+
+import (
+	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
+	"testing"
+
+	jira4claude "github.com/fwojciec/jira4claude"
+	"github.com/fwojciec/jira4claude/markdown"
+	"github.com/stretchr/testify/require"
+)
+
+// Converter properties (#147).
+//
+// P1, schema validity: for any Markdown input, ToADF gives ADF that passes
+// the embedded ADF schema.
+//
+// P2, fixed point: Markdown -> ADF (adf1) -> Markdown -> ADF (adf2) gives
+// adf1 == adf2, compared as the JSON that Jira receives, with a fixed localId
+// source. A difference is excused only when one of the two conversions in
+// between reports an issue (dropped or degraded, any node):
+//
+//   - the read, adf1 -> Markdown: the reader saying "this does not round-trip";
+//   - the second write, Markdown -> adf2: the writer saying it could not carry
+//     the reader's Markdown over.
+//
+// Issues from the first write (Markdown -> adf1) never excuse a difference:
+// they describe how the input became adf1, not whether adf1 round-trips.
+// Silence plus a difference is a bug. Even when a difference is excused, adf2
+// must still pass the schema.
+//
+// Limit of the rule: issues carry no position and are reported once per
+// (kind, node type), so any one issue excuses the whole document.
+//
+// Both properties run as ordinary tests on the seed corpus. Inputs that fail
+// today are not seeds; they are in TestPropertyKnownFailures.
+
+// propertySeeds are the P1 and P2 seed inputs, besides testdata/*.md. They
+// come from the closed "Write Safety" issues and the shapes named in the
+// comments on #147 that pass today.
+var propertySeeds = []string{
+	// #138 soft breaks
+	"line one\nline two",
+	"*em*\nnext",
+	"[link](https://example.com)\nnext",
+	"`code`\nnext",
+	// #139 single tildes
+	"5~10 and 20~30",
+	"a ~b~ c",
+	"~~gone~~",
+	`a \~ b`,
+	// #140 inline HTML
+	"pass <word> as the argument",
+	"stray </u> close",
+	"x <u>a never closed",
+	"a <u>b <sub>c</u> d</sub> e",
+	"<u>u</u> <sub>s</sub> <sup>p</sup>",
+	"> [!NOTE]\n> <u>x</u> y",
+	"- [ ] <u>x</u> y",
+	// #146 nested details
+	"<details>\n<summary>Outer</summary>\n\nouter body\n\n<details>\n<summary>Inner</summary>\n\ninner body\n\n</details>\n\ntail\n\n</details>\n\nafter",
+	"<details>\n<summary>Open</summary>\n\nbody",
+	// #152 hard break after an inline element
+	"**bold**  \nnext",
+	"**bold**\\\nnext",
+	"[link](https://example.com)  \nnext",
+	"`code`\\\nnext",
+	// #153 escapes and entities
+	`2 \* 3 and snake\_case and \[x\]`,
+	"a &amp; b",
+	"`a \\* &amp; b`",
+	"```\n\\* &amp;\n```",
+	`\# not a heading`,
+	`a \\ b`,
+	// #154 indented code and rules
+	"    code\n    more",
+	"- item\n\n      code",
+	"a\n\n---\n\nb",
+	// #155 block HTML
+	"<word>",
+	"<div>\nsome\ntext\n</div>",
+	// #156 block content in task items
+	"- [ ] task\n\n  ```\n  code\n  ```",
+	"- [ ] task\n\n  second paragraph",
+	"- [ ] task\n  - nested bullet",
+	"- [ ] a\n  - [ ] b",
+	// #157 container children on read
+	"1. item\n\n   second para",
+	"10. item\n\n    second para",
+	"> quote\n>\n> <word>\n>\n> **text**",
+	"- <div>\n  a\n  </div>\n- next",
+	"> ![img](x.png)",
+	"- item\n\n  ```\n  code\n  ```",
+	"- item\n  - nested",
+	// #147 comment shapes
+	"a  \nb",
+	"**a.**a",
+	"a | b\\\n---|---",
+	"[a](b%20c)",
+	"[a](b\\)c)",
+	"- a\n  - [ ] b",
+	"- a\n\n  - [ ] b",
+	"- item\n\n  | a | b |\n  |---|---|\n  |   | x |",
+	"> [!NOTE]\n> ![x](y.png)",
+	// Schema-invalid output found and fixed in #147
+	"*",
+	"* *",
+	"```",
+	"|\n|-",
+	"<details><summary></summary>\n\n</details>",
+	"> [!NOTE]",
+	"- > [!NOTE]",
+}
+
+// addPropertySeeds adds propertySeeds and the Markdown fixtures in testdata
+// to the fuzz corpus.
+func addPropertySeeds(f *testing.F) {
+	f.Helper()
+
+	for _, seed := range propertySeeds {
+		f.Add(seed)
+	}
+	files, err := filepath.Glob(filepath.Join("testdata", "*.md"))
+	require.NoError(f, err)
+	require.NotEmpty(f, files)
+	for _, file := range files {
+		data, err := os.ReadFile(file)
+		require.NoError(f, err)
+		f.Add(string(data))
+	}
+}
+
+// propertyConverter returns a converter with a constant localId source, so
+// equal documents give equal ADF. A sequential source would make the ids
+// depend on how many were generated for nodes the writer later dropped, which
+// is not a difference in content.
+func propertyConverter() *markdown.Converter {
+	return markdown.New(markdown.WithLocalIDs(func(int) string { return "local-id" }))
+}
+
+// checkSchemaValid is P1. It returns a description of the failure, or "".
+func checkSchemaValid(md string) string {
+	adf, _ := propertyConverter().ToADF(md)
+	if err := validateADF(adf); err != nil {
+		return fmt.Sprintf("ToADF is not schema-valid\ninput: %q\nadf:   %s\n%s", md, mustJSON(adf), truncate(err.Error(), 400))
+	}
+	return ""
+}
+
+func mustJSON(v any) string {
+	data, err := json.Marshal(v)
+	if err != nil {
+		return "marshal error: " + err.Error()
+	}
+	return string(data)
+}
+
+// truncate shortens schema errors, which list every alternative of an anyOf.
+func truncate(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n] + "..."
+}
+
+// checkFixedPoint is P2. It returns a description of the failure, or "".
+func checkFixedPoint(md string) string {
+	conv := propertyConverter()
+
+	adf1, writeIssues := conv.ToADF(md)
+	md1, readIssues := conv.ToMarkdown(adf1)
+	adf2, rewriteIssues := conv.ToADF(md1)
+
+	if err := validateADF(adf2); err != nil {
+		return fmt.Sprintf("second write is not schema-valid\ninput: %q\nread:  %q\nadf2:  %s\n%s", md, md1, mustJSON(adf2), truncate(err.Error(), 400))
+	}
+
+	json1, err := json.Marshal(adf1)
+	if err != nil {
+		return fmt.Sprintf("marshal adf1: %s", err)
+	}
+	json2, err := json.Marshal(adf2)
+	if err != nil {
+		return fmt.Sprintf("marshal adf2: %s", err)
+	}
+	if string(json1) == string(json2) {
+		return ""
+	}
+	if len(readIssues) > 0 || len(rewriteIssues) > 0 {
+		return ""
+	}
+	return fmt.Sprintf("Markdown -> ADF -> Markdown -> ADF is not a fixed point, and no issue was reported\n"+
+		"input:        %q\n"+
+		"write issues: %v (do not excuse)\n"+
+		"read:         %q\n"+
+		"adf1: %s\n"+
+		"adf2: %s",
+		md, issueStrings(writeIssues), md1, json1, json2)
+}
+
+func issueStrings(issues []jira4claude.ConversionIssue) []string {
+	s := make([]string, 0, len(issues))
+	for _, i := range issues {
+		s = append(s, i.String())
+	}
+	return s
+}
+
+func FuzzToADFSchemaValid(f *testing.F) {
+	addPropertySeeds(f)
+	f.Fuzz(func(t *testing.T, md string) {
+		t.Parallel()
+		if failure := checkSchemaValid(md); failure != "" {
+			t.Fatal(failure)
+		}
+	})
+}
+
+func FuzzToADFFixedPoint(f *testing.F) {
+	addPropertySeeds(f)
+	f.Fuzz(func(t *testing.T, md string) {
+		t.Parallel()
+		if failure := checkFixedPoint(md); failure != "" {
+			t.Fatal(failure)
+		}
+	})
+}
+
+// TestPropertyKnownFailures holds minimised inputs that break a property
+// today, found by fuzzing (#147). Each case is skipped and names its gap;
+// when a gap is fixed, move its input from this table into propertySeeds so
+// the fuzz targets check it. Set J4C_KNOWN_FAILURES=1 to run every case and
+// see which still fail.
+//
+// "(read)" or "(write)" in a gap names the side believed to be at fault.
+func TestPropertyKnownFailures(t *testing.T) {
+	t.Parallel()
+
+	const (
+		// Known before #147 (comments on #147).
+		gapListsMerge      = "adjacent lists that render with the same marker merge into one list on read (#147 comments, #157); also at top level, and a bulletList after a taskList becomes task items (read)"
+		gapAdjacentMarks   = "adjacent text nodes with different marks and no space between them read back with misplaced delimiters (#147 comments) (read)"
+		gapCodeBackticks   = "inline code text containing backticks is not fenced with a longer backtick run on read (#147 comments) (read)"
+		gapHrefEscaping    = "link hrefs are not escaped on read (#147 comments) (read)"
+		gapTableAfterBreak = "a table delimiter row after a hard break is not escaped on read (#147 comments) (read)"
+
+		// Found by fuzzing in #147.
+		gapEdgeWhitespace  = "leading or trailing whitespace of marked text is moved outside the mark on read, and marks on whitespace-only text are dropped, with no issue (read)"
+		gapLinkTextIsHref  = "a link whose text equals its href is read as bare text, which only autolinks for real URLs (read)"
+		gapEmptyHref       = "[text]() is written as a link mark with an empty href, which the reader drops (write)"
+		gapUnlinkedURL     = "URL text the writer did not linkify (after an unmatched [) is linkified on rewrite, because the reader's \\[ escape re-enables linkify (read)"
+		gapDuplicateMarks  = "nested emphasis of the same kind gives a text node duplicate marks ([em, em]) (write)"
+		gapEmptyItem       = "an empty list item is read as a bare marker, so it ends its parent item or forms a thematic break (read)"
+		gapCodeFence       = "code blocks are always fenced with ``` on read, so code containing ``` or a language containing ` breaks the fence (read)"
+		gapCarriageReturn  = "a lone carriage return is not normalised on write and is parsed inconsistently (write)"
+		gapBackslashEntity = "a literal backslash before the reader's &#32; trailing-space entity escapes the entity (read)"
+		gapLanguageTab     = "a code block language keeps a trailing tab from the info string (write)"
+		gapMarkOrder       = "mark order follows Markdown nesting, so the same marks come back in a different order; no content is lost (write: no canonical mark order)"
+		gapControlEntity   = "a numeric entity for a control character (including CR) puts that character in ADF text, though NormalizeUnicode replaces raw control characters; the reader writes it back raw (write)"
+		gapInvalidUTF8     = "invalid UTF-8 is not replaced before parsing, so emphasis flanking differs between writes (write)"
+		gapStrikeEdgeTilde = "a tilde at the edge of struck text is not escaped on read, so it merges with the ~~ delimiter (read)"
+		gapNewlineInCode   = "a line ending inside a code span is kept as a newline instead of a space, and read back raw (write)"
+	)
+
+	tests := []struct {
+		name  string
+		gap   string
+		input string
+	}{
+		{"two top-level bullet lists", gapListsMerge, "+ a\n* b"},
+		{"two bullet lists in a list item", gapListsMerge, "- a\n  - b\n  + c"},
+		{"two nested task lists after a task item", gapListsMerge, "- [ ] a\n  - [ ] b\n  + [ ] c"},
+		{"bullet list after a task list", gapListsMerge, "+ [X] a\n* b"},
+		{"strong ending in punctuation, then a letter", gapAdjacentMarks, "**a.**&#97;"},
+		{"code with a backtick", gapCodeBackticks, "`` a`b ``"},
+		{"code that is two backticks", gapCodeBackticks, "` `` `"},
+		{"href with a space", gapHrefEscaping, "[a](<b c>)"},
+		{"href with a parenthesis", gapHrefEscaping, "[0](( )"},
+		{"delimiter row after a hard break", gapTableAfterBreak, "\\\n\\|-"},
+		{"code span of one space", gapEdgeWhitespace, "` `"},
+		{"underline with a trailing space", gapEdgeWhitespace, "<u>a </u>b"},
+		{"link text equal to a non-URL href", gapLinkTextIsHref, "a [0](0)"},
+		{"empty href", gapEmptyHref, "[0000]()"},
+		{"URL after an unmatched bracket", gapUnlinkedURL, "[ http://x.com"},
+		{"em inside em", gapDuplicateMarks, "*_a_*"},
+		{"strong inside strong", gapDuplicateMarks, "**__a__**"},
+		{"empty nested item before parent content", gapEmptyItem, "* 0)\n  0"},
+		{"three nested empty items", gapEmptyItem, "+ * *"},
+		{"code containing a fence", gapCodeFence, "````\n```"},
+		{"language containing a backtick", gapCodeFence, "~~~0`"},
+		{"carriage returns", gapCarriageReturn, "\r#\r0"},
+		{"backslash then trailing space", gapBackslashEntity, "<A>\n\\ "},
+		{"language with a tab", gapLanguageTab, "~~~0\t 0"},
+		{"strong around em", gapMarkOrder, "**_0_**"},
+		{"control character entity", gapControlEntity, "&#X1;"},
+		{"carriage return entity", gapControlEntity, "&#Xd;"},
+		{"invalid UTF-8 after a link", gapInvalidUTF8, "*0 []()\x81*"},
+		{"code span across a line in a heading", gapNewlineInCode, "`\n`\n-"},
+		{"struck tilde", gapStrikeEdgeTilde, "~~&#126;~~"},
+		{"struck text ending in a tilde", gapStrikeEdgeTilde, "~~a&#126;~~"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if os.Getenv("J4C_KNOWN_FAILURES") == "" {
+				t.Skip("known gap: " + tt.gap)
+			}
+			if failure := checkFixedPoint(tt.input); failure != "" {
+				t.Error(failure)
+			}
+		})
+	}
+}

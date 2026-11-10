@@ -4,6 +4,7 @@ import (
 	"bytes"
 	_ "embed"
 	"encoding/json"
+	"fmt"
 	"testing"
 
 	jira4claude "github.com/fwojciec/jira4claude"
@@ -37,16 +38,30 @@ var compiledSchema = func() *jsonschema.Schema {
 func requireValidADF(t *testing.T, node *jira4claude.ADFNode) {
 	t.Helper()
 
+	if err := validateADF(node); err != nil {
+		data, _ := json.Marshal(node)
+		t.Fatalf("%s\nADF JSON:\n%s", err, data)
+	}
+}
+
+// validateADF is the non-fatal form of requireValidADF, for property checks
+// that report a failure instead of stopping the test. The error does not
+// include the document.
+func validateADF(node *jira4claude.ADFNode) error {
 	data, err := json.Marshal(node)
-	require.NoError(t, err, "failed to marshal ADFNode to JSON")
+	if err != nil {
+		return fmt.Errorf("failed to marshal ADFNode to JSON: %w", err)
+	}
 
 	var v any
-	require.NoError(t, json.Unmarshal(data, &v), "failed to unmarshal ADFNode JSON for validation")
-
-	err = compiledSchema.Validate(v)
-	if err != nil {
-		t.Fatalf("ADF schema validation failed:\n%s\nADF JSON:\n%s", err, data)
+	if err := json.Unmarshal(data, &v); err != nil {
+		return fmt.Errorf("failed to unmarshal ADFNode JSON for validation: %w", err)
 	}
+
+	if err := compiledSchema.Validate(v); err != nil {
+		return fmt.Errorf("ADF schema validation failed:\n%w", err)
+	}
+	return nil
 }
 
 func TestSchemaValidation(t *testing.T) {
