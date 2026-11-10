@@ -469,9 +469,14 @@ func attachmentLines(attachments []jira4claude.AttachmentView) string {
 // SavedAttachments prints the path of each saved file, one per line, as
 // written, so a script can use each line as a path. The file name part is a
 // jira4claude.SafeFilename name, which holds no control characters; the
-// directory part is the caller's own --dir.
-func (p *Printer) SavedAttachments(key string, saved []jira4claude.SavedAttachmentView) {
+// directory part is the caller's own --dir. With nothing saved it prints a
+// notice that the issue has no attachments, or nothing when every file
+// failed (the failures are reported as errors).
+func (p *Printer) SavedAttachments(key string, saved []jira4claude.SavedAttachmentView, failed int) {
 	if len(saved) == 0 {
+		if failed > 0 {
+			return
+		}
 		fmt.Fprintf(p.err, "[info] No attachments for %s\n", key)
 		return
 	}

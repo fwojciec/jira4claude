@@ -418,6 +418,22 @@ func TestRun_AttachmentDownloadPartialFailure(t *testing.T) {
 		assert.Empty(t, dirEntries(t, dir))
 	})
 
+	t.Run("every file failing prints an empty JSON array", func(t *testing.T) {
+		t.Parallel()
+
+		dir := t.TempDir()
+		d := &downloader{attachments: three()[:2], fails: map[string]error{
+			"1": errors.New("connection reset"),
+			"2": errors.New("connection reset"),
+		}}
+
+		res := runCLI(t, attachmentDeps(t, d.service(t)), "--json", "attachment", "download", "TEST-1", "--all", "--dir", dir)
+
+		assert.Equal(t, 7, res.code)
+		assert.Equal(t, "[]\n", res.stdout)
+		assert.Len(t, stderrLines(t, res.stderr), 3)
+	})
+
 	for _, tc := range []struct {
 		code string
 		exit int

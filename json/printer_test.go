@@ -926,7 +926,7 @@ func TestPrinter_SavedAttachments(t *testing.T) {
 
 		p.SavedAttachments("TEST-1", []jira4claude.SavedAttachmentView{
 			{ID: "10000", Filename: "../picture.jpg", Path: "/tmp/dl/picture.jpg", Size: 23123},
-		})
+		}, 1)
 
 		assert.JSONEq(t, `[{
 			"id": "10000",
@@ -942,7 +942,18 @@ func TestPrinter_SavedAttachments(t *testing.T) {
 		var out, errOut bytes.Buffer
 		p := jsonpkg.NewPrinterWithIO(&out, &errOut)
 
-		p.SavedAttachments("TEST-1", nil)
+		p.SavedAttachments("TEST-1", nil, 0)
+
+		assert.JSONEq(t, `[]`, out.String())
+		assert.Empty(t, errOut.String())
+	})
+
+	t.Run("nothing saved because every file failed is still an empty array", func(t *testing.T) {
+		t.Parallel()
+		var out, errOut bytes.Buffer
+		p := jsonpkg.NewPrinterWithIO(&out, &errOut)
+
+		p.SavedAttachments("TEST-1", nil, 2)
 
 		assert.JSONEq(t, `[]`, out.String())
 		assert.Empty(t, errOut.String())

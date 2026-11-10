@@ -1244,7 +1244,7 @@ func TestPrinter_SavedAttachments(t *testing.T) {
 		p.SavedAttachments("J4C-100", []jira4claude.SavedAttachmentView{
 			{ID: "10000", Filename: "../picture.jpg", Path: "/tmp/dl/picture.jpg", Size: 23123},
 			{ID: "10001", Filename: "debug log.txt", Path: "/tmp/dl/debug log.txt", Size: 2460},
-		})
+		}, 0)
 
 		assert.Equal(t, "/tmp/dl/picture.jpg\n/tmp/dl/debug log.txt\n", out.String())
 		assert.Empty(t, errOut.String())
@@ -1255,10 +1255,21 @@ func TestPrinter_SavedAttachments(t *testing.T) {
 		var out, errOut bytes.Buffer
 		p := markdown.NewPrinterWithIO(&out, &errOut)
 
-		p.SavedAttachments("J4C-100", nil)
+		p.SavedAttachments("J4C-100", nil, 0)
 
 		assert.Empty(t, out.String())
 		assert.Equal(t, "[info] No attachments for J4C-100\n", errOut.String())
+	})
+
+	t.Run("nothing saved because every file failed prints nothing at all", func(t *testing.T) {
+		t.Parallel()
+		var out, errOut bytes.Buffer
+		p := markdown.NewPrinterWithIO(&out, &errOut)
+
+		p.SavedAttachments("J4C-100", nil, 2)
+
+		assert.Empty(t, out.String())
+		assert.Empty(t, errOut.String(), "the failures are reported as errors, not as an empty issue")
 	})
 }
 

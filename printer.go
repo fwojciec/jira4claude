@@ -28,8 +28,10 @@ type AttachmentPrinter interface {
 	// Attachments prints the attachments of the issue with the given key.
 	Attachments(key string, attachments []AttachmentView)
 	// SavedAttachments prints the attachments of the issue with the given
-	// key that were saved to local files.
-	SavedAttachments(key string, saved []SavedAttachmentView)
+	// key that were saved to local files. failed is the number of selected
+	// attachments that were not saved (each reported as an error): with
+	// none saved, it tells "the issue has none" (0) from "all failed".
+	SavedAttachments(key string, saved []SavedAttachmentView, failed int)
 }
 
 // MutationPrinter reports what a command that writes did. It writes to stdout,

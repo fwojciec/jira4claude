@@ -118,8 +118,9 @@ func (p *Printer) Attachments(_ string, attachments []jira4claude.AttachmentView
 }
 
 // SavedAttachments prints the saved files as a JSON array of {id, filename,
-// path, size}, [] (not null) when empty.
-func (p *Printer) SavedAttachments(_ string, saved []jira4claude.SavedAttachmentView) {
+// path, size}, [] (not null) when empty, also when every file failed, so
+// that stdout always parses.
+func (p *Printer) SavedAttachments(_ string, saved []jira4claude.SavedAttachmentView, _ int) {
 	if saved == nil {
 		saved = []jira4claude.SavedAttachmentView{}
 	}

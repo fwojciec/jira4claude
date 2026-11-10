@@ -34,10 +34,13 @@ type Dir struct {
 	// system treats as equal (case or Unicode normalisation on macOS).
 	saved []iofs.FileInfo
 
-	// link and rename are root.Link and root.Rename; tests replace them to
-	// take the path for file systems without hard links (export_test.go).
-	link   func(oldname, newname string) error
-	rename func(oldname, newname string) error
+	// Seams for tests (export_test.go). link is root.Link; replacing it
+	// forces the path for file systems without hard links, on which
+	// afterReserve (when set) runs after the name is reserved and copy
+	// (io.Copy) fills the reservation.
+	link         func(oldname, newname string) error
+	afterReserve func()
+	copy         func(dst io.Writer, src io.Reader) (int64, error)
 }
 
 // OpenDir opens an existing directory for saving. It never creates the
@@ -65,7 +68,7 @@ func OpenDir(path string, overwrite bool) (*Dir, error) {
 	if err != nil {
 		return nil, &jira4claude.Error{Code: jira4claude.EValidation, Message: "cannot open download directory " + path, Inner: err}
 	}
-	return &Dir{root: root, path: abs, overwrite: overwrite, link: root.Link, rename: root.Rename}, nil
+	return &Dir{root: root, path: abs, overwrite: overwrite, link: root.Link, copy: io.Copy}, nil
 }
 
 // Close releases the directory.
@@ -163,27 +166,22 @@ func (d *Dir) remember(name string) {
 	}
 }
 
-// place moves the temporary file to name. Without overwrite it never
-// replaces anything: a hard link fails if the name exists in any form. With
-// overwrite, the regular file that check accepted is replaced by a rename,
-// which replaces a directory entry and never follows a symlink.
+// place moves the temporary file to name.
 //
-// On a file system without hard links (FAT, exFAT, some network file
-// systems), the name is reserved by creating it with O_CREATE|O_EXCL, which
-// fails on any existing entry and never follows a symlink, and the complete
-// temporary file is then renamed over the reservation. The standard library
-// has no portable rename that refuses an existing target (Linux
-// renameat2(RENAME_NOREPLACE) and macOS renamex_np(RENAME_EXCL) need
-// golang.org/x/sys), so the reservation cannot be avoided: an empty file
-// exists under name between the two calls, with no network I/O in between;
-// a process killed exactly there leaves that empty file. A failed rename
-// removes the reservation, if it is still the file created here.
+// Without overwrite it never replaces anything: a hard link fails if the
+// name exists in any form, and the fallback below never renames.
+//
+// With overwrite, the regular file that check accepted is replaced by a
+// rename, which replaces a directory entry and never follows a symlink. The
+// rename does not depend on hard links, so overwrite has no fallback: if
+// another process swaps a different regular file in between check and
+// rename, that file is replaced, which is what --overwrite asks for.
 func (d *Dir) place(tmp, name string) error {
 	if d.overwrite {
 		if err := d.check(name); err != nil {
 			return err
 		}
-		if err := d.rename(tmp, name); err != nil {
+		if err := d.root.Rename(tmp, name); err != nil {
 			return &jira4claude.Error{Code: jira4claude.EInternal, Message: "failed to save " + d.display(name), Inner: err}
 		}
 		return nil
@@ -196,25 +194,82 @@ func (d *Dir) place(tmp, name string) error {
 	if errors.Is(err, iofs.ErrExist) {
 		return existsError(d.display(name))
 	}
+	return d.copyInto(tmp, name)
+}
 
-	reserved, err := d.root.OpenFile(name, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+// copyInto is place's path for file systems without hard links (FAT, exFAT,
+// some network file systems). The standard library has no portable rename
+// that refuses an existing target (Linux renameat2(RENAME_NOREPLACE) and
+// macOS renamex_np(RENAME_EXCL) need golang.org/x/sys), and a plain rename
+// would replace whatever another process put at the name. So the name is
+// created with O_CREATE|O_EXCL, which fails on any existing entry and never
+// follows a symlink, and the finished temporary file's bytes are copied into
+// that descriptor, synced and closed: nothing written can land in a file
+// this process did not create.
+//
+// Afterwards the name must still refer to the created file; if another
+// process replaced it meanwhile, Save fails with a conflict and leaves what
+// is there. A failed copy removes the file only if the name still refers to
+// it.
+//
+// The cost: the copy is local, but a process killed during it leaves a
+// partial file under name, which a rerun without --overwrite reports as
+// existing. That is preferred to overwriting someone else's file.
+func (d *Dir) copyInto(tmp, name string) error {
+	dst, err := d.root.OpenFile(name, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if errors.Is(err, iofs.ErrExist) {
 		return existsError(d.display(name))
 	}
 	if err != nil {
 		return &jira4claude.Error{Code: jira4claude.EInternal, Message: "failed to save " + d.display(name), Inner: err}
 	}
-	reservation, statErr := reserved.Stat()
-	// Error ignored: the file is empty and only reserves the name.
-	_ = reserved.Close()
-	if err := d.rename(tmp, name); err != nil {
-		if current, err := d.root.Lstat(name); statErr == nil && err == nil && os.SameFile(reservation, current) {
-			// Error ignored: the rename failure is what is reported.
+	mine, statErr := dst.Stat()
+	if d.afterReserve != nil {
+		d.afterReserve()
+	}
+
+	copyErr := d.copyFrom(dst, tmp)
+	if closeErr := dst.Close(); copyErr == nil {
+		copyErr = closeErr
+	}
+	if statErr != nil {
+		// Without the created file's identity nothing can be verified or
+		// safely removed.
+		return &jira4claude.Error{Code: jira4claude.EInternal, Message: "cannot verify " + d.display(name), Inner: statErr}
+	}
+
+	current, err := d.root.Lstat(name)
+	stillMine := err == nil && os.SameFile(mine, current)
+	if copyErr != nil {
+		if stillMine {
+			// Error ignored: the copy failure is what is reported.
 			_ = d.root.Remove(name)
 		}
-		return &jira4claude.Error{Code: jira4claude.EInternal, Message: "failed to save " + d.display(name), Inner: err}
+		return &jira4claude.Error{Code: jira4claude.EInternal, Message: "failed to save " + d.display(name), Inner: copyErr}
+	}
+	if !stillMine {
+		return &jira4claude.Error{
+			Code:    jira4claude.EConflict,
+			Message: d.display(name) + " was replaced by another process while saving; left as it is",
+		}
 	}
 	return nil
+}
+
+// copyFrom copies the temporary file into dst and syncs dst.
+func (d *Dir) copyFrom(dst *os.File, tmp string) error {
+	src, err := d.root.Open(tmp)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		// Error ignored: the file was only read.
+		_ = src.Close()
+	}()
+	if _, err := d.copy(dst, src); err != nil {
+		return err
+	}
+	return dst.Sync()
 }
 
 // createTemp creates a new temporary file in the directory, readable only by

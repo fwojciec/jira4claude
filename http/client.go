@@ -7,10 +7,12 @@ package http
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -282,6 +284,14 @@ const maxErrorBodyBytes = 64 << 10
 // GET is idempotent, so an attempt is retried with backoff, as in DoRequest,
 // on a connection error, 429 or 5xx, but only until the first byte reaches
 // w: w cannot be rewound, so a failure while copying is returned as it is.
+//
+// No error that leaves Stream carries a URL the server supplied (a media
+// URL carries a signed query string). Requests go straight to the
+// configured client's transport, not through http.Client, which would parse
+// a Location header itself and quote it whole in its error. For a hop after
+// a redirect, errors name only the host and the status code: neither the
+// transport's error text nor the response body is passed on. A failure
+// writing to w is passed on, since it is the caller's own.
 func (c *Client) Stream(ctx context.Context, path string, w io.Writer) (int64, error) {
 	ref, err := url.Parse(path)
 	if err != nil {
@@ -289,11 +299,12 @@ func (c *Client) Stream(ctx context.Context, path string, w io.Writer) (int64, e
 	}
 	start := c.baseURL.ResolveReference(ref)
 
-	// A copy of the configured client that hands redirects back instead of
-	// following them, and keeps no cookies.
-	hc := *c.httpClient
-	hc.Jar = nil
-	hc.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	// The configured client's transport, used without the client: no
+	// redirect following, no cookie jar. Its Timeout is kept per attempt.
+	rt := c.httpClient.Transport
+	if rt == nil {
+		rt = http.DefaultTransport
+	}
 
 	var lastErr error
 	for attempt := 0; attempt <= c.maxRetries; attempt++ {
@@ -309,7 +320,7 @@ func (c *Client) Stream(ctx context.Context, path string, w io.Writer) (int64, e
 				}
 			}
 		}
-		n, retry, err := c.streamOnce(ctx, &hc, start, w)
+		n, retry, err := c.streamAttempt(ctx, rt, start, w)
 		if err == nil {
 			return n, nil
 		}
@@ -321,41 +332,55 @@ func (c *Client) Stream(ctx context.Context, path string, w io.Writer) (int64, e
 	return 0, lastErr
 }
 
+// streamAttempt makes one Stream attempt, under the configured client's
+// Timeout when it has one.
+func (c *Client) streamAttempt(ctx context.Context, rt http.RoundTripper, start *url.URL, w io.Writer) (int64, bool, error) {
+	if c.httpClient.Timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, c.httpClient.Timeout)
+		defer cancel()
+	}
+	return c.streamOnce(ctx, rt, start, w)
+}
+
 // streamOnce makes one Stream attempt from start. retry reports whether the
 // failure is transient and nothing was written.
-func (c *Client) streamOnce(ctx context.Context, hc *http.Client, start *url.URL, w io.Writer) (n int64, retry bool, err error) {
+func (c *Client) streamOnce(ctx context.Context, rt http.RoundTripper, start *url.URL, w io.Writer) (n int64, retry bool, err error) {
 	target := start
 	withAuth := true
 	for hop := 0; ; hop++ {
+		redirected := hop > 0
 		if !sameOrigin(target, c.baseURL) {
 			withAuth = false
 		}
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, target.String(), nil)
+		// The URL is set directly: building the request from target's
+		// string form would parse it again, and a failure would quote it.
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, "", nil)
 		if err != nil {
-			return 0, false, &jira4claude.Error{Code: jira4claude.EInternal, Message: "failed to create request", Inner: err}
+			return 0, false, &jira4claude.Error{Code: jira4claude.EInternal, Message: "failed to create request"}
 		}
+		req.URL = target
+		req.Host = target.Host
 		req.Header.Set("Accept", "*/*")
 		if withAuth {
 			req.SetBasicAuth(c.username, c.password)
 		}
 
-		resp, err := hc.Do(req)
+		resp, err := rt.RoundTrip(req)
 		if err != nil {
-			// A *url.Error quotes the full URL, and a media URL carries a
-			// signed query string: keep only the cause and the host.
-			var urlErr *url.Error
-			if errors.As(err, &urlErr) {
-				err = urlErr.Err
-			}
-			return 0, true, &jira4claude.Error{Code: jira4claude.EInternal, Message: "request to " + target.Host + " failed", Inner: err}
+			return 0, true, hopError(ctx, "request to "+target.Host+" failed", err, redirected)
 		}
 
 		switch {
 		case resp.StatusCode == http.StatusOK:
-			n, err := io.Copy(w, resp.Body)
+			sw := &sinkWriter{w: w}
+			n, err := io.Copy(sw, resp.Body)
 			resp.Body.Close()
+			if sw.err != nil {
+				return n, false, &jira4claude.Error{Code: jira4claude.EInternal, Message: "failed to write the download", Inner: sw.err}
+			}
 			if err != nil {
-				return n, true, &jira4claude.Error{Code: jira4claude.EInternal, Message: "download interrupted", Inner: err}
+				return n, true, hopError(ctx, "download from "+target.Host+" interrupted", err, redirected)
 			}
 			return n, false, nil
 
@@ -371,6 +396,15 @@ func (c *Client) streamOnce(ctx context.Context, hc *http.Client, start *url.URL
 			}
 			target = next
 
+		case redirected:
+			// Another host's body is not Jira's error format and may echo
+			// the signed URL: report the status alone.
+			drainAndClose(resp.Body)
+			return 0, isRetryableStatus(resp.StatusCode), &jira4claude.Error{
+				Code:    statusCodeToErrorCode(resp.StatusCode),
+				Message: fmt.Sprintf("%s answered status %d", target.Host, resp.StatusCode),
+			}
+
 		default:
 			body, _ := io.ReadAll(io.LimitReader(resp.Body, maxErrorBodyBytes))
 			drainAndClose(resp.Body)
@@ -379,25 +413,71 @@ func (c *Client) streamOnce(ctx context.Context, hc *http.Client, start *url.URL
 	}
 }
 
+// hopError builds the error for a failed request or body read without the
+// transport's error text, which can quote the server's response (a
+// malformed header line, Location and signed URL included). Only causes
+// that hold no response bytes are kept: a context error on any hop, and on
+// the first hop (the configured host) a network or certificate error, which
+// names only addresses and certificate names, or an unexpected end of body.
+func hopError(ctx context.Context, msg string, err error, redirected bool) error {
+	return &jira4claude.Error{Code: jira4claude.EInternal, Message: msg, Inner: safeCause(ctx, err, redirected)}
+}
+
+func safeCause(ctx context.Context, err error, redirected bool) error {
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return ctxErr
+	}
+	if redirected {
+		return nil
+	}
+	var opErr *net.OpError
+	if errors.As(err, &opErr) {
+		return opErr
+	}
+	var certErr *tls.CertificateVerificationError
+	if errors.As(err, &certErr) {
+		return certErr
+	}
+	if errors.Is(err, io.ErrUnexpectedEOF) {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+
+// sinkWriter records the error of the writer a download is copied to, so
+// that it can be told apart from a failure reading the response.
+type sinkWriter struct {
+	w   io.Writer
+	err error
+}
+
+func (s *sinkWriter) Write(p []byte) (int, error) {
+	n, err := s.w.Write(p)
+	if err != nil {
+		s.err = err
+	}
+	return n, err
+}
+
 // redirectTarget resolves a Location header against the current URL and
-// checks that it may be followed. Messages name only the scheme and host:
-// media URLs carry signed query strings.
+// checks that it may be followed. Messages name at most the host of a
+// location that parsed: media URLs carry signed query strings.
 func (c *Client) redirectTarget(current *url.URL, location string) (*url.URL, error) {
 	if location == "" {
 		return nil, &jira4claude.Error{Code: jira4claude.EInternal, Message: "redirect without a Location header"}
 	}
 	next, err := current.Parse(location)
 	if err != nil {
-		return nil, &jira4claude.Error{Code: jira4claude.EInternal, Message: "invalid redirect location"}
+		return nil, &jira4claude.Error{Code: jira4claude.EInternal, Message: "the server sent an unusable redirect"}
 	}
 	scheme := strings.ToLower(next.Scheme)
 	switch {
 	case scheme != "http" && scheme != "https":
-		return nil, &jira4claude.Error{Code: jira4claude.EInternal, Message: fmt.Sprintf("refusing a redirect to a %q URL", scheme)}
+		return nil, &jira4claude.Error{Code: jira4claude.EInternal, Message: "refusing a redirect to a URL that is not HTTP or HTTPS"}
 	case strings.EqualFold(c.baseURL.Scheme, "https") && scheme != "https":
 		return nil, &jira4claude.Error{Code: jira4claude.EInternal, Message: "refusing a redirect to a non-HTTPS URL on " + next.Host}
 	case next.Host == "":
-		return nil, &jira4claude.Error{Code: jira4claude.EInternal, Message: "redirect location has no host"}
+		return nil, &jira4claude.Error{Code: jira4claude.EInternal, Message: "the server sent an unusable redirect"}
 	}
 	return next, nil
 }

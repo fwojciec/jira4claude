@@ -3,6 +3,8 @@ package http_test
 import (
 	"bytes"
 	"context"
+	"errors"
+	"fmt"
 	"net/http"
 	"net/http/cookiejar"
 	"net/http/httptest"
@@ -43,6 +45,20 @@ func newMediaServer(t *testing.T, body string) *mediaServer {
 	}))
 	t.Cleanup(ms.Close)
 	return ms
+}
+
+// assertNoSecret asserts that err is an error and that secret appears
+// nowhere in it: not in its text, its %v and %+v forms, or any error in its
+// Unwrap chain.
+func assertNoSecret(t *testing.T, err error, secret string) {
+	t.Helper()
+	require.Error(t, err)
+	assert.NotContains(t, fmt.Sprintf("%v", err), secret)
+	assert.NotContains(t, fmt.Sprintf("%+v", err), secret)
+	for e := err; e != nil; e = errors.Unwrap(e) {
+		assert.NotContains(t, e.Error(), secret, "wrapped %T", e)
+		assert.NotContains(t, fmt.Sprintf("%+v", e), secret, "wrapped %T", e)
+	}
 }
 
 // redirectingJira answers every request with a 303 to location.
@@ -239,9 +255,63 @@ func TestAttachmentService_Download(t *testing.T) {
 
 		_, err := svc.Download(context.Background(), "10000", &bytes.Buffer{})
 
+		assertNoSecret(t, err, "signed-secret")
+		assertNoSecret(t, err, "/file")
+	})
+
+	for _, location := range []string{
+		"https://media.example/file%zz?token=signed-secret",
+		"http://[media.example/file?token=signed-secret",
+		"%%%?token=signed-secret",
+		"https://media.example/\x7ffile?token=signed-secret",
+	} {
+		t.Run("an unusable redirect location stays out of the error: "+strconv.Quote(location), func(t *testing.T) {
+			t.Parallel()
+
+			jira := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header()["Location"] = []string{location}
+				w.WriteHeader(http.StatusSeeOther)
+			}))
+			defer jira.Close()
+			svc := jirahttp.NewAttachmentService(newTestClient(t, jira.URL, "user", "pass", jirahttp.WithMaxRetries(0)))
+
+			_, err := svc.Download(context.Background(), "10000", &bytes.Buffer{})
+
+			assertNoSecret(t, err, "signed-secret")
+		})
+	}
+
+	t.Run("a network error on the configured host keeps its cause", func(t *testing.T) {
+		t.Parallel()
+
+		closed := httptest.NewServer(http.NotFoundHandler())
+		closedURL := closed.URL
+		closed.Close()
+		svc := jirahttp.NewAttachmentService(newTestClient(t, closedURL, "user", "pass", jirahttp.WithMaxRetries(0)))
+
+		_, err := svc.Download(context.Background(), "10000", &bytes.Buffer{})
+
 		require.Error(t, err)
-		assert.NotContains(t, err.Error(), "signed-secret")
-		assert.NotContains(t, err.Error(), "/file")
+		assert.Contains(t, err.Error(), "connection refused")
+	})
+
+	t.Run("an error answer from the media host stays out of the error", func(t *testing.T) {
+		t.Parallel()
+
+		media := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusForbidden)
+			_, _ = w.Write([]byte(`{"errorMessages":["signature expired for ` + r.URL.String() + `"]}`))
+		}))
+		defer media.Close()
+		jira := redirectingJira(t, func() string { return media.URL + "/file?token=signed-secret" }, nil)
+		svc := jirahttp.NewAttachmentService(newTestClient(t, jira.URL, "user", "pass", jirahttp.WithMaxRetries(0)))
+
+		_, err := svc.Download(context.Background(), "10000", &bytes.Buffer{})
+
+		assertNoSecret(t, err, "signed-secret")
+		assert.Equal(t, jira4claude.EForbidden, jira4claude.ErrorCode(err))
+		assert.Contains(t, err.Error(), "403")
 	})
 
 	t.Run("a redirect to a non-HTTP scheme is refused", func(t *testing.T) {

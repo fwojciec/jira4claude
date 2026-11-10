@@ -380,19 +380,62 @@ func TestDir_Save(t *testing.T) {
 		}
 	})
 
-	t.Run("without hard links a failed rename leaves neither the reservation nor the temporary file", func(t *testing.T) {
+	t.Run("without hard links a file swapped in after the reservation is neither overwritten nor removed", func(t *testing.T) {
+		t.Parallel()
+
+		dir := t.TempDir()
+		target := filepath.Join(dir, "a.txt")
+		d := openDir(t, dir, false)
+		fs.WithoutHardLinks(d)
+		fs.AfterReserve(d, func() {
+			// Another process replaces the reservation with its own file.
+			other := filepath.Join(dir, "other")
+			require.NoError(t, os.WriteFile(other, []byte("theirs"), 0o600))
+			require.NoError(t, os.Rename(other, target))
+		})
+
+		_, _, err := d.Save("a.txt", 0, content("new"))
+
+		require.Error(t, err)
+		assert.Equal(t, jira4claude.EConflict, jira4claude.ErrorCode(err))
+		assert.Equal(t, "theirs", readFile(t, target))
+		assert.Equal(t, []string{"a.txt"}, entries(t, dir), "the temporary file is removed")
+	})
+
+	t.Run("without hard links a failed copy removes its own reservation", func(t *testing.T) {
 		t.Parallel()
 
 		dir := t.TempDir()
 		d := openDir(t, dir, false)
 		fs.WithoutHardLinks(d)
-		boom := errors.New("rename failed")
-		fs.FailRename(d, boom)
+		boom := errors.New("disk full")
+		fs.FailCopy(d, boom)
 
 		_, _, err := d.Save("a.txt", 0, content("new"))
 
 		require.ErrorIs(t, err, boom)
 		assert.Empty(t, entries(t, dir))
+	})
+
+	t.Run("without hard links a failed copy leaves a file swapped in at the name", func(t *testing.T) {
+		t.Parallel()
+
+		dir := t.TempDir()
+		target := filepath.Join(dir, "a.txt")
+		d := openDir(t, dir, false)
+		fs.WithoutHardLinks(d)
+		fs.AfterReserve(d, func() {
+			other := filepath.Join(dir, "other")
+			require.NoError(t, os.WriteFile(other, []byte("theirs"), 0o600))
+			require.NoError(t, os.Rename(other, target))
+		})
+		fs.FailCopy(d, errors.New("disk full"))
+
+		_, _, err := d.Save("a.txt", 0, content("new"))
+
+		require.Error(t, err)
+		assert.Equal(t, "theirs", readFile(t, target))
+		assert.Equal(t, []string{"a.txt"}, entries(t, dir))
 	})
 
 	t.Run("a name that is not a plain base name is refused and nothing is written", func(t *testing.T) {

@@ -128,11 +128,9 @@ func (c *AttachmentDownloadCmd) Run(ctx *AttachmentContext) error {
 		saved = append(saved, jira4claude.SavedAttachmentView{ID: a.ID, Filename: a.Filename, Path: path, Size: n})
 	}
 
-	// With every file failed there is no data to print; the empty-result
-	// notice would wrongly say the issue has no attachments.
-	if len(saved) > 0 || len(failed) == 0 {
-		ctx.Printer.SavedAttachments(c.Key, saved)
-	}
+	// Printed even when every file failed: --json then prints [], and text
+	// mode prints nothing rather than claiming the issue has no attachments.
+	ctx.Printer.SavedAttachments(c.Key, saved, len(failed)+len(notTried))
 	if len(failed) == 0 {
 		return nil
 	}
