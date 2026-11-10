@@ -90,7 +90,7 @@ func (s *IssueService) Create(ctx context.Context, issue *jira4claude.Issue) (*j
 
 // Get retrieves an issue by its key.
 func (s *IssueService) Get(ctx context.Context, key string) (*jira4claude.Issue, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, issuePath(key)+"?expand=names", nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, issuePath(key)+"?expand=names,schema", nil)
 	if err != nil {
 		return nil, &jira4claude.Error{
 			Code:    jira4claude.EInternal,
@@ -553,10 +553,13 @@ func parseIssueResponse(body []byte) (*jira4claude.Issue, error) {
 	issue.Attachments = mapAttachments(resp.Fields.Attachment)
 
 	// Populate read-only custom fields when the response carries a names map
-	// (Get requests expand=names). List responses have neither names nor
-	// customfield_ entries, so this leaves ReadCustomFields nil.
+	// (Get requests expand=names,schema). List responses have neither names
+	// nor customfield_ entries, so this leaves ReadCustomFields nil. The
+	// schema map, keyed by field ID like names, has the shape of the schema
+	// object editmeta and createmeta give each field (see fieldSchema).
 	var raw struct {
 		Names  map[string]string          `json:"names"`
+		Schema map[string]fieldSchema     `json:"schema"`
 		Fields map[string]json.RawMessage `json:"fields"`
 	}
 	if err := json.Unmarshal(body, &raw); err != nil {
@@ -577,9 +580,12 @@ func parseIssueResponse(body []byte) (*jira4claude.Issue, error) {
 		if issue.ReadCustomFields == nil {
 			issue.ReadCustomFields = make(map[string]jira4claude.CustomFieldValue)
 		}
+		schema := raw.Schema[id]
 		issue.ReadCustomFields[id] = jira4claude.CustomFieldValue{
-			Name:  raw.Names[id],
-			Value: value,
+			Name:         raw.Names[id],
+			Value:        value,
+			SchemaType:   schema.Type,
+			SchemaCustom: schema.Custom,
 		}
 	}
 

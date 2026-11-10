@@ -485,6 +485,51 @@ func TestRun_EmptyResultStreams(t *testing.T) {
 	}
 }
 
+// noisyIssue returns TEST-1 with one meaningful custom field and three that
+// issue view hides: an empty list, an empty string and the rank field type.
+func noisyIssue() *jira4claude.Issue {
+	issue := bareIssue()
+	issue.ReadCustomFields = map[string]jira4claude.CustomFieldValue{
+		"customfield_10016": {Name: "Story Points", Value: json.RawMessage(`5`), SchemaType: "number"},
+		"customfield_10020": {Name: "Sprint", Value: json.RawMessage(`[]`), SchemaType: "array"},
+		"customfield_10021": {Name: "Flagged", Value: json.RawMessage(`""`)},
+		"customfield_10019": {Name: "Rank", Value: json.RawMessage(`"0|i0004v:"`), SchemaType: "any", SchemaCustom: "com.pyxis.greenhopper.jira:gh-lexo-rank"},
+	}
+	return issue
+}
+
+func TestRun_HiddenCustomFieldsNotice(t *testing.T) {
+	t.Parallel()
+
+	t.Run("text mode prints the shown fields on stdout and the hidden count on stderr", func(t *testing.T) {
+		t.Parallel()
+
+		res := runCLI(t, testDeps(issueGetter(noisyIssue(), nil), &mock.UserService{}), "issue", "view", "TEST-1")
+
+		assert.Equal(t, 0, res.code)
+		assert.Contains(t, res.stdout, "- **Story Points:** 5\n")
+		assert.NotContains(t, res.stdout, "Rank")
+		assert.NotContains(t, res.stdout, "[info]")
+		assert.Equal(t, "[info] 3 empty or machine-only custom field(s) hidden — use --all-fields to show all.\n", res.stderr)
+	})
+
+	t.Run("json mode keeps every field and prints no notice", func(t *testing.T) {
+		t.Parallel()
+
+		res := runCLI(t, testDeps(issueGetter(noisyIssue(), nil), &mock.UserService{}), "--json", "issue", "view", "TEST-1")
+
+		assert.Equal(t, 0, res.code)
+		var got struct {
+			CustomFields map[string]json.RawMessage `json:"customFields"`
+		}
+		require.NoError(t, json.Unmarshal([]byte(res.stdout), &got))
+		assert.Len(t, got.CustomFields, 4)
+		assert.JSONEq(t, `{"name":"Rank","value":"0|i0004v:"}`, string(got.CustomFields["customfield_10019"]),
+			"the schema types stay out of the JSON")
+		assert.Empty(t, res.stderr)
+	})
+}
+
 func TestRun_HiddenFieldsNotice(t *testing.T) {
 	t.Parallel()
 

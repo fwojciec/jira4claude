@@ -33,8 +33,17 @@ func NewPrinterWithIO(out, err io.Writer) *Printer {
 	return &Printer{out: out, err: err}
 }
 
-// Issue prints a single issue in markdown format.
+// Issue prints a single issue in markdown format. Custom fields that are
+// empty or machine-only are hidden unless view.AllCustomFields is set, and
+// their count is a notice on stderr.
 func (p *Printer) Issue(view jira4claude.IssueView) {
+	p.issue(view, false)
+}
+
+// issue prints the page of one issue. several is whether more than one key
+// was asked: the hidden-fields notice then names the issue, as a view
+// conversion warning does.
+func (p *Printer) issue(view jira4claude.IssueView, several bool) {
 	// Header: # KEY: Summary
 	fmt.Fprintf(p.out, "# %s: %s\n\n", view.Key, view.Summary)
 
@@ -67,7 +76,8 @@ func (p *Printer) Issue(view jira4claude.IssueView) {
 	}
 
 	// Custom Fields section
-	p.renderCustomFields(view.CustomFields)
+	shown, hidden := jira4claude.SelectCustomFields(view.CustomFields, view.AllCustomFields)
+	p.renderCustomFields(shown)
 
 	// Related Issues section (unified), excluding parent (already shown in metadata)
 	nonParentRelated := make([]jira4claude.RelatedIssueView, 0, len(view.RelatedIssues))
@@ -95,6 +105,14 @@ func (p *Printer) Issue(view jira4claude.IssueView) {
 	if view.URL != "" {
 		fmt.Fprintf(p.out, "\n[View in Jira](%s)\n", view.URL)
 	}
+
+	if hidden > 0 {
+		prefix := ""
+		if several {
+			prefix = view.Key + ": "
+		}
+		fmt.Fprintf(p.err, "[info] %s%d empty or machine-only custom field(s) hidden — use --all-fields to show all.\n", prefix, hidden)
+	}
 }
 
 // IssueViews prints the pages of a several-key view in the order asked, a
@@ -104,7 +122,7 @@ func (p *Printer) IssueViews(views []jira4claude.IssueView) {
 		if i > 0 {
 			fmt.Fprintln(p.out)
 		}
-		p.Issue(view)
+		p.issue(view, true)
 	}
 }
 

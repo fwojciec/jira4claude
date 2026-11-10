@@ -28,8 +28,9 @@ type IssueCmd struct {
 
 // IssueViewCmd views one or more issues, whole or by field.
 type IssueViewCmd struct {
-	Keys  []string `arg:"" name:"key" help:"Issue keys (e.g., PROJ-123); several are printed in the order given"`
-	Field []string `name:"field" sep:"none" placeholder:"NAME" help:"Print only this field (repeatable or comma-separated): key, project, summary, description, status, type, priority, assignee, reporter, labels, relatedIssues, comments, attachments, created, updated, url, or a custom field ID (customfield_NNNNN). One key and one field print the raw value; otherwise each value follows a line '==> KEY FIELD <=='. With --json, one key gives an object of key and fields, several keys an array of them"`
+	Keys      []string `arg:"" name:"key" help:"Issue keys (e.g., PROJ-123); several are printed in the order given"`
+	Field     []string `name:"field" sep:"none" placeholder:"NAME" help:"Print only this field (repeatable or comma-separated): key, project, summary, description, status, type, priority, assignee, reporter, labels, relatedIssues, comments, attachments, created, updated, url, or a custom field ID (customfield_NNNNN). One key and one field print the raw value; otherwise each value follows a line '==> KEY FIELD <=='. With --json, one key gives an object of key and fields, several keys an array of them"`
+	AllFields bool     `name:"all-fields" help:"Show every custom field. Without it the page hides custom fields that are empty ([], {}, \"\") or machine-only (rank, development summary) and reports how many on stderr. --json and --field always include them"`
 }
 
 // Run executes the view command. One key behaves as it always has: a failed
@@ -76,7 +77,9 @@ func (c *IssueViewCmd) Run(ctx *IssueContext) error {
 				jira4claude.ToSelectedIssueView(issue, fields, ctx.Converter, warn, ctx.Config.Server))
 			continue
 		}
-		views = append(views, jira4claude.ToIssueView(issue, ctx.Converter, warn, ctx.Config.Server))
+		view := jira4claude.ToIssueView(issue, ctx.Converter, warn, ctx.Config.Server)
+		view.AllCustomFields = c.AllFields
+		views = append(views, view)
 	}
 
 	switch {

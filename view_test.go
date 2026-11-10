@@ -1112,3 +1112,84 @@ func TestSelectViewFields(t *testing.T) {
 		assert.Equal(t, []string{"key", "summary", "customfield_2", "customfield_1"}, objectKeys(t, got), "key order")
 	})
 }
+
+func TestSelectCustomFields(t *testing.T) {
+	t.Parallel()
+
+	const (
+		rankType       = "com.pyxis.greenhopper.jira:gh-lexo-rank"
+		devSummaryType = "com.atlassian.jira.plugins.jira-development-integration-plugin:devsummarycf"
+	)
+	fields := func() map[string]jira4claude.CustomFieldValue {
+		return map[string]jira4claude.CustomFieldValue{
+			"customfield_1":  {Name: "Story Points", Value: json.RawMessage(`5`), SchemaType: "number"},
+			"customfield_2":  {Name: "Team", Value: json.RawMessage(`{"id":"1"}`), SchemaType: "team"},
+			"customfield_3":  {Name: "Empty list", Value: json.RawMessage(`[]`), SchemaType: "array"},
+			"customfield_4":  {Name: "Empty list with space", Value: json.RawMessage(`[ ]`)},
+			"customfield_5":  {Name: "Empty object", Value: json.RawMessage(`{}`)},
+			"customfield_6":  {Name: "Empty string", Value: json.RawMessage(`""`), SchemaType: "string"},
+			"customfield_7":  {Name: "Null", Value: json.RawMessage(`null`)},
+			"customfield_8":  {Name: "Rank", Value: json.RawMessage(`"0|i0004v:"`), SchemaType: "any", SchemaCustom: rankType},
+			"customfield_9":  {Name: "Development", Value: json.RawMessage(`"{pullrequest={dataType=pullrequest, state=OPEN}}"`), SchemaType: "any", SchemaCustom: devSummaryType},
+			"customfield_10": {Name: "Rank", Value: json.RawMessage(`"named Rank, typed text"`), SchemaType: "string", SchemaCustom: "com.atlassian.jira.plugin.system.customfieldtypes:textfield"},
+			"customfield_11": {Name: "Zero", Value: json.RawMessage(`0`), SchemaType: "number"},
+			"customfield_12": {Name: "False", Value: json.RawMessage(`false`)},
+		}
+	}
+
+	t.Run("hides empty values and machine-only field types, and counts them", func(t *testing.T) {
+		t.Parallel()
+
+		shown, hidden := jira4claude.SelectCustomFields(fields(), false)
+
+		assert.Equal(t, 7, hidden)
+		assert.ElementsMatch(t,
+			[]string{"customfield_1", "customfield_2", "customfield_10", "customfield_11", "customfield_12"},
+			mapKeys(shown))
+	})
+
+	t.Run("identifies a machine-only field by its custom type, not its display name", func(t *testing.T) {
+		t.Parallel()
+
+		shown, _ := jira4claude.SelectCustomFields(fields(), false)
+
+		assert.Contains(t, shown, "customfield_10", "a text field named Rank is shown")
+		assert.NotContains(t, shown, "customfield_8", "the rank field type is hidden")
+	})
+
+	t.Run("all shows every field and hides none", func(t *testing.T) {
+		t.Parallel()
+
+		shown, hidden := jira4claude.SelectCustomFields(fields(), true)
+
+		assert.Equal(t, 0, hidden)
+		assert.Equal(t, fields(), shown)
+	})
+
+	t.Run("no fields hides none", func(t *testing.T) {
+		t.Parallel()
+
+		shown, hidden := jira4claude.SelectCustomFields(nil, false)
+
+		assert.Empty(t, shown)
+		assert.Equal(t, 0, hidden)
+	})
+
+	t.Run("the machine-only list is the rank and development summary types", func(t *testing.T) {
+		t.Parallel()
+
+		assert.Equal(t, []string{
+			rankType,
+			devSummaryType,
+			"com.atlassian.jira.plugins.jira-development-integration-plugin:devsummary",
+		}, jira4claude.MachineOnlyFieldTypes())
+	})
+}
+
+func mapKeys[V any](m map[string]V) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	return keys
+}

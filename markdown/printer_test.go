@@ -230,6 +230,78 @@ func TestPrinter_Issue(t *testing.T) {
 	})
 }
 
+func TestPrinter_Issue_CustomFieldNoise(t *testing.T) {
+	t.Parallel()
+
+	noisy := func(key string, all bool) jira4claude.IssueView {
+		return jira4claude.IssueView{
+			Key: key, Summary: "Noisy", Type: "Task", Status: "To Do",
+			CustomFields: map[string]jira4claude.CustomFieldValue{
+				"customfield_10016": {Name: "Story Points", Value: []byte(`5`), SchemaType: "number"},
+				"customfield_10020": {Name: "Sprint", Value: []byte(`[]`), SchemaType: "array"},
+				"customfield_10021": {Name: "Flagged", Value: []byte(`""`)},
+				"customfield_10019": {Name: "Rank", Value: []byte(`"0|i0004v:"`), SchemaType: "any", SchemaCustom: "com.pyxis.greenhopper.jira:gh-lexo-rank"},
+			},
+			AllCustomFields: all,
+		}
+	}
+
+	t.Run("hides empty and machine-only fields and reports the count on stderr", func(t *testing.T) {
+		t.Parallel()
+		var out, errOut bytes.Buffer
+		p := markdown.NewPrinterWithIO(&out, &errOut)
+
+		p.Issue(noisy("J4C-1", false))
+
+		assert.True(t, strings.HasSuffix(out.String(), "\n## Custom Fields\n\n- **Story Points:** 5\n"), "stdout: %q", out.String())
+		assert.NotContains(t, out.String(), "Sprint")
+		assert.NotContains(t, out.String(), "Flagged")
+		assert.NotContains(t, out.String(), "Rank")
+		assert.NotContains(t, out.String(), "[info]")
+		assert.Equal(t, "[info] 3 empty or machine-only custom field(s) hidden — use --all-fields to show all.\n", errOut.String())
+	})
+
+	t.Run("AllCustomFields shows every field and prints no notice", func(t *testing.T) {
+		t.Parallel()
+		var out, errOut bytes.Buffer
+		p := markdown.NewPrinterWithIO(&out, &errOut)
+
+		p.Issue(noisy("J4C-1", true))
+
+		assert.Contains(t, out.String(), "- **Flagged:** \"\"\n")
+		assert.Contains(t, out.String(), "- **Rank:** \"0|i0004v:\"\n")
+		assert.Contains(t, out.String(), "- **Sprint:** []\n")
+		assert.Contains(t, out.String(), "- **Story Points:** 5\n")
+		assert.Empty(t, errOut.String())
+	})
+
+	t.Run("omits the section when every field is hidden", func(t *testing.T) {
+		t.Parallel()
+		var out, errOut bytes.Buffer
+		p := markdown.NewPrinterWithIO(&out, &errOut)
+
+		view := noisy("J4C-1", false)
+		delete(view.CustomFields, "customfield_10016")
+		p.Issue(view)
+
+		assert.NotContains(t, out.String(), "## Custom Fields")
+		assert.Equal(t, "[info] 3 empty or machine-only custom field(s) hidden — use --all-fields to show all.\n", errOut.String())
+	})
+
+	t.Run("several issues name the issue in each notice", func(t *testing.T) {
+		t.Parallel()
+		var out, errOut bytes.Buffer
+		p := markdown.NewPrinterWithIO(&out, &errOut)
+
+		p.IssueViews([]jira4claude.IssueView{noisy("J4C-1", false), noisy("J4C-2", false)})
+
+		assert.Equal(t,
+			"[info] J4C-1: 3 empty or machine-only custom field(s) hidden — use --all-fields to show all.\n"+
+				"[info] J4C-2: 3 empty or machine-only custom field(s) hidden — use --all-fields to show all.\n",
+			errOut.String())
+	})
+}
+
 func TestPrinter_Issues(t *testing.T) {
 	t.Parallel()
 

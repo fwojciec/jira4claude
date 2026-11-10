@@ -825,6 +825,55 @@ func TestIssueService_GetCustomFields(t *testing.T) {
 		assert.JSONEq(t, `{"accountId": "abc", "displayName": "Approver Person"}`, string(cf.Value))
 	})
 
+	t.Run("requests expand=schema and carries each custom field's schema type and custom type", func(t *testing.T) {
+		t.Parallel()
+
+		var receivedExpand string
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			receivedExpand = r.URL.Query().Get("expand")
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{
+				"key": "TEST-1",
+				"names": {
+					"customfield_10019": "Rank",
+					"customfield_10801": "Story Points",
+					"customfield_10900": "No schema entry"
+				},
+				"schema": {
+					"customfield_10019": {"type": "any", "custom": "com.pyxis.greenhopper.jira:gh-lexo-rank", "customId": 10019},
+					"customfield_10801": {"type": "number", "custom": "com.atlassian.jira.plugin.system.customfieldtypes:float", "customId": 10801},
+					"summary": {"type": "string", "system": "summary"}
+				},
+				"fields": {
+					"summary": "Test issue",
+					"status": {"name": "To Do"},
+					"issuetype": {"name": "Task"},
+					"customfield_10019": "0|i0004v:",
+					"customfield_10801": 5,
+					"customfield_10900": "x"
+				}
+			}`))
+		}))
+		defer server.Close()
+
+		client := newTestClient(t, server.URL, "user@example.com", "api-token")
+		svc := jirahttp.NewIssueService(client)
+
+		issue, err := svc.Get(context.Background(), "TEST-1")
+
+		require.NoError(t, err)
+		assert.ElementsMatch(t, []string{"names", "schema"}, strings.Split(receivedExpand, ","))
+		rank := issue.ReadCustomFields["customfield_10019"]
+		assert.Equal(t, "any", rank.SchemaType)
+		assert.Equal(t, "com.pyxis.greenhopper.jira:gh-lexo-rank", rank.SchemaCustom)
+		points := issue.ReadCustomFields["customfield_10801"]
+		assert.Equal(t, "number", points.SchemaType)
+		assert.Equal(t, "com.atlassian.jira.plugin.system.customfieldtypes:float", points.SchemaCustom)
+		bare := issue.ReadCustomFields["customfield_10900"]
+		assert.Empty(t, bare.SchemaType, "a field without a schema entry has no type")
+		assert.Empty(t, bare.SchemaCustom)
+	})
+
 	t.Run("excludes custom fields with null value", func(t *testing.T) {
 		t.Parallel()
 

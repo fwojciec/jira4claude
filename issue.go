@@ -86,7 +86,7 @@ type Issue struct {
 	Updated      time.Time
 	CustomFields map[string]json.RawMessage // write-only on Create/Update; populated from --field-json.
 
-	// ReadCustomFields is read-only: populated by Get (via expand=names) with
+	// ReadCustomFields is read-only: populated by Get (via expand=names,schema) with
 	// the issue's populated custom fields, keyed by field ID. List leaves it
 	// empty (its field whitelist excludes custom fields).
 	ReadCustomFields map[string]CustomFieldValue
@@ -95,9 +95,18 @@ type Issue struct {
 // CustomFieldValue is a read-side custom field: its display name plus the raw
 // API value. Keyed by field ID in Issue.ReadCustomFields. The raw Value is the
 // value as returned by Jira, suitable for round-tripping back to --field-json.
+//
+// SchemaType and SchemaCustom are the field's schema as the issue read
+// reports it (expand=schema), with the meaning IssueField gives them: the
+// value type ("number", "array", "any", ...) and the custom field type key
+// ("com.pyxis.greenhopper.jira:gh-lexo-rank", ...). Both are empty when the
+// read carried no schema for the field. They decide what issue view hides
+// (SelectCustomFields) and are not part of the JSON view.
 type CustomFieldValue struct {
-	Name  string          `json:"name"`
-	Value json.RawMessage `json:"value"`
+	Name         string          `json:"name"`
+	Value        json.RawMessage `json:"value"`
+	SchemaType   string          `json:"-"`
+	SchemaCustom string          `json:"-"`
 }
 
 // IssueFilter specifies criteria for listing issues.

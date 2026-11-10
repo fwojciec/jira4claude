@@ -867,3 +867,63 @@ func TestRun_IssueViewFieldRoundTrip(t *testing.T) {
 		assert.Equal(t, []string{"get TEST-1", "update TEST-1"}, svc.Calls())
 	})
 }
+
+// issue view hiding of noisy custom fields (jir-zb7m). noisyIssue is in
+// streams_test.go.
+func TestRun_IssueViewCustomFieldNoise(t *testing.T) {
+	t.Parallel()
+
+	view := func(t *testing.T, args ...string) runResult {
+		t.Helper()
+		return runCLI(t, testDeps(issueGetter(noisyIssue(), nil), &mock.UserService{}), args...)
+	}
+
+	t.Run("--all-fields shows every custom field and prints no notice", func(t *testing.T) {
+		t.Parallel()
+
+		res := view(t, "issue", "view", "TEST-1", "--all-fields")
+
+		assert.Equal(t, 0, res.code)
+		assert.Contains(t, res.stdout, "\n## Custom Fields\n\n"+
+			"- **Flagged:** \"\"\n"+
+			"- **Rank:** \"0|i0004v:\"\n"+
+			"- **Sprint:** []\n"+
+			"- **Story Points:** 5\n")
+		assert.Empty(t, res.stderr)
+	})
+
+	t.Run("--json is the same with or without --all-fields", func(t *testing.T) {
+		t.Parallel()
+
+		plain := view(t, "--json", "issue", "view", "TEST-1")
+		all := view(t, "--json", "issue", "view", "TEST-1", "--all-fields")
+
+		assert.Equal(t, 0, plain.code)
+		assert.Equal(t, 0, all.code)
+		assert.Equal(t, plain.stdout, all.stdout)
+	})
+
+	t.Run("--field returns a hidden field in text", func(t *testing.T) {
+		t.Parallel()
+
+		rank := view(t, "issue", "view", "TEST-1", "--field", "customfield_10019")
+		sprint := view(t, "issue", "view", "TEST-1", "--field", "customfield_10020")
+
+		assert.Equal(t, 0, rank.code)
+		assert.Equal(t, "\"0|i0004v:\"\n", rank.stdout)
+		assert.Empty(t, rank.stderr)
+		assert.Equal(t, 0, sprint.code)
+		assert.Equal(t, "[]\n", sprint.stdout)
+		assert.Empty(t, sprint.stderr)
+	})
+
+	t.Run("--field returns a hidden field in json", func(t *testing.T) {
+		t.Parallel()
+
+		res := view(t, "--json", "issue", "view", "TEST-1", "--field", "customfield_10019,customfield_10021")
+
+		assert.Equal(t, 0, res.code)
+		assert.JSONEq(t, `{"key":"TEST-1","customfield_10019":"0|i0004v:","customfield_10021":""}`, res.stdout)
+		assert.Empty(t, res.stderr)
+	})
+}

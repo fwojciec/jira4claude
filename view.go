@@ -29,8 +29,14 @@ type IssueView struct {
 	URL           string             `json:"url,omitempty"`
 
 	// CustomFields are read-only custom fields keyed by field ID, passed
-	// through from the issue as-is (no ADF conversion).
+	// through from the issue as-is (no ADF conversion). The JSON view always
+	// carries all of them.
 	CustomFields map[string]CustomFieldValue `json:"customFields,omitempty"`
+
+	// AllCustomFields asks the text view to show every custom field (issue
+	// view --all-fields). Without it the text view hides the empty and
+	// machine-only ones; see SelectCustomFields.
+	AllCustomFields bool `json:"-"`
 }
 
 // MarshalJSON ensures RelatedIssues is always an array, never null.
@@ -392,6 +398,60 @@ func SelectIssueFields(fields []*IssueField, filter string, all bool) (selected 
 		scope = FieldScopeDefault
 	}
 	return selected, scope, len(fields) - len(selected)
+}
+
+// MachineOnlyFieldTypes returns the custom field types (schema custom keys)
+// whose values are for Jira's own use, not for a reader: the board rank and
+// the development panel summary. issue view hides fields of these types.
+//
+// The rank key is documented by third-party field references. The development
+// summary key is unverified against a live site: sources give both
+// "devsummarycf" and "devsummary", so both are listed.
+func MachineOnlyFieldTypes() []string {
+	return []string{
+		"com.pyxis.greenhopper.jira:gh-lexo-rank",
+		"com.atlassian.jira.plugins.jira-development-integration-plugin:devsummarycf",
+		"com.atlassian.jira.plugins.jira-development-integration-plugin:devsummary",
+	}
+}
+
+// SelectCustomFields chooses the custom fields the issue view text shows and
+// counts the ones it hides, as SelectIssueFields does for issue fields.
+//
+//   - When all is true, every field is shown and none hidden.
+//   - Otherwise a field is hidden when its value is empty ([], {}, "" or
+//     null, whatever the whitespace) or its custom type is one of
+//     MachineOnlyFieldTypes. Fields are told apart by type, never by display
+//     name; a field whose type is unknown is hidden only when empty.
+func SelectCustomFields(fields map[string]CustomFieldValue, all bool) (shown map[string]CustomFieldValue, hidden int) {
+	if all {
+		return fields, 0
+	}
+	shown = make(map[string]CustomFieldValue, len(fields))
+	for id, cf := range fields {
+		if isEmptyJSON(cf.Value) || slices.Contains(MachineOnlyFieldTypes(), cf.SchemaCustom) {
+			hidden++
+			continue
+		}
+		shown[id] = cf
+	}
+	return shown, hidden
+}
+
+// isEmptyJSON reports whether raw is [], {}, "" or null (or nothing at all).
+func isEmptyJSON(raw json.RawMessage) bool {
+	if len(bytes.TrimSpace(raw)) == 0 {
+		return true
+	}
+	var buf bytes.Buffer
+	if err := json.Compact(&buf, raw); err != nil {
+		return false
+	}
+	switch buf.String() {
+	case "[]", "{}", `""`, "null":
+		return true
+	}
+	return false
 }
 
 // ToIssueListItems converts domain issues to list items.

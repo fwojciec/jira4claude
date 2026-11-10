@@ -258,6 +258,11 @@ type MutationResult struct {
 - `issue view` hides empty values (`[]`, `{}`, `""`) and a short list of machine-only field types (development summary, rank).
 - It prints the hidden count, as `issue fields` does. `--all-fields` shows everything.
 
+  Decided shapes (jir-zb7m):
+  - The read asks for `expand=names,schema`, so each custom field carries its schema `type` and `custom` key, as `issue fields` reports them. A field is machine-only by its custom key, never its display name: `com.pyxis.greenhopper.jira:gh-lexo-rank` and `com.atlassian.jira.plugins.jira-development-integration-plugin:devsummarycf` (also `:devsummary`, since sources disagree). **Unverified**: the `schema` expand, its per-field `custom` key and the development summary key come from Atlassian's reference and third-party field lists, not from a live site; a wrong key fails silently (the field keeps printing). A field without a schema entry is hidden only when empty. Empty is `[]`, `{}`, `""` or `null` after compaction. Unset (`null`) fields never reach the view, as before, so they are not counted.
+  - Text view only. The notice goes to stderr: `[info] N empty or machine-only custom field(s) hidden — use --all-fields to show all.`, with `KEY: ` after `[info] ` when several keys were asked. No `## Custom Fields` header when every field is hidden.
+  - `--json` does not hide: it keeps every field it had before, prints no notice, and `--all-fields` leaves it unchanged. Scripts want complete, stable data, and a field whose value goes from `[]` to `["x"]` should not appear and disappear from `customFields`. `--field customfield_N` returns any field, hidden or not, in both modes.
+
 #### 2.6 Documentation
 
 A "Scripting" section in the README and in `--help`: field selection, file
