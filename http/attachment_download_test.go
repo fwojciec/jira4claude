@@ -5,12 +5,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/cookiejar"
 	"net/http/httptest"
 	"net/url"
 	"strconv"
 	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 
@@ -60,6 +62,22 @@ func assertNoSecret(t *testing.T, err error, secret string) {
 		assert.NotContains(t, e.Error(), secret, "wrapped %T", e)
 		assert.NotContains(t, fmt.Sprintf("%+v", e), secret, "wrapped %T", e)
 	}
+}
+
+// refusing returns a private transport whose dials to addr are refused, as
+// a closed port refuses them. A closed test server's port will not do: in a
+// parallel run another test's server can take it and answer.
+func refusing(t *testing.T, addr string) *http.Transport {
+	t.Helper()
+	tr := privateTransport(t)
+	dial := tr.DialContext
+	tr.DialContext = func(ctx context.Context, network, a string) (net.Conn, error) {
+		if a == addr {
+			return nil, &net.OpError{Op: "dial", Net: network, Err: syscall.ECONNREFUSED}
+		}
+		return dial(ctx, network, a)
+	}
+	return tr
 }
 
 // failOnce is a RoundTripper that fails its at-th call with err, before
@@ -264,11 +282,9 @@ func TestAttachmentService_Download(t *testing.T) {
 	t.Run("a failed hop to the media host keeps the signed URL out of the error", func(t *testing.T) {
 		t.Parallel()
 
-		closed := httptest.NewServer(http.NotFoundHandler())
-		closedURL := closed.URL
-		closed.Close()
-		jira := redirectingJira(t, func() string { return closedURL + "/file?token=signed-secret" }, nil)
-		svc := jirahttp.NewAttachmentService(newTestClient(t, jira.URL, "user", "pass", jirahttp.WithMaxRetries(0)))
+		jira := redirectingJira(t, func() string { return "http://127.0.0.1:1/file?token=signed-secret" }, nil)
+		svc := jirahttp.NewAttachmentService(newTestClient(t, jira.URL, "user", "pass",
+			jirahttp.WithMaxRetries(0), jirahttp.WithHTTPClient(&http.Client{Transport: refusing(t, "127.0.0.1:1")})))
 
 		_, err := svc.Download(context.Background(), "10000", &bytes.Buffer{})
 
@@ -301,10 +317,8 @@ func TestAttachmentService_Download(t *testing.T) {
 	t.Run("a network error on the configured host keeps its cause", func(t *testing.T) {
 		t.Parallel()
 
-		closed := httptest.NewServer(http.NotFoundHandler())
-		closedURL := closed.URL
-		closed.Close()
-		svc := jirahttp.NewAttachmentService(newTestClient(t, closedURL, "user", "pass", jirahttp.WithMaxRetries(0)))
+		svc := jirahttp.NewAttachmentService(newTestClient(t, "http://127.0.0.1:1", "user", "pass",
+			jirahttp.WithMaxRetries(0), jirahttp.WithHTTPClient(&http.Client{Transport: refusing(t, "127.0.0.1:1")})))
 
 		_, err := svc.Download(context.Background(), "10000", &bytes.Buffer{})
 
