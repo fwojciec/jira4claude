@@ -397,6 +397,23 @@ func TestE2E(t *testing.T) {
 		assert.Nil(t, e.stub.issue("PROJ-1").Description)
 	})
 
+	t.Run("an update whose read-back fails still reports the applied write", func(t *testing.T) {
+		t.Parallel()
+		e := newE2EEnv(t, bin)
+		e.stub.mu.Lock()
+		e.stub.failReadAfterWrite = true
+		e.stub.mu.Unlock()
+
+		r := e.run("issue", "update", "PROJ-2", "--append-description", "Fixed in build 512.")
+		assert.Equal(t, e2eRun{
+			stdout: "PROJ-2: updated\n  description: appended\n" + e.stub.server.URL + "/browse/PROJ-2\n",
+			stderr: "[error] updated PROJ-2, but reading it back failed; the write was applied, do not repeat it: Service unavailable\n",
+			code:   7,
+		}, r)
+		assert.Len(t, writes(e.stub.Requests()), 1, "one PUT, not retried")
+		assert.Contains(t, string(e.stub.issue("PROJ-2").Description), "Fixed in build 512.")
+	})
+
 	t.Run("issue list warns when cut by --limit; issue ready follows the pages", func(t *testing.T) {
 		t.Parallel()
 		e := newE2EEnv(t, bin)

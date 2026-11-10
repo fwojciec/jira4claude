@@ -23,7 +23,8 @@ as Markdown; the tool converts them to and from Jira's document format.
   part of the work was done and stdout reports that part: `issue view` with
   several keys, `attachment download` and `attachment upload` with several
   files, `issue create` whose separate assignment step failed (the new key is
-  printed), and `issue assign` whose read-back failed.
+  printed), and `issue update` and `issue assign` whose read-back failed
+  (the write was applied; the error says not to repeat it).
 - **A write that would lose content is refused**, with exit 1 and nothing
   written, unless you pass `--force`. This covers Markdown that has no Jira
   form (an image), existing images, mentions, statuses and dates left out of

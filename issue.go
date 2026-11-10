@@ -360,7 +360,8 @@ type IssueService interface {
 
 	// Update modifies an existing issue and returns it as read back after
 	// the write: the resulting values and updated time that issue update
-	// reports.
+	// reports. When the write was applied and only the read back failed,
+	// the error is a *ReadBackError.
 	Update(ctx context.Context, key string, update IssueUpdate) (*Issue, error)
 
 	// Delete deletes an issue by its key.

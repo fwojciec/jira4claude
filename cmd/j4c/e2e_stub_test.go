@@ -41,6 +41,10 @@ type stubJira struct {
 	// answering, until it is closed or the client goes away.
 	hang chan struct{}
 
+	// failReadAfterWrite makes every read of an issue that a write changed
+	// fail with 503, as a read back after an applied write may.
+	failReadAfterWrite bool
+
 	mu            sync.Mutex
 	requests      []stubRequest
 	mediaRequests []stubRequest
@@ -333,6 +337,9 @@ func (s *stubJira) route(req stubRequest) (int, []byte) {
 func (s *stubJira) issueRoute(req stubRequest, issue *stubIssue, rest []string, query url.Values) (int, []byte) {
 	switch {
 	case len(rest) == 0 && req.Method == http.MethodGet:
+		if s.failReadAfterWrite && issue.Updated == stubUpdatedAfterWrite {
+			return http.StatusServiceUnavailable, jiraError("Service unavailable")
+		}
 		if query.Get("fields") == "attachment" {
 			return http.StatusOK, encode(map[string]any{"key": issue.Key, "fields": map[string]any{"attachment": s.attachmentField(issue)}})
 		}

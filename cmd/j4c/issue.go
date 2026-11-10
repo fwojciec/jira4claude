@@ -552,6 +552,23 @@ func (c *IssueUpdateCmd) Run(ctx *IssueContext) error {
 	}
 
 	updated, err := ctx.Service.Update(context.Background(), c.Key, update)
+	var readBack *jira4claude.ReadBackError
+	if errors.As(err, &readBack) {
+		// The write was applied; only the read after it failed. As issue
+		// assign does, report the write from what is known (the read before
+		// it and the values sent; no updated time) and fail with the read's
+		// code, saying not to repeat it: a repeated append would add the
+		// text twice.
+		result := newResult(ctx.Config, c.Key, jira4claude.ActionUpdated)
+		result.Changes = jira4claude.PlannedChanges(current, update)
+		result.Removed = jira4claude.RemovedNodes(rewrite)
+		ctx.Printer.Mutation(result)
+		return &jira4claude.Error{
+			Code:    jira4claude.ErrorCode(readBack.Err),
+			Message: "updated " + c.Key + ", but reading it back failed; the write was applied, do not repeat it",
+			Inner:   readBack.Err,
+		}
+	}
 	if err != nil {
 		return err
 	}

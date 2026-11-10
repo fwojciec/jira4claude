@@ -275,8 +275,13 @@ func (s *IssueService) Update(ctx context.Context, key string, update jira4claud
 		return nil, err
 	}
 
-	// Fetch and return the updated issue
-	return s.Get(ctx, key)
+	// Fetch and return the updated issue. The write is done: a failed read
+	// says so, so that the caller reports it and nobody repeats it.
+	issue, err := s.Get(ctx, key)
+	if err != nil {
+		return nil, &jira4claude.ReadBackError{Err: err}
+	}
+	return issue, nil
 }
 
 // Delete deletes an issue by its key.

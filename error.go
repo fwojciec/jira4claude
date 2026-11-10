@@ -45,6 +45,24 @@ func (e *Error) Unwrap() error {
 	return e.Inner
 }
 
+// ReadBackError is the error of a write that Jira applied but whose result
+// could not be read back afterwards. Err is the read's error; ErrorCode and
+// ExitCode see through to its code. A caller reports the write as done and
+// must not repeat it.
+type ReadBackError struct {
+	Err error
+}
+
+// Error returns the read's error, saying that the write was applied.
+func (e *ReadBackError) Error() string {
+	return "the write was applied, but reading it back failed: " + e.Err.Error()
+}
+
+// Unwrap returns the read's error.
+func (e *ReadBackError) Unwrap() error {
+	return e.Err
+}
+
 // ErrorCode returns the error code from err if it is a jira4claude.Error,
 // or EInternal for other errors. Returns empty string for nil errors.
 func ErrorCode(err error) string {
