@@ -14,13 +14,17 @@ type InitCmd struct {
 
 // Run executes the init command.
 func (c *InitCmd) Run(ctx *ConfigContext) error {
-	workDir, err := os.Getwd()
-	if err != nil {
-		return &jira4claude.Error{
-			Code:    jira4claude.EInternal,
-			Message: "failed to get working directory",
-			Inner:   err,
+	workDir := ctx.WorkDir
+	if workDir == "" {
+		wd, err := os.Getwd()
+		if err != nil {
+			return &jira4claude.Error{
+				Code:    jira4claude.EInternal,
+				Message: "failed to get working directory",
+				Inner:   err,
+			}
 		}
+		workDir = wd
 	}
 
 	result, err := ctx.Service.Init(workDir, c.Server, c.Project)

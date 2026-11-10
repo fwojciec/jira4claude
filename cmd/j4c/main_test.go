@@ -70,23 +70,20 @@ func TestInitCmd_CreatesConfigAndUpdatesGitignore(t *testing.T) {
 
 		// Create temp directory
 		tmpDir := t.TempDir()
-		originalWd, err := os.Getwd()
-		require.NoError(t, err)
-		require.NoError(t, os.Chdir(tmpDir))
-		t.Cleanup(func() { _ = os.Chdir(originalWd) })
 
 		// Set up the config context with real service and mock printer
 		printer := &mock.Printer{}
 		ctx := &main.ConfigContext{
 			Service: yaml.NewService(),
 			Printer: printer,
+			WorkDir: tmpDir,
 		}
 
 		cmd := main.InitCmd{
 			Server:  "https://test.atlassian.net",
 			Project: "TEST",
 		}
-		err = cmd.Run(ctx)
+		err := cmd.Run(ctx)
 
 		require.NoError(t, err)
 

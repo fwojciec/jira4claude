@@ -61,6 +61,9 @@ type MessageContext struct {
 type ConfigContext struct {
 	Service jira4claude.ConfigService
 	Printer jira4claude.Printer
+	// WorkDir is the directory init writes to; empty means the process's
+	// working directory.
+	WorkDir string
 }
 
 // Deps are the external dependencies of Run. main wires the real
