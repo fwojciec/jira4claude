@@ -537,22 +537,30 @@ func escapeControl(s string) string {
 
 // Mutation prints the result of a write: a "KEY: what happened" line, one
 // indented line per changed field (sorted by field), the removed content and
-// the updated time when there are any, and the issue's URL last.
+// the updated time when there are any, and the issue's URL. A dry run says so
+// on its first line, which names the project for a create (there is no key
+// yet), and ends with the text Jira would hold after a blank line.
 func (p *Printer) Mutation(result jira4claude.MutationResult) {
 	changes := result.Changes
-	switch result.Action {
-	case jira4claude.ActionTransitioned:
+	switch {
+	case result.DryRun:
+		subject := result.Key
+		if subject == "" {
+			subject = result.Project
+		}
+		fmt.Fprintf(p.out, "%s: %s (dry run; nothing was written)\n", subject, strings.ReplaceAll(result.Action, "_", " "))
+	case result.Action == jira4claude.ActionTransitioned:
 		// The status move is the whole result.
 		status := changes["status"]
 		fmt.Fprintf(p.out, "%s: %s → %s\n", result.Key, formatValue(status.From), formatValue(status.To))
 		changes = nil
-	case jira4claude.ActionCommentAdded:
+	case result.Action == jira4claude.ActionCommentAdded:
 		fmt.Fprintf(p.out, "%s: added comment %s\n", result.Key, result.CommentID)
-	case jira4claude.ActionCommentDeleted:
+	case result.Action == jira4claude.ActionCommentDeleted:
 		fmt.Fprintf(p.out, "%s: deleted comment %s\n", result.Key, result.CommentID)
-	case jira4claude.ActionLinked:
+	case result.Action == jira4claude.ActionLinked:
 		fmt.Fprintf(p.out, "%s: linked, %s %s %s\n", result.Key, result.Link.Source, result.Link.Type, result.Link.Target)
-	case jira4claude.ActionUnlinked:
+	case result.Action == jira4claude.ActionUnlinked:
 		fmt.Fprintf(p.out, "%s: unlinked from %s\n", result.Key, result.Link.Target)
 	default:
 		fmt.Fprintf(p.out, "%s: %s\n", result.Key, result.Action)
@@ -579,6 +587,11 @@ func (p *Printer) Mutation(result jira4claude.MutationResult) {
 	}
 	if result.URL != "" {
 		fmt.Fprintln(p.out, result.URL)
+	}
+	if result.Text != nil {
+		if text := strings.TrimRight(*result.Text, "\n"); text != "" {
+			fmt.Fprintf(p.out, "\n%s\n", text)
+		}
 	}
 }
 

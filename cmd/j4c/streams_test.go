@@ -61,6 +61,10 @@ func everyCommand() []commandCase {
 				return nil, err
 			}}
 		})},
+		// A dry run writes nothing, but an update still reads the issue.
+		{"issue update --dry-run", []string{"issue", "update", "TEST-1", "--summary=New", "--dry-run"}, failing(func(err error) *mock.IssueService {
+			return issueGetter(nil, err)
+		})},
 		{"issue delete", []string{"issue", "delete", "TEST-1"}, failing(func(err error) *mock.IssueService {
 			return &mock.IssueService{DeleteFn: func(context.Context, string, bool) error { return err }}
 		})},
@@ -297,6 +301,38 @@ func warningCases() []warningCase {
 			},
 			textWarning: "[warn] degraded heading",
 			textStdout:  "TEST-1: added comment 10001\n",
+			jsonWarning: degraded("heading"),
+		},
+		// A dry run warns as the real run does; a zero-value write function
+		// panics, so none is reached.
+		{
+			name: "issue create --dry-run warns on degraded content",
+			args: []string{"issue", "create", "-s", "New", "--description=" + degradedMarkdown, "--dry-run"},
+			services: func() (*mock.IssueService, *mock.UserService) {
+				return &mock.IssueService{}, &mock.UserService{}
+			},
+			textWarning: "[warn] degraded heading",
+			textStdout:  "TEST: would create (dry run; nothing was written)\n",
+			jsonWarning: degraded("heading"),
+		},
+		{
+			name: "issue update --dry-run warns on degraded content",
+			args: []string{"issue", "update", "TEST-1", "--description=" + degradedMarkdown, "--dry-run"},
+			services: func() (*mock.IssueService, *mock.UserService) {
+				return issueGetter(&jira4claude.Issue{Key: "TEST-1"}, nil), &mock.UserService{}
+			},
+			textWarning: "[warn] degraded heading",
+			textStdout:  "TEST-1: would update (dry run; nothing was written)\n",
+			jsonWarning: degraded("heading"),
+		},
+		{
+			name: "issue comment --dry-run warns on degraded content",
+			args: []string{"issue", "comment", "TEST-1", "--body=" + degradedMarkdown, "--dry-run"},
+			services: func() (*mock.IssueService, *mock.UserService) {
+				return &mock.IssueService{}, &mock.UserService{}
+			},
+			textWarning: "[warn] degraded heading",
+			textStdout:  "TEST-1: would add comment (dry run; nothing was written)\n",
 			jsonWarning: degraded("heading"),
 		},
 		{

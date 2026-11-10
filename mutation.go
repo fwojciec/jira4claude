@@ -18,6 +18,13 @@ const (
 	ActionCommentDeleted = "comment_deleted"
 	ActionLinked         = "linked"
 	ActionUnlinked       = "unlinked"
+
+	// Actions of a dry run (--dry-run): what the command would do. They
+	// differ from the actions of real writes, so that a script testing for
+	// "created" or "updated" cannot take a dry run for a write.
+	ActionWouldCreate     = "would_create"
+	ActionWouldUpdate     = "would_update"
+	ActionWouldAddComment = "would_add_comment"
 )
 
 // Description edits, the Edit of the "description" Change.
@@ -32,11 +39,17 @@ const (
 // learns what happened without reading the issue again.
 type MutationResult struct {
 	// Key is the issue written: the new issue for a create, the issue
-	// commented on, the source issue of a link.
-	Key string `json:"key"`
-	// URL browses the issue. It is empty for a deleted issue.
+	// commented on, the source issue of a link. It is empty for the dry run
+	// of a create, which has no key yet; Project names the project then.
+	Key     string `json:"key,omitempty"`
+	Project string `json:"project,omitempty"`
+	// URL browses the issue. It is empty for a deleted issue and for the dry
+	// run of a create.
 	URL    string `json:"url,omitempty"`
 	Action string `json:"action"` // one of the Action constants
+	// DryRun is set when nothing was written: the result says what the
+	// command would do, and Action is one of the ActionWould constants.
+	DryRun bool `json:"dryRun,omitempty"`
 	// Changes maps each field the command wrote to its value before and after
 	// the write: Jira field names (summary, status, assignee, priority, labels,
 	// parent, description) or custom field IDs. A printer emits it as {} when
@@ -54,6 +67,12 @@ type MutationResult struct {
 	CommentID string `json:"commentId,omitempty"`
 	// Link is the link created or deleted.
 	Link *LinkEnds `json:"link,omitempty"`
+	// Text is, for a dry run, the Markdown Jira would hold after the write,
+	// read back from the document that would be sent: the whole description
+	// (after re-attachment, and with the current content for an append; ""
+	// for a clear) or the comment body. It is nil when the command writes no
+	// text.
+	Text *string `json:"text,omitempty"`
 }
 
 // Change is one field's value before (From) and after (To) a write. Values
@@ -150,6 +169,50 @@ func UpdateChanges(before, after *Issue, update IssueUpdate) map[string]Change {
 		changes["description"] = Change{Edit: EditCleared}
 	}
 	return changes
+}
+
+// PlannedChanges is UpdateChanges for a write that is not made (a dry run):
+// From comes from before, the issue as read, and To from the values update
+// would send. An assignee is named by the account ID sent, or by the name the
+// read gave when it is the current assignee; only Jira knows another
+// account's name, and how it would normalise any value.
+func PlannedChanges(before *Issue, update IssueUpdate) map[string]Change {
+	after := *before
+	if update.Summary != nil {
+		after.Summary = *update.Summary
+	}
+	if update.Priority != nil {
+		after.Priority = *update.Priority
+	}
+	if update.Assignee != nil {
+		switch {
+		case *update.Assignee == "":
+			after.Assignee = nil
+		case before.Assignee == nil || before.Assignee.AccountID != *update.Assignee:
+			after.Assignee = &User{AccountID: *update.Assignee}
+		}
+	}
+	if update.Labels != nil {
+		after.Labels = *update.Labels
+	}
+	if update.Parent != nil {
+		after.Parent = nil
+		if *update.Parent != "" {
+			after.Parent = &LinkedIssue{Key: *update.Parent}
+		}
+	}
+	if len(update.CustomFields) > 0 {
+		after.ReadCustomFields = make(map[string]CustomFieldValue, len(before.ReadCustomFields)+len(update.CustomFields))
+		for id, v := range before.ReadCustomFields {
+			after.ReadCustomFields[id] = v
+		}
+		for id, raw := range update.CustomFields {
+			v := after.ReadCustomFields[id]
+			v.Value = raw
+			after.ReadCustomFields[id] = v
+		}
+	}
+	return UpdateChanges(before, &after, update)
 }
 
 // AssigneeChange reports the assignee of before and after by display name,

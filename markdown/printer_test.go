@@ -599,6 +599,7 @@ func TestPrinter_Links(t *testing.T) {
 func TestPrinter_Mutation(t *testing.T) {
 	t.Parallel()
 
+	ptr := func(s string) *string { return &s }
 	const url = "https://x.atlassian.net/browse/TEST-1"
 	tests := []struct {
 		name   string
@@ -688,6 +689,47 @@ func TestPrinter_Mutation(t *testing.T) {
 				Link: &jira4claude.LinkEnds{Source: "TEST-1", Target: "TEST-2"},
 			},
 			want: "TEST-1: unlinked from TEST-2\n" + url + "\n",
+		},
+		{
+			name: "dry run of a create: the project, then the text after a blank line",
+			result: jira4claude.MutationResult{
+				Project: "TEST", Action: jira4claude.ActionWouldCreate, DryRun: true, Text: ptr("Some *text*\n\n- a"),
+			},
+			want: "TEST: would create (dry run; nothing was written)\n\nSome *text*\n\n- a\n",
+		},
+		{
+			name: "dry run of an update: the changes, then the whole text",
+			result: jira4claude.MutationResult{
+				Key: "TEST-1", URL: url, Action: jira4claude.ActionWouldUpdate, DryRun: true,
+				Changes: map[string]jira4claude.Change{
+					"summary":     {From: "Old", To: "New"},
+					"description": {Edit: jira4claude.EditSet},
+				},
+				Removed: []string{"{{mention:2 Jane Doe}}"},
+				Text:    ptr("Rewritten.\n\n{{mediaSingle:1 shot.png}}\n"),
+			},
+			want: "TEST-1: would update (dry run; nothing was written)\n" +
+				"  description: set\n" +
+				"  summary: Old → New\n" +
+				"  removed: {{mention:2 Jane Doe}}\n" +
+				url + "\n" +
+				"\nRewritten.\n\n{{mediaSingle:1 shot.png}}\n",
+		},
+		{
+			name: "dry run of a clear prints no text",
+			result: jira4claude.MutationResult{
+				Key: "TEST-1", URL: url, Action: jira4claude.ActionWouldUpdate, DryRun: true,
+				Changes: map[string]jira4claude.Change{"description": {Edit: jira4claude.EditCleared}},
+				Text:    ptr(""),
+			},
+			want: "TEST-1: would update (dry run; nothing was written)\n  description: cleared\n" + url + "\n",
+		},
+		{
+			name: "dry run of a comment",
+			result: jira4claude.MutationResult{
+				Key: "TEST-1", URL: url, Action: jira4claude.ActionWouldAddComment, DryRun: true, Text: ptr("Hello"),
+			},
+			want: "TEST-1: would add comment (dry run; nothing was written)\n" + url + "\n\nHello\n",
 		},
 	}
 	for _, tc := range tests {

@@ -1,0 +1,8 @@
+{
+  "key": "TEST-1",
+  "url": "https://test.atlassian.net/browse/TEST-1",
+  "action": "would_add_comment",
+  "dryRun": true,
+  "changes": {},
+  "text": "Hello **there**"
+}

@@ -1005,6 +1005,31 @@ func TestPrinter_Mutation(t *testing.T) {
 
 		assert.JSONEq(t, `{"key":"TEST-1","action":"deleted","changes":{}}`, out.String())
 	})
+
+	t.Run("a dry run carries dryRun and the text, an empty text included", func(t *testing.T) {
+		t.Parallel()
+		var out bytes.Buffer
+		p := jsonpkg.NewPrinter(&out)
+		empty := ""
+
+		p.Mutation(jira4claude.MutationResult{
+			Key: "TEST-1", Action: jira4claude.ActionWouldUpdate, DryRun: true, Text: &empty,
+			Changes: map[string]jira4claude.Change{"description": {Edit: jira4claude.EditCleared}},
+		})
+
+		assert.JSONEq(t, `{"key":"TEST-1","action":"would_update","dryRun":true,"changes":{"description":{"edit":"cleared"}},"text":""}`, out.String())
+	})
+
+	t.Run("the dry run of a create names the project, not a key", func(t *testing.T) {
+		t.Parallel()
+		var out bytes.Buffer
+		p := jsonpkg.NewPrinter(&out)
+		text := "Some *text*"
+
+		p.Mutation(jira4claude.MutationResult{Project: "TEST", Action: jira4claude.ActionWouldCreate, DryRun: true, Text: &text})
+
+		assert.JSONEq(t, `{"project":"TEST","action":"would_create","dryRun":true,"changes":{},"text":"Some *text*"}`, out.String())
+	})
 }
 
 func TestPrinter_Initialized(t *testing.T) {

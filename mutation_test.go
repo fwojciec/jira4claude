@@ -177,6 +177,73 @@ func TestUpdateChanges(t *testing.T) {
 	})
 }
 
+func TestPlannedChanges(t *testing.T) {
+	t.Parallel()
+
+	str := func(s string) *string { return &s }
+	before := &jira4claude.Issue{
+		Key:      "TEST-1",
+		Summary:  "Old",
+		Priority: "Medium",
+		Assignee: &jira4claude.User{AccountID: "u-1", DisplayName: "Jane Doe"},
+		Labels:   []string{"a"},
+		Parent:   &jira4claude.LinkedIssue{Key: "TEST-8"},
+		ReadCustomFields: map[string]jira4claude.CustomFieldValue{
+			"customfield_1": {Name: "Severity", Value: json.RawMessage(`{"value":"Low"}`)},
+		},
+	}
+
+	t.Run("from is the read, to is the value sent", func(t *testing.T) {
+		t.Parallel()
+
+		labels := []string{"b", "c"}
+		got := jira4claude.PlannedChanges(before, jira4claude.IssueUpdate{
+			Summary:      str("New"),
+			Priority:     str("High"),
+			Assignee:     str("u-2"),
+			Labels:       &labels,
+			Parent:       str("TEST-9"),
+			Description:  jira4claude.ClearDescription(),
+			CustomFields: map[string]json.RawMessage{"customfield_1": json.RawMessage(`{"value":"High"}`), "duedate": json.RawMessage(`"2026-12-01"`)},
+		})
+
+		assert.Equal(t, map[string]jira4claude.Change{
+			"summary":       {From: "Old", To: "New"},
+			"priority":      {From: "Medium", To: "High"},
+			"assignee":      {From: "Jane Doe", To: "u-2"},
+			"labels":        {From: []string{"a"}, To: []string{"b", "c"}},
+			"parent":        {From: "TEST-8", To: "TEST-9"},
+			"description":   {Edit: jira4claude.EditCleared},
+			"customfield_1": {From: json.RawMessage(`{"value":"Low"}`), To: json.RawMessage(`{"value":"High"}`)},
+			"duedate":       {Edit: jira4claude.EditSet},
+		}, got)
+	})
+
+	t.Run("clearing reports null, and the read is not changed", func(t *testing.T) {
+		t.Parallel()
+
+		empty := []string{}
+		got := jira4claude.PlannedChanges(before, jira4claude.IssueUpdate{Assignee: str(""), Labels: &empty, Parent: str("")})
+
+		assert.Equal(t, map[string]jira4claude.Change{
+			"assignee": {From: "Jane Doe", To: nil},
+			"labels":   {From: []string{"a"}, To: []string{}},
+			"parent":   {From: "TEST-8", To: nil},
+		}, got)
+		assert.Equal(t, "u-1", before.Assignee.AccountID)
+		assert.Equal(t, []string{"a"}, before.Labels)
+		assert.Equal(t, "TEST-8", before.Parent.Key)
+	})
+
+	t.Run("the current assignee keeps the name the read gave", func(t *testing.T) {
+		t.Parallel()
+
+		got := jira4claude.PlannedChanges(before, jira4claude.IssueUpdate{Assignee: str("u-1")})
+
+		assert.Equal(t, map[string]jira4claude.Change{"assignee": {From: "Jane Doe", To: "Jane Doe"}}, got)
+	})
+}
+
 func TestStatusChange(t *testing.T) {
 	t.Parallel()
 

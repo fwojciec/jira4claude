@@ -1,0 +1,25 @@
+{
+  "key": "TEST-1",
+  "url": "https://test.atlassian.net/browse/TEST-1",
+  "action": "would_update",
+  "dryRun": true,
+  "changes": {
+    "description": {
+      "edit": "set"
+    },
+    "labels": {
+      "from": [],
+      "to": [
+        "b"
+      ]
+    },
+    "summary": {
+      "from": "Guarded",
+      "to": "New summary"
+    }
+  },
+  "removed": [
+    "{{mention:2 Jane Doe}}"
+  ],
+  "text": "Rewritten.\n\n{{mediaSingle:1 shot.png}}\n\nPing  about it."
+}

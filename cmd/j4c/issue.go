@@ -224,6 +224,7 @@ type IssueCreateCmd struct {
 	Assignee        string   `help:"Assignee: 'me', email, or account ID" short:"A"`
 	FieldJSON       []string `name:"field-json" sep:"none" help:"Set field by ID, value is JSON (repeatable). Example: customfield_10801='{\"value\":\"High\"}'"`
 	Force           bool     `help:"Write even if Markdown conversion drops content (e.g. images); dropped content is reported as a warning"`
+	DryRun          bool     `name:"dry-run" help:"Create nothing: print the description as Jira would hold it (as issue view would print it), with the same warnings and refusals as a real run; the assignee is still looked up"`
 }
 
 // Run executes the create command.
@@ -279,6 +280,17 @@ func (c *IssueCreateCmd) Run(ctx *IssueContext) error {
 		Parent:       parent,
 		Assignee:     assignee,
 		CustomFields: customFields,
+	}
+
+	if c.DryRun {
+		ctx.Printer.Mutation(jira4claude.MutationResult{
+			Project: project,
+			Action:  jira4claude.ActionWouldCreate,
+			DryRun:  true,
+			Changes: map[string]jira4claude.Change{},
+			Text:    readBack(ctx, description),
+		})
+		return nil
 	}
 
 	created, err := ctx.Service.Create(context.Background(), issue)
@@ -349,6 +361,7 @@ type IssueUpdateCmd struct {
 	FieldJSON             []string `name:"field-json" sep:"none" help:"Set field by ID, value is JSON (repeatable). Example: customfield_10801='{\"value\":\"High\"}'"`
 	IfUpdated             *string  `name:"if-updated" help:"Write only if the issue was last updated at this time, as issue view --json prints it in 'updated' (compared to the millisecond); otherwise exit 5 and write nothing. The check is made just before the write, so a change landing in between is not caught"`
 	Force                 bool     `help:"Write even if content would be lost: new Markdown that does not convert (e.g. images), existing nodes whose tokens were left out, or a cleared description that holds them; what is lost is reported as a warning"`
+	DryRun                bool     `name:"dry-run" help:"Write nothing: print the changes and the whole description as Jira would hold it (as issue view would print it after the write; its tokens are numbered for that description, so edit your input, not this output). The issue is still read and --if-updated checked; warnings and refusals are those of a real run"`
 }
 
 // Run executes the update command. Every update reads the issue first: the
@@ -473,6 +486,19 @@ func (c *IssueUpdateCmd) Run(ctx *IssueContext) error {
 	} else if c.ClearParent {
 		empty := ""
 		update.Parent = &empty
+	}
+
+	if c.DryRun {
+		result := newResult(ctx.Config, c.Key, jira4claude.ActionWouldUpdate)
+		result.DryRun = true
+		result.Changes = jira4claude.PlannedChanges(current, update)
+		result.Removed = jira4claude.RemovedNodes(rewrite)
+		result.Text = readBack(ctx, description.Document())
+		if description.Mode() == jira4claude.DescriptionClear {
+			result.Text = new(string)
+		}
+		ctx.Printer.Mutation(result)
+		return nil
 	}
 
 	updated, err := ctx.Service.Update(context.Background(), c.Key, update)
@@ -673,6 +699,7 @@ type IssueCommentCmd struct {
 	Body     string  `help:"Comment body" short:"b" required:"" xor:"body"`
 	BodyFile *string `name:"body-file" placeholder:"PATH" help:"Read the comment body from this file, or from standard input for -: UTF-8, at most 1 MiB; a leading byte order mark and one trailing newline are removed, so the output of a command can be passed back as it is" required:"" xor:"body"`
 	Force    bool    `help:"Write even if Markdown conversion drops content (e.g. images); dropped content is reported as a warning"`
+	DryRun   bool    `name:"dry-run" help:"Add nothing: print the body as Jira would hold it (as issue view would print it), with the same warnings and refusals as a real run; the issue is not read"`
 }
 
 // Run executes the comment command.
@@ -689,6 +716,14 @@ func (c *IssueCommentCmd) Run(ctx *IssueContext) error {
 	body, err := convertForWrite(ctx, "comment body", *text, c.Force)
 	if err != nil {
 		return err
+	}
+
+	if c.DryRun {
+		result := newResult(ctx.Config, c.Key, jira4claude.ActionWouldAddComment)
+		result.DryRun = true
+		result.Text = readBack(ctx, body)
+		ctx.Printer.Mutation(result)
+		return nil
 	}
 
 	comment, err := ctx.Service.AddComment(context.Background(), c.Key, body)
@@ -733,6 +768,17 @@ func (c *IssueDeleteCommentCmd) Run(ctx *IssueContext) error {
 	result.CommentID = c.CommentID
 	ctx.Printer.Mutation(result)
 	return nil
+}
+
+// readBack returns the Markdown issue view would print for doc, the text a
+// dry run reports, or nil for no document. The read's own conversion issues
+// are not reported: the real write would not report them either.
+func readBack(ctx *IssueContext, doc *jira4claude.ADFNode) *string {
+	if doc == nil {
+		return nil
+	}
+	md, _ := ctx.Converter.ToMarkdown(doc)
+	return &md
 }
 
 // blank reports whether text holds nothing but spaces, tabs and line breaks,

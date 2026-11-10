@@ -298,6 +298,56 @@ func mutationCases() []mutationCase {
 			text: "TEST-1: unlinked from TEST-2\n" + testURL + "TEST-1\n",
 		},
 		{
+			name: "issue-create-dry-run",
+			args: fixedArgs("issue", "create", "-s", "New issue", "-d", "Some *text*\n\n- one\n- two", "--dry-run"),
+			deps: func(t *testing.T) main.Deps { return testDeps(noWrites(t, &mock.IssueService{}), &mock.UserService{}) },
+			text: "TEST: would create (dry run; nothing was written)\n\nSome *text*\n\n- one\n- two\n",
+		},
+		{
+			name: "issue-update-dry-run",
+			args: func(t *testing.T) []string {
+				md, _, mention := guardedTokens(t)
+				return []string{
+					"issue", "update", "TEST-1", "--dry-run", "--force", "--summary=New summary", "--labels=b",
+					"--description=" + strings.Replace(strings.Replace(md, mention, "", 1), "Before the image.", "Rewritten.", 1),
+				}
+			},
+			deps: func(t *testing.T) main.Deps {
+				return testDeps(noWrites(t, &mock.IssueService{GetFn: readSequence(guardedIssue())}), &mock.UserService{})
+			},
+			text: "TEST-1: would update (dry run; nothing was written)\n" +
+				"  description: set\n" +
+				"  labels: (none) → b\n" +
+				"  summary: Guarded → New summary\n" +
+				"  removed: {{mention:2 Jane Doe}}\n" +
+				testURL + "TEST-1\n" +
+				"\nRewritten.\n\n{{mediaSingle:1 shot.png}}\n\nPing  about it.\n",
+		},
+		{
+			name: "issue-update-dry-run-append",
+			args: fixedArgs("issue", "update", "TEST-1", "--append-description=More.", "--dry-run"),
+			deps: func(t *testing.T) main.Deps {
+				return testDeps(noWrites(t, &mock.IssueService{GetFn: readSequence(guardedIssue())}), &mock.UserService{})
+			},
+			text: "TEST-1: would update (dry run; nothing was written)\n  description: appended\n" + testURL + "TEST-1\n" +
+				"\nBefore the image.\n\n{{mediaSingle:1 shot.png}}\n\nPing {{mention:2 Jane Doe}} about it.\n\nMore.\n",
+		},
+		{
+			name: "issue-update-dry-run-clear",
+			args: fixedArgs("issue", "update", "TEST-1", "--clear-description", "--force", "--dry-run"),
+			deps: func(t *testing.T) main.Deps {
+				return testDeps(noWrites(t, &mock.IssueService{GetFn: readSequence(guardedIssue())}), &mock.UserService{})
+			},
+			text: "TEST-1: would update (dry run; nothing was written)\n  description: cleared\n" +
+				"  removed: {{mediaSingle:1 shot.png}}, {{mention:2 Jane Doe}}\n" + testURL + "TEST-1\n",
+		},
+		{
+			name: "issue-comment-dry-run",
+			args: fixedArgs("issue", "comment", "TEST-1", "-b", "Hello **there**", "--dry-run"),
+			deps: func(t *testing.T) main.Deps { return testDeps(noWrites(t, &mock.IssueService{}), &mock.UserService{}) },
+			text: "TEST-1: would add comment (dry run; nothing was written)\n" + testURL + "TEST-1\n\nHello **there**\n",
+		},
+		{
 			name: "init",
 			args: fixedArgs("init", "--server=https://test.atlassian.net", "--project=TEST"),
 			deps: func(t *testing.T) main.Deps {

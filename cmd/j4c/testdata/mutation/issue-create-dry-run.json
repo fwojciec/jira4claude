@@ -1,0 +1,7 @@
+{
+  "project": "TEST",
+  "action": "would_create",
+  "dryRun": true,
+  "changes": {},
+  "text": "Some *text*\n\n- one\n- two"
+}

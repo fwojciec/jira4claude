@@ -1,0 +1,12 @@
+{
+  "key": "TEST-1",
+  "url": "https://test.atlassian.net/browse/TEST-1",
+  "action": "would_update",
+  "dryRun": true,
+  "changes": {
+    "description": {
+      "edit": "appended"
+    }
+  },
+  "text": "Before the image.\n\n{{mediaSingle:1 shot.png}}\n\nPing {{mention:2 Jane Doe}} about it.\n\nMore."
+}
