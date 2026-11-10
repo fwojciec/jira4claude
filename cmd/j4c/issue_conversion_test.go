@@ -340,6 +340,39 @@ func TestIssueCommentCmd_DroppedContent(t *testing.T) {
 		require.Len(t, printer.ConversionIssueCalls, 1)
 		assert.Equal(t, jira4claude.ConversionDegraded, printer.ConversionIssueCalls[0].Kind)
 	})
+
+	t.Run("nested details are flattened, warned about and still written", func(t *testing.T) {
+		t.Parallel()
+
+		var written *jira4claude.ADFNode
+		svc := &mock.IssueService{
+			AddCommentFn: func(ctx context.Context, key string, body *jira4claude.ADFNode) (*jira4claude.Comment, error) {
+				written = body
+				return newComment(body), nil
+			},
+		}
+		printer := &mock.Printer{}
+		ctx := &main.IssueContext{
+			Service:   svc,
+			Printer:   printer,
+			Converter: markdown.New(),
+			Config:    &jira4claude.Config{Project: "TEST"},
+		}
+		body := "<details><summary>Outer</summary>\n\nbody\n\n" +
+			"<details><summary>Inner</summary>\n\ninner\n\n</details>\n\n" +
+			"tail\n\n</details>\n\nafter"
+		cmd := main.IssueCommentCmd{Key: "TEST-1", Body: body}
+
+		err := cmd.Run(ctx)
+
+		require.NoError(t, err)
+		require.NotNil(t, written, "AddComment must be called")
+		require.Len(t, written.Content, 2)
+		assert.Equal(t, "expand", written.Content[0].Type)
+		require.Len(t, printer.ConversionIssueCalls, 1)
+		assert.Equal(t, jira4claude.ConversionDegraded, printer.ConversionIssueCalls[0].Kind)
+		assert.Equal(t, "details", printer.ConversionIssueCalls[0].Node)
+	})
 }
 
 func TestIssueViewCmd_UnsupportedNodesWarn(t *testing.T) {

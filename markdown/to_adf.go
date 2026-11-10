@@ -19,42 +19,64 @@ import (
 )
 
 // skippedCollector tracks content that a conversion could not carry over.
-// Each unique node type produces one jira4claude.ConversionIssue of kind
-// dropped: every site that records a node today omits its content from the
-// output. (No converter path produces a degraded issue yet.)
+// Each unique (kind, node type) pair produces one jira4claude.ConversionIssue:
+// add records content omitted from the output (dropped), degrade records
+// content that is kept but changed form (degraded).
 type skippedCollector struct {
-	types map[string]jira4claude.ConversionIssue
+	types map[issueKey]jira4claude.ConversionIssue
+}
+
+// issueKey identifies one recorded issue, so a node type can be both dropped
+// and degraded in the same conversion without one hiding the other.
+type issueKey struct {
+	kind string
+	node string
 }
 
 func newSkippedCollector() *skippedCollector {
-	return &skippedCollector{types: make(map[string]jira4claude.ConversionIssue)}
+	return &skippedCollector{types: make(map[issueKey]jira4claude.ConversionIssue)}
 }
 
 // add records nodeType as dropped: its content is not in the output.
 func (s *skippedCollector) add(nodeType string) {
-	s.types[nodeType] = jira4claude.ConversionIssue{
+	s.record(jira4claude.ConversionIssue{
 		Kind:   jira4claude.ConversionDropped,
 		Node:   nodeType,
 		Detail: fmt.Sprintf("skipped unsupported node type '%s'", nodeType),
-	}
+	})
 }
 
-// issues returns one ConversionIssue per recorded node type, sorted
-// alphabetically by node for deterministic output. Returns nil if nothing was
-// recorded.
+// degrade records nodeType as degraded: its content is in the output, but in
+// a different form. detail says what changed.
+func (s *skippedCollector) degrade(nodeType, detail string) {
+	s.record(jira4claude.ConversionIssue{
+		Kind:   jira4claude.ConversionDegraded,
+		Node:   nodeType,
+		Detail: detail,
+	})
+}
+
+func (s *skippedCollector) record(issue jira4claude.ConversionIssue) {
+	s.types[issueKey{kind: issue.Kind, node: issue.Node}] = issue
+}
+
+// issues returns one ConversionIssue per recorded (kind, node type) pair,
+// sorted by node and then kind for deterministic output. Returns nil if
+// nothing was recorded.
 func (s *skippedCollector) issues() []jira4claude.ConversionIssue {
 	if len(s.types) == 0 {
 		return nil
 	}
-	nodes := make([]string, 0, len(s.types))
-	for n := range s.types {
-		nodes = append(nodes, n)
+	issues := make([]jira4claude.ConversionIssue, 0, len(s.types))
+	for _, issue := range s.types {
+		issues = append(issues, issue)
 	}
-	sort.Strings(nodes)
-	issues := make([]jira4claude.ConversionIssue, len(nodes))
-	for i, n := range nodes {
-		issues[i] = s.types[n]
-	}
+	sort.Slice(issues, func(i, j int) bool {
+		if issues[i].Node != issues[j].Node {
+			return issues[i].Node < issues[j].Node
+		}
+		return issues[i].Kind < issues[j].Kind
+	})
 	return issues
 }
 
@@ -492,71 +514,108 @@ func convertPanelFirstParagraph(para *ast.Paragraph, source []byte, skipped *ski
 	}
 }
 
-// detectDetailsOpen checks if an HTMLBlock starts with <details><summary>...</summary>
-// and returns the extracted title if found.
-func detectDetailsOpen(htmlBlock *ast.HTMLBlock, source []byte) (string, bool) {
+// htmlBlockText returns the trimmed source text of an HTMLBlock node, and
+// false if node is not an HTMLBlock or has no lines.
+func htmlBlockText(node ast.Node, source []byte) (string, bool) {
+	htmlBlock, ok := node.(*ast.HTMLBlock)
+	if !ok {
+		return "", false
+	}
 	lines := htmlBlock.Lines()
 	if lines.Len() == 0 {
 		return "", false
 	}
-
-	var text string
+	var text strings.Builder
 	for i := range lines.Len() {
 		line := lines.At(i)
-		text += string(line.Value(source))
+		text.Write(line.Value(source))
 	}
-	text = strings.TrimSpace(text)
+	return strings.TrimSpace(text.String()), true
+}
 
-	if !strings.HasPrefix(text, "<details>") {
-		return "", false
-	}
-
-	// Extract title from <summary>...</summary>
+// detailsSummary extracts the text between <summary> and </summary>.
+func detailsSummary(text string) (string, bool) {
 	summaryStart := strings.Index(text, "<summary>")
 	summaryEnd := strings.Index(text, "</summary>")
-	if summaryStart == -1 || summaryEnd == -1 {
+	if summaryStart == -1 || summaryEnd < summaryStart {
 		return "", false
 	}
+	return text[summaryStart+len("<summary>") : summaryEnd], true
+}
 
-	title := text[summaryStart+len("<summary>") : summaryEnd]
-	return title, true
+// detectDetailsOpen checks if an HTMLBlock starts with <details><summary>...</summary>
+// and returns the extracted title if found. Only such a block opens an expand.
+func detectDetailsOpen(htmlBlock *ast.HTMLBlock, source []byte) (string, bool) {
+	text, ok := htmlBlockText(htmlBlock, source)
+	if !ok || !strings.HasPrefix(text, "<details>") {
+		return "", false
+	}
+	return detailsSummary(text)
+}
+
+// isDetailsOpenTag checks if a node is an HTMLBlock that opens a <details>
+// element, with or without attributes or a summary. Inside an expand, every
+// such block raises the nesting depth so that its </details> closes it rather
+// than the enclosing expand.
+func isDetailsOpenTag(node ast.Node, source []byte) bool {
+	text, ok := htmlBlockText(node, source)
+	if !ok {
+		return false
+	}
+	rest, found := strings.CutPrefix(text, "<details")
+	return found && rest != "" && (rest[0] == '>' || rest[0] == ' ' || rest[0] == '\t' || rest[0] == '\n')
 }
 
 // isDetailsClose checks if an HTMLBlock is a </details> closing tag.
 func isDetailsClose(node ast.Node, source []byte) bool {
-	htmlBlock, ok := node.(*ast.HTMLBlock)
-	if !ok {
-		return false
-	}
-	lines := htmlBlock.Lines()
-	if lines.Len() == 0 {
-		return false
-	}
-
-	var text string
-	for i := range lines.Len() {
-		line := lines.At(i)
-		text += string(line.Value(source))
-	}
-	return strings.TrimSpace(text) == "</details>"
+	text, ok := htmlBlockText(node, source)
+	return ok && text == "</details>"
 }
 
-// collectExpandContent collects sibling nodes starting from 'start' until a
-// </details> HTMLBlock is encountered. Returns the collected body content,
-// the </details> node (so the caller can advance past it), and whether a
-// closing tag was found. If no closing tag is found, the caller should emit
-// the body content directly (not wrapped in expand) and warn.
+// nestedDetailsDetail explains the degraded issue reported when a nested
+// <details> block is flattened into its enclosing expand.
+const nestedDetailsDetail = "nested <details> flattened into the enclosing expand " +
+	"(ADF cannot nest expand); its summary is kept as a paragraph"
+
+// collectExpandContent collects sibling nodes starting from 'start', the node
+// after an opening <details>, until the matching </details>. It returns the
+// collected body content, the matching </details> node (so the caller can
+// advance past it), and whether that closing tag was found. If it was not,
+// the caller should emit the body content directly (not wrapped in expand)
+// and warn.
+//
+// The scan tracks nesting depth explicitly: depth is the number of open
+// <details> elements, starting at 1 for the block being collected. ADF cannot
+// nest expand nodes, so a nested <details> is flattened: its open and close
+// tags are consumed, its summary (if any) becomes a plain paragraph at that
+// position, its body joins the enclosing body, and the flattening is reported
+// as degraded.
 func collectExpandContent(start ast.Node, source []byte, skipped *skippedCollector) ([]jira4claude.ADFNode, ast.Node, bool) {
 	var bodyContent []jira4claude.ADFNode
+	depth := 1
 
-	var current ast.Node
-	for current = start; current != nil; current = current.NextSibling() {
-		if isDetailsClose(current, source) {
-			return bodyContent, current, true
-		}
-		adfNode, ok := nodeToADF(current, source, skipped)
-		if ok {
-			bodyContent = append(bodyContent, adfNode)
+	for current := start; current != nil; current = current.NextSibling() {
+		switch {
+		case isDetailsClose(current, source):
+			depth--
+			if depth == 0 {
+				return bodyContent, current, true
+			}
+		case isDetailsOpenTag(current, source):
+			depth++
+			skipped.degrade("details", nestedDetailsDetail)
+			text, _ := htmlBlockText(current, source)
+			if title, ok := detailsSummary(text); ok && strings.TrimSpace(title) != "" {
+				bodyContent = append(bodyContent, jira4claude.ADFNode{
+					Type:    "paragraph",
+					Content: []jira4claude.ADFNode{{Type: "text", Text: strings.TrimSpace(title)}},
+				})
+			}
+		default:
+			adfNode, ok := nodeToADF(current, source, skipped)
+			if ok {
+				bodyContent = append(bodyContent, adfNode)
+			}
 		}
 	}
 
