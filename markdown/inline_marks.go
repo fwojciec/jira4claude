@@ -644,7 +644,10 @@ func autolinkForm(node *jira4claude.ADFNode) (form, href string, ok bool) {
 	case href != "" && href == node.Text:
 		return node.Text, href, true
 	case node.Text != "" && href == "mailto:"+node.Text &&
-		util.FindEmailIndex([]byte(node.Text)) == len(node.Text):
+		util.FindEmailIndex([]byte(node.Text)) == len(node.Text) &&
+		// A table cell writes "|" as "\|", which an autolink does not
+		// resolve; the line check sees the line outside its cell.
+		!strings.Contains(node.Text, "|"):
 		return "<" + node.Text + ">", href, true
 	}
 	return "", href, false

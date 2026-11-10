@@ -403,6 +403,43 @@ func TestRoundTrip_EmailInUnderscoreEmphasis(t *testing.T) {
 	}
 }
 
+// A mailto link whose address starts with a character that opens an HTML
+// block after "<", or holds a table cell's "|", reads back exactly wherever
+// it stands: at a line start, in a list item, a blockquote or a table cell.
+func TestRoundTrip_MailtoLinkShapes(t *testing.T) {
+	t.Parallel()
+
+	para := func(inline ...jira4claude.ADFNode) jira4claude.ADFNode {
+		return jira4claude.ADFNode{Type: "paragraph", Content: inline}
+	}
+	wrap := func(typ string, content ...jira4claude.ADFNode) jira4claude.ADFNode {
+		return jira4claude.ADFNode{Type: typ, Content: content}
+	}
+	for _, addr := range []string{"a@b.co", "!a@b.co", "?a@b.co", "a|b@c.co", "a`b@c.co", "a*b@c.co"} {
+		link := hrefLink(addr, "mailto:"+addr)
+		for name, block := range map[string]jira4claude.ADFNode{
+			"paragraph start":  para(link, txt(" x")),
+			"after hard break": para(txt("x"), hardBreak(), link),
+			"list item":        wrap("bulletList", wrap("listItem", para(link))),
+			"blockquote":       wrap("blockquote", para(link)),
+			"table cell": wrap("table",
+				wrap("tableRow", wrap("tableHeader", para(txt("h")))),
+				wrap("tableRow", wrap("tableCell", para(txt("see "), link)))),
+		} {
+			t.Run(addr+" "+name, func(t *testing.T) {
+				t.Parallel()
+
+				doc := &jira4claude.ADFNode{Type: "doc", Version: 1, Content: []jira4claude.ADFNode{block}}
+				md, readIssues := markdown.New().ToMarkdown(doc)
+				back, writeIssues := markdown.New().ToADF(md)
+				assert.Empty(t, readIssues, "read as %q", md)
+				assert.Empty(t, writeIssues, "read as %q", md)
+				assert.Equal(t, mustJSON(doc), mustJSON(back), "read as %q", md)
+			})
+		}
+	}
+}
+
 // roundTripsExactly asserts that doc reads and writes back unchanged, with
 // no issue on either side.
 func roundTripsExactly(t *testing.T, doc *jira4claude.ADFNode) {
