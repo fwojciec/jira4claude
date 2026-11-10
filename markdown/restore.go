@@ -39,9 +39,18 @@ const codeLanguageDetail = "a code block language containing whitespace cannot b
 //     only when both hold the same number of that type.
 //   - Reference to edited. Children that are equal (a whole subtree, localIds
 //     aside, since the writer makes those up) pair the k-th with the k-th,
-//     only when both hold the same number of that subtree. The children left
-//     pair by type in the same way, only when both have the same number left
-//     of that type.
+//     only when both hold the same number of that subtree; these are the
+//     anchors. The children left pair by type in the same way, only when
+//     both have the same number left of that type, and a pair is kept only
+//     when its two children sit between the same two anchors (or ends of the
+//     container) (jir-wd4f): a block removed and another of its type added
+//     past an unchanged block are two blocks, not one edited.
+//
+// A node put back from its token is held, while the documents are compared,
+// in a node of type tokenNodeType: its localId came from the original, so it
+// counts in the comparison, and no other original's attributes are merged
+// into it, whatever its type (a paragraph directly in a list is written as
+// a token).
 //
 // An original child whose run is paired equal, block for block and in order,
 // comes back whole. One whose single reference block is paired by type only
@@ -56,9 +65,9 @@ const codeLanguageDetail = "a code block language containing whitespace cannot b
 // Table geometry (colspan, rowspan, colwidth) is restored only while the
 // table's shape, the number of cells in each row, is the same in all three.
 //
-// Not detected: an edit that removes one node and adds another of the same
-// type in the same container, or reorders same-type siblings and changes
-// them, gives the added node the attributes of the removed one.
+// Not detected: an edit that replaces a node with another of the same type
+// between the same anchors gives the new node the attributes of the removed
+// one.
 
 // restorer holds what one restoration did.
 type restorer struct {
@@ -72,10 +81,14 @@ type restorer struct {
 	unplaced map[string]int
 	// alone memoises standaloneKeys.
 	alone map[*jira4claude.ADFNode][]string
+	// cards is the plan of inline cards the reference and the edit were
+	// re-attached with (see planCards); standaloneKeys uses it too.
+	cards map[string]jira4claude.ADFNode
 }
 
-func newRestorer() *restorer {
+func newRestorer(cards map[string]jira4claude.ADFNode) *restorer {
 	return &restorer{
+		cards:    cards,
 		whole:    make(map[*jira4claude.ADFNode]bool),
 		reshaped: make(map[string]int),
 		unplaced: make(map[string]int),
@@ -104,10 +117,11 @@ func containerKind(nodeType string) int {
 // as far as the edit allows. noGeometry is set inside a table whose shape
 // changed.
 func (rs *restorer) node(o, r, e *jira4claude.ADFNode, noGeometry bool) jira4claude.ADFNode {
-	if o.Type != e.Type || r.Type != e.Type || !readerKnows(e.Type) {
-		// A protected node is the original's own, put back from its token;
-		// merging another original's attributes into it would mix the two.
-		return *e
+	if o.Type != e.Type || r.Type != e.Type || e.Type == tokenNodeType {
+		// A node put back from its token is the original's own, whatever
+		// its type; merging another original's attributes into it would
+		// mix the two.
+		return unwrapTokens(*e)
 	}
 	geometric := isTablePart(e.Type)
 	if (!noGeometry || !geometric) && normKey(e) == normKey(r) {
@@ -120,7 +134,7 @@ func (rs *restorer) node(o, r, e *jira4claude.ADFNode, noGeometry bool) jira4cla
 		out.Marks = cloneNode(jira4claude.ADFNode{Marks: o.Marks}).Marks
 	}
 	if containerKind(e.Type) == containerNone {
-		return out
+		return unwrapTokens(out)
 	}
 	if e.Type == "table" && (tableShape(e) != tableShape(r) || tableShape(o) != tableShape(r)) {
 		noGeometry = true
@@ -157,24 +171,7 @@ func (rs *restorer) children(o, r, e *jira4claude.ADFNode, noGeometry bool) []ji
 	rKeys := childKeys(r.Content)
 	eKeys := childKeys(e.Content)
 	exactR := pairBy(rKeys, eKeys)
-	rTypes, eTypes := make([]string, len(r.Content)), make([]string, len(e.Content))
-	for i := range r.Content {
-		if exactR[i] < 0 {
-			rTypes[i] = r.Content[i].Type
-		}
-	}
-	exactE := make(map[int]bool)
-	for _, j := range exactR {
-		if j >= 0 {
-			exactE[j] = true
-		}
-	}
-	for j := range e.Content {
-		if !exactE[j] {
-			eTypes[j] = e.Content[j].Type
-		}
-	}
-	byType := pairBy(rTypes, eTypes)
+	byType := pairByTypeBetweenAnchors(r.Content, e.Content, exactR)
 
 	type pair struct{ o, r int }
 	whole := make(map[int]pair) // edited index -> original child put back whole
@@ -199,7 +196,7 @@ func (rs *restorer) children(o, r, e *jira4claude.ADFNode, noGeometry bool) []ji
 			}
 		case n == 1 && exactR[s.a] >= 0:
 			whole[exactR[s.a]] = pair{i, s.a}
-		case n == 1 && byType[s.a] >= 0 && oc.Type == r.Content[s.a].Type:
+		case n == 1 && byType[s.a] >= 0 && oc.Type == baseType(&r.Content[s.a]):
 			merge[byType[s.a]] = pair{i, s.a}
 		case n > 1 && consecutive(exactR[s.a:s.b]):
 			whole[exactR[s.a]] = pair{i, s.a}
@@ -229,7 +226,7 @@ func (rs *restorer) children(o, r, e *jira4claude.ADFNode, noGeometry bool) []ji
 			if m, ok := merge[j]; ok {
 				out = append(out, rs.node(&o.Content[m.o], &r.Content[m.r], &e.Content[j], noGeometry))
 			} else {
-				out = append(out, e.Content[j])
+				out = append(out, unwrapTokens(e.Content[j]))
 			}
 		}
 		for _, i := range after[j] {
@@ -237,6 +234,76 @@ func (rs *restorer) children(o, r, e *jira4claude.ADFNode, noGeometry bool) []ji
 		}
 	}
 	return out
+}
+
+// pairByTypeBetweenAnchors pairs the reference children rc and the edited
+// children ec that exactR leaves unpaired, by type, the k-th with the k-th,
+// only when both have the same number of that type left, and keeps a pair
+// only when its two children sit between the same two anchors: the nearest
+// children before and after them paired exactly, or the ends of the
+// container. It returns, for each reference child, its partner in ec, or
+// -1.
+//
+// The anchors are what tells the same block, edited, from a different
+// block: a block removed and another of its type added elsewhere sit
+// between different anchors, so the new block does not inherit the removed
+// one's hidden values (jir-wd4f); those are reported lost instead.
+func pairByTypeBetweenAnchors(rc, ec []jira4claude.ADFNode, exactR []int) []int {
+	eToR := make([]int, len(ec))
+	for j := range eToR {
+		eToR[j] = -1
+	}
+	for i, j := range exactR {
+		if j >= 0 {
+			eToR[j] = i
+		}
+	}
+	gaps := func(n int, paired func(int) int, end int) []string {
+		prev := make([]int, n)
+		last := -1
+		for k := 0; k < n; k++ {
+			prev[k] = last
+			if a := paired(k); a >= 0 {
+				last = a
+			}
+		}
+		out := make([]string, n)
+		next := end
+		for k := n - 1; k >= 0; k-- {
+			if a := paired(k); a >= 0 {
+				next = a
+				continue
+			}
+			out[k] = strconv.Itoa(prev[k]) + "," + strconv.Itoa(next)
+		}
+		return out
+	}
+	// Both sides name their anchors by reference index.
+	rGaps := gaps(len(rc), func(i int) int {
+		if exactR[i] >= 0 {
+			return i
+		}
+		return -1
+	}, len(rc))
+	eGaps := gaps(len(ec), func(j int) int { return eToR[j] }, len(rc))
+	rTypes, eTypes := make([]string, len(rc)), make([]string, len(ec))
+	for i := range rc {
+		if exactR[i] < 0 {
+			rTypes[i] = baseType(&rc[i])
+		}
+	}
+	for j := range ec {
+		if eToR[j] < 0 {
+			eTypes[j] = baseType(&ec[j])
+		}
+	}
+	byType := pairBy(rTypes, eTypes)
+	for i, j := range byType {
+		if j >= 0 && rGaps[i] != eGaps[j] {
+			byType[i] = -1
+		}
+	}
+	return byType
 }
 
 // consecutive reports whether idx holds paired indexes that follow each
@@ -303,7 +370,7 @@ func (rs *restorer) spans(o, r *jira4claude.ADFNode) []span {
 	}
 	rTypes := make([]string, len(r.Content))
 	for i := range r.Content {
-		rTypes[i] = r.Content[i].Type
+		rTypes[i] = baseType(&r.Content[i])
 	}
 	for i, j := range pairBy(oTypes, rTypes) {
 		out[i] = span{a: j, b: j + 1, ok: j >= 0}
@@ -320,7 +387,7 @@ func (rs *restorer) standaloneKeys(n *jira4claude.ADFNode) []string {
 	doc := &jira4claude.ADFNode{Type: "doc", Version: 1, Content: []jira4claude.ADFNode{*n}}
 	md, skipped := readDocument(doc)
 	ref, _ := toADF(md, noLocalID)
-	r := newReattacher(skipped, md, ref)
+	r := newReattacher(skipped, rs.cards)
 	keys := childKeys(r.content(ref.Type, ref.Content))
 	if keys == nil {
 		keys = []string{}
@@ -338,9 +405,10 @@ func childKeys(nodes []jira4claude.ADFNode) []string {
 }
 
 // normKey returns n as JSON with the localIds the writer makes left out, so
-// two documents the writer made from the same Markdown compare equal. A
-// protected node is kept whole: its localId came from the original through
-// its token, so it tells two nodes apart that differ only in it.
+// two documents the writer made from the same Markdown compare equal. A node
+// put back from its token is kept whole, whatever its type (a paragraph
+// directly in a list is one): its localId came from the original through
+// the token, so it tells two nodes apart that differ only in it (jir-wd4f).
 func normKey(n *jira4claude.ADFNode) string {
 	data, err := json.Marshal(withoutLocalIDs(*n))
 	if err != nil {
@@ -350,7 +418,7 @@ func normKey(n *jira4claude.ADFNode) string {
 }
 
 func withoutLocalIDs(n jira4claude.ADFNode) jira4claude.ADFNode {
-	if !readerKnows(n.Type) {
+	if n.Type == tokenNodeType {
 		return n
 	}
 	if n.Attrs != nil {
@@ -370,6 +438,58 @@ func withoutLocalIDs(n jira4claude.ADFNode) jira4claude.ADFNode {
 		n.Content = content
 	}
 	return n
+}
+
+// tokenNodeType is the type of the node that holds, while Reattach compares
+// documents, a node put back from its token. It is not an ADF type: it
+// marks where a node came from, which its type cannot tell (a node of a type
+// the reader knows is written as a token where its container does not
+// expect it), and is removed from every node of the result.
+const tokenNodeType = "#fromToken"
+
+// fromToken returns a copy of n, the node a token stands for, held in a
+// tokenNodeType node.
+func fromToken(n jira4claude.ADFNode) jira4claude.ADFNode {
+	return jira4claude.ADFNode{Type: tokenNodeType, Content: []jira4claude.ADFNode{cloneNode(n)}}
+}
+
+// baseType returns the type of n, or of the node it holds if it is a
+// tokenNodeType node.
+func baseType(n *jira4claude.ADFNode) string {
+	if n.Type == tokenNodeType && len(n.Content) == 1 {
+		return n.Content[0].Type
+	}
+	return n.Type
+}
+
+// unwrapTokens returns n with each tokenNodeType node in it replaced by the
+// node it holds. Content holding none is shared, not copied.
+func unwrapTokens(n jira4claude.ADFNode) jira4claude.ADFNode {
+	if n.Type == tokenNodeType && len(n.Content) == 1 {
+		return n.Content[0]
+	}
+	if !holdsToken(&n) {
+		return n
+	}
+	content := make([]jira4claude.ADFNode, len(n.Content))
+	for i := range n.Content {
+		content[i] = unwrapTokens(n.Content[i])
+	}
+	n.Content = content
+	return n
+}
+
+// holdsToken reports whether n is or holds a tokenNodeType node.
+func holdsToken(n *jira4claude.ADFNode) bool {
+	if n.Type == tokenNodeType {
+		return true
+	}
+	for i := range n.Content {
+		if holdsToken(&n.Content[i]) {
+			return true
+		}
+	}
+	return false
 }
 
 func marksKey(marks []jira4claude.ADFMark) string {

@@ -756,23 +756,27 @@ was read:
   you read changes nothing. Two cases it cannot tell, and treats the block as
   changed (next bullet): a block identical to a sibling when you add or
   remove one of those copies, and the rows and cells of a table whose shape
-  you changed, which lose their widths and spans. A third case refuses
-  without need: a paragraph holding a smart link and an inline comment, when
-  you add a plain link with the smart link's URL elsewhere.
+  you changed, which lose their widths and spans.
 - A block you changed keeps what Markdown cannot show when it matches the
-  original: same kind of block, same place among the blocks of that kind
-  next to it, as many of them as before, inside a container that matches the
-  same way. A value you changed (a heading level, a panel type, a list's
-  first number) is yours; table cell widths and spans are kept only while
-  every row has as many cells as before. A limit, not reported: if you remove
-  a block and add another of the same kind in the same container, the new
-  one is taken for the old one edited, and gets the old one's hidden values
-  (a removed custom-colour panel passes its colour to a newly written panel).
+  original: same kind of block, as many of that kind next to it as before,
+  between the same unchanged blocks (or the same ends of its container),
+  inside a container that matches the same way. A block you moved past an
+  unchanged one and changed does not match, so its hidden values are
+  reported lost. A
+  value you changed (a heading level, a panel type, a list's first number)
+  is yours; table cell widths and spans are kept only while every row has as
+  many cells as before. A limit, not reported: if you replace a block with
+  another of the same kind in the same place, between the same unchanged
+  blocks, the new one is taken for the old one edited, and gets its hidden
+  values (a custom-colour panel passes its colour to a panel written in its
+  place).
 - A smart link in a changed paragraph is put back when its link can only be
   that card: the link text is its URL, the link is a whole text node with no
   other formatting, the cards with that URL are identical, and your text
   holds that link exactly as many times as the original's read does (adding
-  a copy of the link, or a plain link that reads the same, stops it).
+  a copy of the link, or a plain link that reads the same, stops it; a
+  paragraph you did not change still comes back with its card, and the copy
+  stays a link).
 - What still cannot be kept is reported on the write, one line per kind with
   a count: `degraded` when the content stays and its form changes (`2 emoji
   become plain text`, a colour or alignment removed, a layout flattened, a

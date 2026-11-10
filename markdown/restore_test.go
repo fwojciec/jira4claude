@@ -346,18 +346,158 @@ func TestRestore_DeletedTokenOfIdenticalNodes(t *testing.T) {
 	})
 }
 
-// TestRestore_KnownLimit pins what the matching cannot see: an edit that
-// removes a node and adds another of the same type in the same container
-// gives the new node the removed one's attributes, without a report.
-func TestRestore_KnownLimit(t *testing.T) {
+// TestRestore_SameKindReplacement checks that a block removed and another of
+// the same type added are paired only where the blocks the edit left
+// unchanged around them pin them to the same place (jir-wd4f): elsewhere the
+// new block stands as written, and what the removed one held is reported.
+func TestRestore_SameKindReplacement(t *testing.T) {
 	t.Parallel()
 
 	doc := docOf(rawNode(t, customPanel), paraOf(plainText("text")))
-	_, got, issues := readEditWrite(t, doc, func(string) string { return "text\n\n> [!NOTE]\n> Other" })
+
+	t.Run("a panel added on the other side of an unchanged block does not take the removed panel's attributes", func(t *testing.T) {
+		t.Parallel()
+		_, got, issues := readEditWrite(t, doc, func(string) string { return "text\n\n> [!NOTE]\n> Other" })
+		require.Len(t, got.Content, 2)
+		assert.Equal(t, jsonOf(t, paraOf(plainText("text"))), jsonOf(t, got.Content[0]))
+		assert.JSONEq(t, `{"panelType":"info"}`, string(got.Content[1].Attrs), "the new panel as written")
+		require.Len(t, issues, 1, "the custom panel's type and colour are lost")
+		assert.Equal(t, "panel", issues[0].Node)
+		assert.Equal(t, jira4claude.ConversionDegraded, issues[0].Kind)
+		assert.True(t, issues[0].Existing)
+	})
+
+	t.Run("a panel edited where it was keeps its attributes", func(t *testing.T) {
+		t.Parallel()
+		_, got, issues := readEditWrite(t, doc, func(md string) string { return strings.Replace(md, "Keep", "Kept", 1) })
+		assert.Empty(t, issues)
+		assert.JSONEq(t, `{"panelType":"custom","panelColor":"#ABF5D1"}`, string(got.Content[0].Attrs))
+	})
+
+	t.Run("a block moved past an unchanged one and edited is not paired", func(t *testing.T) {
+		t.Parallel()
+		doc := docOf(rawNode(t, centered), paraOf(plainText("middle")), paraOf(plainText("last")))
+		_, got, issues := readEditWrite(t, doc, func(string) string { return "middle\n\nSome\n\nlast" })
+		require.Len(t, got.Content, 3)
+		assert.Empty(t, got.Content[1].Marks, "the moved, edited paragraph as written")
+		require.Len(t, issues, 1)
+		assert.Equal(t, "alignment", issues[0].Node)
+	})
+
+	t.Run("a panel replaced in place while another is added elsewhere is not paired", func(t *testing.T) {
+		t.Parallel()
+		_, got, issues := readEditWrite(t, doc, func(string) string { return "> [!NOTE]\n> Other\n\ntext\n\n> [!NOTE]\n> More" })
+		require.Len(t, got.Content, 3)
+		assert.JSONEq(t, `{"panelType":"info"}`, string(got.Content[0].Attrs))
+		require.Len(t, issues, 1)
+		assert.Equal(t, "panel", issues[0].Node)
+	})
+
+	// The limit left: a block replaced by another of the same type between
+	// the same unchanged neighbours is taken for the block, edited.
+	t.Run("known limit: a panel replaced in place takes the removed panel's attributes", func(t *testing.T) {
+		t.Parallel()
+		_, got, issues := readEditWrite(t, doc, func(string) string { return "> [!NOTE]\n> Other\n\ntext" })
+		assert.Empty(t, issues)
+		require.Len(t, got.Content, 2)
+		assert.JSONEq(t, `{"panelType":"custom","panelColor":"#ABF5D1"}`, string(got.Content[0].Attrs))
+	})
+}
+
+// TestRestore_LinkWithACardsURLAddedElsewhere checks that a plain link with
+// an inline card's URL, added in another paragraph, leaves the paragraph
+// holding the card unchanged (jir-wd4f): the card stays where it was, with
+// the inline comment beside it, and the new link stays a link.
+func TestRestore_LinkWithACardsURLAddedElsewhere(t *testing.T) {
+	t.Parallel()
+
+	original := rawNode(t, `{"type":"paragraph","content":[`+
+		`{"type":"text","text":"Alpha","marks":[{"type":"annotation","attrs":{"id":"a-1","annotationType":"inlineComment"}}]},`+
+		`{"type":"text","text":" "},{"type":"inlineCard","attrs":{"url":"https://a.test/x"}}]}`)
+	doc := docOf(original)
+	_, got, issues := readEditWrite(t, doc, func(md string) string {
+		return md + "\n\nSee [https://a.test/x](https://a.test/x)"
+	})
 	assert.Empty(t, issues)
 	require.Len(t, got.Content, 2)
-	assert.JSONEq(t, `{"panelType":"custom","panelColor":"#ABF5D1"}`, string(got.Content[1].Attrs),
-		"the new panel takes the removed panel's attributes")
+	assert.Equal(t, jsonOf(t, original), jsonOf(t, got.Content[0]), "the paragraph as Jira held it")
+	link := `{"type":"paragraph","content":[{"type":"text","text":"See "},` +
+		`{"type":"text","text":"https://a.test/x","marks":[{"type":"link","attrs":{"href":"https://a.test/x"}}]}]}`
+	assert.JSONEq(t, link, jsonOf(t, got.Content[1]), "the new link as written")
+}
+
+// TestRestore_SwappedTokensOfMisplacedKnownNodes checks that a node of a
+// type the reader knows, written as a token because of where it sits, is
+// compared and restored as its token carries it, localId included
+// (jir-wd4f).
+func TestRestore_SwappedTokensOfMisplacedKnownNodes(t *testing.T) {
+	t.Parallel()
+
+	p1 := rawNode(t, `{"type":"paragraph","attrs":{"localId":"p-1"},"content":[{"type":"text","text":"x"}]}`)
+	p2 := rawNode(t, `{"type":"paragraph","attrs":{"localId":"p-2"},"content":[{"type":"text","text":"x"}]}`)
+
+	t.Run("swapped, they come back swapped", func(t *testing.T) {
+		t.Parallel()
+		doc := docOf(jira4claude.ADFNode{Type: "bulletList", Content: []jira4claude.ADFNode{p1, p2}})
+		md, got, issues := readEditWrite(t, doc, func(md string) string {
+			md = strings.Replace(md, "{{paragraph:1}}", "\x00", 1)
+			md = strings.Replace(md, "{{paragraph:2}}", "{{paragraph:1}}", 1)
+			return strings.Replace(md, "\x00", "{{paragraph:2}}", 1)
+		})
+		require.Equal(t, "- {{paragraph:1}}\n- {{paragraph:2}}", md)
+		assert.Empty(t, jira4claude.DroppedIssues(issues))
+		assert.Equal(t, []string{"p-2", "p-1"}, collectAttr(got, "localId"))
+	})
+
+	t.Run("moved to where a paragraph was, it is not merged with that paragraph", func(t *testing.T) {
+		t.Parallel()
+		pa := rawNode(t, `{"type":"paragraph","attrs":{"localId":"p-a"},"marks":[{"type":"alignment","attrs":{"align":"center"}}],"content":[{"type":"text","text":"a"}]}`)
+		doc := docOf(
+			jira4claude.ADFNode{Type: "bulletList", Content: []jira4claude.ADFNode{{Type: "listItem", Content: []jira4claude.ADFNode{pa}}}},
+			jira4claude.ADFNode{Type: "orderedList", Attrs: json.RawMessage(`{"order":1}`), Content: []jira4claude.ADFNode{p1}},
+		)
+		md, got, issues := readEditWrite(t, doc, func(string) string { return "- {{paragraph:1}}\n\n1. a" })
+		require.Equal(t, "- a\n\n1. {{paragraph:1}}", md)
+		assert.Empty(t, jira4claude.DroppedIssues(issues))
+		require.Len(t, got.Content, 2)
+		require.Len(t, got.Content[0].Content, 1)
+		require.Len(t, got.Content[0].Content[0].Content, 1)
+		assert.Equal(t, jsonOf(t, p1), jsonOf(t, got.Content[0].Content[0].Content[0]), "the paragraph as its token carries it")
+	})
+}
+
+// TestRestore_EmptyParagraphLeadingAListItem checks that the warning about
+// an empty paragraph at the start of a list item, which Markdown cannot
+// show, follows that paragraph (jir-wd4f): it is not given when the
+// paragraph is put back, and is when it is not.
+func TestRestore_EmptyParagraphLeadingAListItem(t *testing.T) {
+	t.Parallel()
+
+	doc := docOf(jira4claude.ADFNode{Type: "bulletList", Content: []jira4claude.ADFNode{{Type: "listItem", Content: []jira4claude.ADFNode{
+		paraOf(), paraOf(plainText("same")), paraOf(plainText("other")),
+	}}}})
+
+	t.Run("put back beside an unchanged paragraph, it is not reported", func(t *testing.T) {
+		t.Parallel()
+		_, got, issues := readEditWrite(t, doc, func(md string) string { return strings.Replace(md, "other", "changed", 1) })
+		assert.Empty(t, issues)
+		want := docOf(jira4claude.ADFNode{Type: "bulletList", Content: []jira4claude.ADFNode{{Type: "listItem", Content: []jira4claude.ADFNode{
+			paraOf(), paraOf(plainText("same")), paraOf(plainText("changed")),
+		}}}})
+		assert.Equal(t, jsonOf(t, want), jsonOf(t, got))
+	})
+
+	t.Run("left out, it is reported", func(t *testing.T) {
+		t.Parallel()
+		_, got, issues := readEditWrite(t, doc, func(md string) string {
+			return strings.Replace(strings.Replace(md, "other", "changed", 1), "same", "altered", 1)
+		})
+		assert.Len(t, got.Content[0].Content[0].Content, 2)
+		require.NotEmpty(t, issues)
+		for _, i := range issues {
+			assert.Equal(t, jira4claude.ConversionDegraded, i.Kind)
+		}
+	})
 }
 
 // collectAttr returns the values of attribute key in doc, in document order.

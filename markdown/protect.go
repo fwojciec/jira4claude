@@ -586,7 +586,10 @@ func reattach(original, edited *jira4claude.ADFNode) (*jira4claude.ADFNode, []ji
 	}
 	md, skipped := readDocument(original)
 
-	r := newReattacher(skipped, md, edited)
+	// One plan of inline cards serves the edit and the reference, so a
+	// part the edit left unchanged compares equal however the plan goes.
+	cards := planCards(skipped.tokens.cards, md, edited)
+	r := newReattacher(skipped, cards)
 	out := *edited
 	out.Content = r.content(edited.Type, edited.Content)
 	for i, p := range r.nodes {
@@ -597,11 +600,11 @@ func reattach(original, edited *jira4claude.ADFNode) (*jira4claude.ADFNode, []ji
 
 	// The reference: the original's unchanged Markdown, written back.
 	ref, _ := toADF(md, noLocalID)
-	refR := newReattacher(skipped, md, ref)
+	refR := newReattacher(skipped, cards)
 	refOut := *ref
 	refOut.Content = refR.content(ref.Type, ref.Content)
 
-	rs := newRestorer()
+	rs := newRestorer(cards)
 	result := rs.node(original, &refOut, &out, false)
 
 	// Issues about the new text stand; a protected node reported lost is
@@ -648,8 +651,8 @@ func reattach(original, edited *jira4claude.ADFNode) (*jira4claude.ADFNode, []ji
 // lost. Emoji and inline cards go with the rest of the text and are not
 // reported as changing.
 func clearDocument(original *jira4claude.ADFNode) (*jira4claude.ADFNode, []jira4claude.ConversionIssue) {
-	md, skipped := readDocument(original)
-	r := newReattacher(skipped, md, nil)
+	_, skipped := readDocument(original)
+	r := newReattacher(skipped, nil)
 	out := &jira4claude.ADFNode{Type: "doc", Version: 1, Content: []jira4claude.ADFNode{}}
 	for _, p := range r.nodes {
 		r.lose(p.token, fmt.Sprintf("the token is not in the new text, so the %s would be removed", nodeName(p.node.Type)))
@@ -663,13 +666,14 @@ func clearDocument(original *jira4claude.ADFNode) (*jira4claude.ADFNode, []jira4
 }
 
 // newReattacher returns a reattacher of the tokens that a read of the
-// original, skipped and md, wrote into edited.
-func newReattacher(skipped *skippedCollector, md string, edited *jira4claude.ADFNode) *reattacher {
+// original, skipped, wrote, which puts back the inline cards of cards (see
+// planCards).
+func newReattacher(skipped *skippedCollector, cards map[string]jira4claude.ADFNode) *reattacher {
 	return &reattacher{
 		re:    tokenPattern(skipped.tokens.salt),
 		nodes: skipped.tokens.nodes,
 		seen:  make([]bool, len(skipped.tokens.nodes)),
-		cards: planCards(skipped.tokens.cards, md, edited),
+		cards: cards,
 	}
 }
 
@@ -747,6 +751,12 @@ func noLocalID(int) string { return "" }
 // the same, and no two cards merged into one link), those cards are the same
 // node, and edited holds it the same number of times. Otherwise the cards of
 // that link stay links, and Reattach reports them.
+//
+// The plan made for the edited document is used for the reference too (and
+// for the read of each original block on its own), so the two hold a card,
+// or its link, in the same places: a paragraph the edit left unchanged then
+// compares equal and comes back whole, card included, even where the edit
+// added a link reading the same elsewhere, which stays a link (jir-wd4f).
 func planCards(cards []jira4claude.ADFNode, md string, edited *jira4claude.ADFNode) map[string]jira4claude.ADFNode {
 	if len(cards) == 0 || edited == nil {
 		return nil
@@ -1192,7 +1202,7 @@ func (r *reattacher) resolve(token, kind, number, container string, mode blockMo
 			// A node of a type the reader does not know, read from a task
 			// item: whether it is block-level is unknown, so it goes back
 			// into the task item's content, as it was read.
-			return cloneNode(p.node), false, true
+			return fromToken(p.node), false, true
 		case class == "taskItem":
 			// Whatever the reader found it in: a task item holds what a
 			// blockTaskItem allows, or nothing block-level at all.
@@ -1215,7 +1225,7 @@ func (r *reattacher) resolve(token, kind, number, container string, mode blockMo
 			return jira4claude.ADFNode{}, false, false
 		}
 	}
-	return cloneNode(p.node), p.block, true
+	return fromToken(p.node), p.block, true
 }
 
 // nodeName names a node type in an issue's detail.

@@ -375,7 +375,11 @@ func adfListItemToGFM(node *jira4claude.ADFNode, skipped *skippedCollector, mark
 	if content := node.Content; len(content) > 0 && isEmptyParagraph(content[0]) {
 		blocks.avoid = marker
 		if len(content) > 1 && content[1].Type != "bulletList" && content[1].Type != "orderedList" && skipped != nil {
+			// The paragraph is what the read leaves out, so the issue is
+			// its own: Reattach quiets it when it puts the paragraph back.
+			done := skipped.within(&content[0])
 			skipped.degrade("listItem", emptyLeadDetail)
+			done()
 		}
 	}
 	parts := blocks.renderAll(node.Content)

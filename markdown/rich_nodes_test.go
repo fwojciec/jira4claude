@@ -153,6 +153,17 @@ func TestRichNodes_InlineCardRestore(t *testing.T) {
 		assert.Equal(t, jsonOf(t, docOf(append(doc.Content, paraOf(plainText("new")))...)), jsonOf(t, got))
 	})
 
+	t.Run("kept in its unchanged paragraph when a copy of the link is added elsewhere, which stays a link", func(t *testing.T) {
+		t.Parallel()
+		// jir-wd4f: the paragraph the edit leaves unchanged comes back whole,
+		// card included; the copy is new text, written as a link.
+		doc := docOf(paraOf(plainText("see "), card(t)))
+		_, got, issues := readEditWrite(t, doc, func(md string) string { return md + "\n\nagain " + md })
+		assert.Empty(t, issues)
+		want := docOf(paraOf(plainText("see "), card(t)), paraOf(plainText("again see "), linkText(cardURL, cardURL)))
+		assert.Equal(t, jsonOf(t, want), jsonOf(t, got))
+	})
+
 	t.Run("not restored, and reported, when", func(t *testing.T) {
 		t.Parallel()
 		tests := []struct {
@@ -190,14 +201,6 @@ func TestRichNodes_InlineCardRestore(t *testing.T) {
 				doc:   func(t *testing.T) *jira4claude.ADFNode { return docOf(paraOf(card(t), card(t))) },
 				edit:  editEveryLink,
 				count: "2 smart links become plain links",
-			},
-			{
-				name: "a copy of the link is added",
-				doc:  func(t *testing.T) *jira4claude.ADFNode { return docOf(paraOf(plainText("see "), card(t))) },
-				edit: func(md string) string {
-					return md + "\n\nagain " + md
-				},
-				count: "1 smart link becomes a plain link",
 			},
 			{
 				name: "cards with the same URL differ in attrs",

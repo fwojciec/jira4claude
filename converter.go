@@ -138,11 +138,13 @@ type Converter interface {
 	// edit left it alone: each part of edited that equals the unchanged read
 	// of original, written back, is replaced by the part of original it was
 	// read from, so an unchanged rewrite gives original back. A changed node
-	// that matches a node of original (same type, same place among the
-	// siblings of that type, as many of them on each side, under matched
-	// parents) keeps the original's attributes and block marks where the
-	// edit left them as they read, and always its localId. An inline card
-	// whose link comes back in a form only that card can take is restored.
+	// that matches a node of original (same type, as many siblings of that
+	// type on each side, between the same unchanged siblings or ends of its
+	// container, under matched parents) keeps the original's attributes and block
+	// marks where the edit left them as they read, and always its localId; a
+	// node put back from its token is never merged. An inline card whose link
+	// comes back in a form only that card can take is restored; an unchanged
+	// part holding one comes back with it, whatever the rest of the edit.
 	//
 	// What the result still changes is reported with Existing set, one issue
 	// per node or mark type with the count: emoji turned into text, inline
