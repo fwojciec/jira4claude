@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -271,6 +272,9 @@ func (c *IssueCreateCmd) Run(ctx *IssueContext) error {
 	if project == "" {
 		project = ctx.Config.Project
 	}
+	// What the result and messages name: a raw project value replaces the
+	// default in the request (it is refused beside --project).
+	reportProject := rawProject(customFields, project)
 	issueType := c.Type
 	if issueType == "" {
 		issueType = "Task"
@@ -321,7 +325,7 @@ func (c *IssueCreateCmd) Run(ctx *IssueContext) error {
 
 	if c.DryRun {
 		ctx.Printer.Mutation(jira4claude.MutationResult{
-			Project: project,
+			Project: reportProject,
 			Action:  jira4claude.ActionWouldCreate,
 			DryRun:  true,
 			Changes: map[string]jira4claude.Change{},
@@ -336,7 +340,7 @@ func (c *IssueCreateCmd) Run(ctx *IssueContext) error {
 		return nil
 	}
 	if unreadable := (*jira4claude.UnreadableAnswerError)(nil); errors.As(err, &unreadable) {
-		return createdWithoutKey(ctx, project, unreadable, false)
+		return createdWithoutKey(ctx, reportProject, unreadable, false)
 	}
 	if assignee == nil || !rejectsAssigneeField(err) {
 		return err
@@ -351,7 +355,7 @@ func (c *IssueCreateCmd) Run(ctx *IssueContext) error {
 	created, err = ctx.Service.Create(context.Background(), &withoutAssignee)
 	if unreadable := (*jira4claude.UnreadableAnswerError)(nil); errors.As(err, &unreadable) {
 		// Without the key the assignment cannot be made.
-		return createdWithoutKey(ctx, project, unreadable, true)
+		return createdWithoutKey(ctx, reportProject, unreadable, true)
 	}
 	if err != nil {
 		return err
@@ -388,6 +392,31 @@ func createdWithoutKey(ctx *IssueContext, project string, unreadable *jira4claud
 			"the write was applied, do not repeat it", what, project, then),
 		Inner: unreadable.Err,
 	}
+}
+
+// rawProject returns the project a --field-json project value names, by key
+// or else by ID (JQL takes either), or fallback when there is none or it
+// names neither. The request sends the raw value in place of the default
+// project, so this is the project the issue is created in.
+func rawProject(fields map[string]json.RawMessage, fallback string) string {
+	raw, ok := fields["project"]
+	if !ok {
+		return fallback
+	}
+	var ref struct {
+		Key string `json:"key"`
+		ID  string `json:"id"`
+	}
+	if err := json.Unmarshal(raw, &ref); err != nil {
+		return fallback
+	}
+	switch {
+	case ref.Key != "":
+		return ref.Key
+	case ref.ID != "":
+		return ref.ID
+	}
+	return fallback
 }
 
 // rejectsAssigneeField reports whether err is Jira's 400 answer to a create

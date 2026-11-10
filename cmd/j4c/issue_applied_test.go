@@ -50,6 +50,29 @@ func TestIssueCreate_AnswerUnreadable(t *testing.T) {
 		assert.Equal(t, 1, creates)
 	})
 
+	t.Run("names the project a --field-json value set", func(t *testing.T) {
+		t.Parallel()
+
+		for name, tc := range map[string]struct{ value, project string }{
+			"by key": {`project={"key":"OTHER"}`, "OTHER"},
+			"by id":  {`project={"id":"10042"}`, "10042"},
+		} {
+			t.Run(name, func(t *testing.T) {
+				t.Parallel()
+				creates := 0
+
+				res := runCLI(t, testDeps(newService(&creates), &mock.UserService{}),
+					"issue", "create", "-s", "New", "--field-json", tc.value)
+
+				assert.Equal(t, 7, res.code)
+				assert.Equal(t, tc.project+": created\n", res.stdout)
+				assert.Contains(t, res.stderr, "created an issue in "+tc.project+",")
+				assert.Contains(t, res.stderr, `--jql "project = `+tc.project+` ORDER BY created DESC"`)
+				assert.NotContains(t, res.stderr, "TEST")
+			})
+		}
+	})
+
 	t.Run("json", func(t *testing.T) {
 		t.Parallel()
 		creates := 0
