@@ -519,7 +519,7 @@ func TestRun_IssueViewUnknownField(t *testing.T) {
 			assert.Equal(t, 1, res.code)
 			assert.Empty(t, res.stdout)
 			assert.Contains(t, res.stderr, `[error] unknown field "`+field+`"`)
-			assert.Contains(t, res.stderr, "key, project, summary, description, status, type, priority, assignee, reporter, labels, relatedIssues, comments, created, updated, url")
+			assert.Contains(t, res.stderr, "key, project, summary, description, status, type, priority, assignee, reporter, labels, relatedIssues, comments, attachments, created, updated, url")
 			assert.Contains(t, res.stderr, "customfield_")
 		})
 	}
@@ -626,6 +626,183 @@ func TestRun_IssueViewPartialFailure(t *testing.T) {
 		assert.Equal(t, 4, res.code)
 		assert.Empty(t, res.stdout)
 		assert.Equal(t, "[error] issue not found\n", res.stderr)
+	})
+}
+
+func attachedIssue() *jira4claude.Issue {
+	issue := bareIssue()
+	issue.Attachments = []*jira4claude.Attachment{
+		{ID: "10100", Filename: "shot one.png", MimeType: "image/png", Size: 23145},
+		{ID: "10101", Filename: "log.txt", MimeType: "text/plain", Size: 12},
+	}
+	return issue
+}
+
+func TestRun_IssueViewAttachmentsField(t *testing.T) {
+	t.Parallel()
+
+	t.Run("text prints the lines attachment list prints", func(t *testing.T) {
+		t.Parallel()
+
+		res := runCLI(t, testDeps(issueGetter(attachedIssue(), nil), &mock.UserService{}),
+			"issue", "view", "TEST-1", "--field", "attachments")
+
+		assert.Equal(t, 0, res.code)
+		assert.Equal(t, "10100\t23145\timage/png\tshot one.png\n10101\t12\ttext/plain\tlog.txt\n", res.stdout)
+		assert.Empty(t, res.stderr)
+	})
+
+	t.Run("JSON is the array attachment list prints", func(t *testing.T) {
+		t.Parallel()
+
+		res := runCLI(t, testDeps(issueGetter(attachedIssue(), nil), &mock.UserService{}),
+			"--json", "issue", "view", "TEST-1", "--field", "attachments")
+
+		assert.Equal(t, 0, res.code)
+		assertJSONInOrder(t, `{"key":"TEST-1","attachments":[
+			{"id":"10100","filename":"shot one.png","mimeType":"image/png","size":23145},
+			{"id":"10101","filename":"log.txt","mimeType":"text/plain","size":12}]}`, res.stdout)
+	})
+
+	t.Run("none prints nothing in text", func(t *testing.T) {
+		t.Parallel()
+
+		res := runCLI(t, testDeps(issueGetter(bareIssue(), nil), &mock.UserService{}),
+			"issue", "view", "TEST-1", "--field", "attachments")
+
+		assert.Equal(t, 0, res.code)
+		assert.Empty(t, res.stdout)
+		assert.Empty(t, res.stderr)
+	})
+
+	t.Run("none is [] in JSON", func(t *testing.T) {
+		t.Parallel()
+
+		res := runCLI(t, testDeps(issueGetter(bareIssue(), nil), &mock.UserService{}),
+			"--json", "issue", "view", "TEST-1", "--field", "attachments")
+
+		assert.Equal(t, 0, res.code)
+		assertJSONInOrder(t, `{"key":"TEST-1","attachments":[]}`, res.stdout)
+	})
+}
+
+// degradedComment is a comment whose body reads back degraded, as the
+// description of degradedIssue does.
+func degradedComment() *jira4claude.Comment {
+	return &jira4claude.Comment{ID: "1", Body: degradedIssue().Description}
+}
+
+func TestRun_IssueViewWarningsForSelectedFields(t *testing.T) {
+	t.Parallel()
+
+	degraded := func() *jira4claude.Issue {
+		issue := degradedIssue()
+		issue.Comments = []*jira4claude.Comment{degradedComment()}
+		return issue
+	}
+
+	for _, mode := range []string{"text", "json"} {
+		args := func(rest ...string) []string {
+			if mode == "json" {
+				return append([]string{"--json"}, rest...)
+			}
+			return rest
+		}
+
+		t.Run(mode+": a field that is not converted warns nothing", func(t *testing.T) {
+			t.Parallel()
+
+			res := runCLI(t, testDeps(issueGetter(degraded(), nil), &mock.UserService{}),
+				args("issue", "view", "TEST-1", "--field", "status")...)
+
+			assert.Equal(t, 0, res.code)
+			assert.NotEmpty(t, res.stdout)
+			assert.Empty(t, res.stderr)
+		})
+
+		t.Run(mode+": description warns for the description only", func(t *testing.T) {
+			t.Parallel()
+
+			res := runCLI(t, testDeps(issueGetter(degraded(), nil), &mock.UserService{}),
+				args("issue", "view", "TEST-1", "--field", "description")...)
+
+			assert.Equal(t, 0, res.code)
+			assert.Equal(t, 1, strings.Count(res.stderr, "degraded codeBlock"), "stderr: %q", res.stderr)
+		})
+
+		t.Run(mode+": comments warn for the comments only", func(t *testing.T) {
+			t.Parallel()
+
+			res := runCLI(t, testDeps(issueGetter(degraded(), nil), &mock.UserService{}),
+				args("issue", "view", "TEST-1", "--field", "comments")...)
+
+			assert.Equal(t, 0, res.code)
+			assert.Equal(t, 1, strings.Count(res.stderr, "degraded codeBlock"), "stderr: %q", res.stderr)
+		})
+
+		t.Run(mode+": no --field warns for both, as before", func(t *testing.T) {
+			t.Parallel()
+
+			res := runCLI(t, testDeps(issueGetter(degraded(), nil), &mock.UserService{}),
+				args("issue", "view", "TEST-1")...)
+
+			assert.Equal(t, 0, res.code)
+			assert.Equal(t, 2, strings.Count(res.stderr, "degraded codeBlock"), "stderr: %q", res.stderr)
+		})
+	}
+}
+
+func TestRun_IssueViewWarningsNameTheIssue(t *testing.T) {
+	t.Parallel()
+
+	// Keys asked in lower case: Jira returns them in upper case, and that
+	// spelling is used in warnings, headers and objects alike.
+	store := func() *mock.IssueService {
+		second := degradedIssue()
+		second.Key = "TEST-2"
+		return issueStore(map[string]*jira4claude.Issue{"test-1": degradedIssue(), "test-2": second}, nil)
+	}
+
+	t.Run("text: several keys prefix the warning with the key", func(t *testing.T) {
+		t.Parallel()
+
+		res := runCLI(t, testDeps(store(), &mock.UserService{}), "issue", "view", "test-1", "test-2", "--field", "description")
+
+		assert.Equal(t, 0, res.code)
+		assert.Equal(t, "==> TEST-1 description <==\n```go\nx := 1\n```\n==> TEST-2 description <==\n```go\nx := 1\n```\n", res.stdout)
+		lines := strings.Split(strings.TrimSuffix(res.stderr, "\n"), "\n")
+		require.Len(t, lines, 2)
+		assert.True(t, strings.HasPrefix(lines[0], "[warn] TEST-1: degraded codeBlock"), "stderr: %q", res.stderr)
+		assert.True(t, strings.HasPrefix(lines[1], "[warn] TEST-2: degraded codeBlock"), "stderr: %q", res.stderr)
+	})
+
+	t.Run("text: one key keeps the warning as it was", func(t *testing.T) {
+		t.Parallel()
+
+		res := runCLI(t, testDeps(store(), &mock.UserService{}), "issue", "view", "test-1")
+
+		assert.Equal(t, 0, res.code)
+		assert.True(t, strings.HasPrefix(res.stderr, "[warn] degraded codeBlock"), "stderr: %q", res.stderr)
+	})
+
+	t.Run("JSON: every view warning carries the key, one key or several", func(t *testing.T) {
+		t.Parallel()
+
+		res := runCLI(t, testDeps(store(), &mock.UserService{}), "--json", "issue", "view", "test-1", "test-2")
+		assert.Equal(t, 0, res.code)
+		lines := stderrLines(t, res.stderr)
+		require.Len(t, lines, 2)
+		assert.Equal(t, "TEST-1", lines[0]["key"])
+		assert.Equal(t, "TEST-2", lines[1]["key"])
+		assert.Equal(t, "warning", lines[0]["level"])
+		assert.Equal(t, "codeBlock", lines[0]["node"])
+		assert.Contains(t, lines[0]["message"], "degraded codeBlock")
+
+		res = runCLI(t, testDeps(store(), &mock.UserService{}), "--json", "issue", "view", "test-1", "--field", "description")
+		assert.Equal(t, 0, res.code)
+		lines = stderrLines(t, res.stderr)
+		require.Len(t, lines, 1)
+		assert.Equal(t, "TEST-1", lines[0]["key"])
 	})
 }
 

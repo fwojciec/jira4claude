@@ -148,7 +148,8 @@ func (p *Printer) writeValue(value any) {
 
 // selectionValue renders a selected value as text: a string as it is (the
 // description is the Markdown issue update --description takes back), labels
-// one per line, and anything structured (comments, related issues, a custom
+// one per line, attachments as the tab-separated lines attachment list
+// prints, and anything else structured (comments, related issues, a custom
 // field) as compact JSON on one line; a custom field the issue does not set is
 // null, as --field-json takes it.
 func selectionValue(value any) string {
@@ -157,6 +158,8 @@ func selectionValue(value any) string {
 		return v
 	case []string:
 		return strings.Join(v, "\n")
+	case []jira4claude.AttachmentView:
+		return attachmentLines(v)
 	case json.RawMessage:
 		if v == nil {
 			return "null"
@@ -421,10 +424,18 @@ func (p *Printer) Attachments(key string, attachments []jira4claude.AttachmentVi
 		return
 	}
 
+	fmt.Fprint(p.out, attachmentLines(attachments))
+}
+
+// attachmentLines renders the lines Attachments prints, each ending in a
+// newline; "" when there are none.
+func attachmentLines(attachments []jira4claude.AttachmentView) string {
+	var b strings.Builder
 	for _, a := range attachments {
-		fmt.Fprintf(p.out, "%s\t%d\t%s\t%s\n",
+		fmt.Fprintf(&b, "%s\t%d\t%s\t%s\n",
 			escapeControl(a.ID), a.Size, escapeControl(a.MimeType), escapeControl(a.Filename))
 	}
+	return b.String()
 }
 
 // renderAttachmentsSection prints the "## Attachments" section of an issue,
@@ -499,6 +510,17 @@ func (p *Printer) Warning(msg string) {
 // ConversionIssue prints a conversion issue to stderr as a warning.
 func (p *Printer) ConversionIssue(issue jira4claude.ConversionIssue) {
 	p.Warning(issue.String())
+}
+
+// ViewConversionIssue prints a conversion issue met reading an issue for issue
+// view as a warning on stderr. When several keys were asked the line names
+// the issue ("[warn] KEY: ..."); with one key it is the ConversionIssue line.
+func (p *Printer) ViewConversionIssue(issue jira4claude.ViewConversionIssue) {
+	if issue.Several {
+		p.Warning(issue.Key + ": " + issue.String())
+		return
+	}
+	p.ConversionIssue(issue.ConversionIssue)
 }
 
 // Error prints an error message to stderr.

@@ -162,6 +162,8 @@ type warningLine struct {
 	Node     string `json:"node,omitempty"`
 	Detail   string `json:"detail,omitempty"`
 	Existing bool   `json:"existing,omitempty"`
+	// Key names the issue a warning is about (issue view).
+	Key string `json:"key,omitempty"`
 }
 
 // diagnose writes v to stderr as one compact JSON object on its own line, so
@@ -190,6 +192,21 @@ func (p *Printer) ConversionIssue(issue jira4claude.ConversionIssue) {
 		Node:     issue.Node,
 		Detail:   issue.Detail,
 		Existing: issue.Existing,
+	})
+}
+
+// ViewConversionIssue prints a conversion issue met reading an issue for
+// issue view: the ConversionIssue line plus the issue's key, whether one key
+// or several were asked.
+func (p *Printer) ViewConversionIssue(issue jira4claude.ViewConversionIssue) {
+	p.diagnose(warningLine{
+		Level:    levelWarning,
+		Message:  issue.String(),
+		Kind:     issue.Kind,
+		Node:     issue.Node,
+		Detail:   issue.Detail,
+		Existing: issue.Existing,
+		Key:      issue.Key,
 	})
 }
 

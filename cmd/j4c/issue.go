@@ -29,7 +29,7 @@ type IssueCmd struct {
 // IssueViewCmd views one or more issues, whole or by field.
 type IssueViewCmd struct {
 	Keys  []string `arg:"" name:"key" help:"Issue keys (e.g., PROJ-123); several are printed in the order given"`
-	Field []string `name:"field" sep:"none" placeholder:"NAME" help:"Print only this field (repeatable or comma-separated): key, project, summary, description, status, type, priority, assignee, reporter, labels, relatedIssues, comments, created, updated, url, or a custom field ID (customfield_NNNNN). One key and one field print the raw value; otherwise each value follows a line '==> KEY FIELD <=='. With --json: an object of key and fields per issue"`
+	Field []string `name:"field" sep:"none" placeholder:"NAME" help:"Print only this field (repeatable or comma-separated): key, project, summary, description, status, type, priority, assignee, reporter, labels, relatedIssues, comments, attachments, created, updated, url, or a custom field ID (customfield_NNNNN). One key and one field print the raw value; otherwise each value follows a line '==> KEY FIELD <=='. With --json, one key gives an object of key and fields, several keys an array of them"`
 }
 
 // Run executes the view command. One key behaves as it always has: a failed
@@ -49,7 +49,9 @@ func (c *IssueViewCmd) Run(ctx *IssueContext) error {
 		return err
 	}
 
+	several := len(c.Keys) > 1
 	views := make([]jira4claude.IssueView, 0, len(c.Keys))
+	selection := jira4claude.IssueSelectionView{Fields: fields, Several: several}
 	var failed []string
 	var firstErr error
 	for _, key := range c.Keys {
@@ -65,16 +67,20 @@ func (c *IssueViewCmd) Run(ctx *IssueContext) error {
 			}
 			continue
 		}
-		views = append(views, jira4claude.ToIssueView(issue, ctx.Converter, ctx.Printer.ConversionIssue, ctx.Config.Server))
+		// Warnings name the issue by the key Jira returned, as the output does.
+		warn := func(ci jira4claude.ConversionIssue) {
+			ctx.Printer.ViewConversionIssue(jira4claude.ViewConversionIssue{ConversionIssue: ci, Key: issue.Key, Several: several})
+		}
+		if len(fields) > 0 {
+			selection.Issues = append(selection.Issues,
+				jira4claude.ToSelectedIssueView(issue, fields, ctx.Converter, warn, ctx.Config.Server))
+			continue
+		}
+		views = append(views, jira4claude.ToIssueView(issue, ctx.Converter, warn, ctx.Config.Server))
 	}
 
-	several := len(c.Keys) > 1
 	switch {
 	case len(fields) > 0:
-		selection := jira4claude.IssueSelectionView{Fields: fields, Several: several}
-		for _, view := range views {
-			selection.Issues = append(selection.Issues, jira4claude.SelectViewFields(view, fields))
-		}
 		ctx.Printer.IssueSelection(selection)
 	case several:
 		ctx.Printer.IssueViews(views)

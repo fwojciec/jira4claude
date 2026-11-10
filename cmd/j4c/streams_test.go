@@ -38,6 +38,9 @@ func everyCommand() []commandCase {
 		{"issue view", []string{"issue", "view", "TEST-1"}, failing(func(err error) *mock.IssueService {
 			return issueGetter(nil, err)
 		})},
+		{"issue view --field", []string{"issue", "view", "TEST-1", "--field", "status"}, failing(func(err error) *mock.IssueService {
+			return issueGetter(nil, err)
+		})},
 		{"issue list", []string{"issue", "list"}, failing(func(err error) *mock.IssueService {
 			return &mock.IssueService{ListFn: func(context.Context, jira4claude.IssueFilter) ([]*jira4claude.Issue, string, error) {
 				return nil, "", err
@@ -216,6 +219,12 @@ func warningCases() []warningCase {
 	degraded := func(node string) map[string]any {
 		return map[string]any{"level": "warning", "kind": jira4claude.ConversionDegraded, "node": node}
 	}
+	// A view warning also names its issue.
+	viewDegraded := func(node string) map[string]any {
+		w := degraded(node)
+		w["key"] = "TEST-1"
+		return w
+	}
 	createSvc := func() (*mock.IssueService, *mock.UserService) {
 		return &mock.IssueService{CreateFn: func(context.Context, *jira4claude.Issue) (*jira4claude.Issue, error) {
 			return &jira4claude.Issue{Key: "TEST-1"}, nil
@@ -235,7 +244,17 @@ func warningCases() []warningCase {
 			},
 			textWarning: "[warn] degraded codeBlock",
 			textStdout:  "# TEST-1: First issue\n",
-			jsonWarning: degraded("codeBlock"),
+			jsonWarning: viewDegraded("codeBlock"),
+		},
+		{
+			name: "issue view --field reads degraded content",
+			args: []string{"issue", "view", "TEST-1", "--field", "description"},
+			services: func() (*mock.IssueService, *mock.UserService) {
+				return issueGetter(degradedIssue(), nil), &mock.UserService{}
+			},
+			textWarning: "[warn] degraded codeBlock",
+			textStdout:  "```go\n",
+			jsonWarning: viewDegraded("codeBlock"),
 		},
 		{
 			name:        "issue create writes degraded content",

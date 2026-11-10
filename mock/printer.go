@@ -24,6 +24,8 @@ type Printer struct {
 	ConversionIssueFn func(issue jira4claude.ConversionIssue)
 	ErrorFn           func(err error)
 
+	ViewConversionIssueFn func(issue jira4claude.ViewConversionIssue)
+
 	// Captured calls for assertions
 	IssueCalls          []jira4claude.IssueView
 	IssueViewsCalls     [][]jira4claude.IssueView
@@ -50,6 +52,15 @@ type Printer struct {
 	WarningCalls         []string
 	ConversionIssueCalls []jira4claude.ConversionIssue
 	ErrorCalls           []error
+
+	ViewConversionIssueCalls []jira4claude.ViewConversionIssue
+}
+
+func (p *Printer) ViewConversionIssue(issue jira4claude.ViewConversionIssue) {
+	p.ViewConversionIssueCalls = append(p.ViewConversionIssueCalls, issue)
+	if p.ViewConversionIssueFn != nil {
+		p.ViewConversionIssueFn(issue)
+	}
 }
 
 func (p *Printer) Issue(view jira4claude.IssueView) {

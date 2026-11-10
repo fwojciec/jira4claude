@@ -1053,7 +1053,7 @@ func TestParseViewFields(t *testing.T) {
 		require.Error(t, err)
 		assert.Equal(t, jira4claude.EValidation, jira4claude.ErrorCode(err))
 		assert.Contains(t, err.Error(), `unknown field "descripton"`)
-		assert.Contains(t, err.Error(), "key, project, summary, description, status, type, priority, assignee, reporter, labels, relatedIssues, comments, created, updated, url")
+		assert.Contains(t, err.Error(), "key, project, summary, description, status, type, priority, assignee, reporter, labels, relatedIssues, comments, attachments, created, updated, url")
 		assert.Contains(t, err.Error(), "customfield_")
 	})
 }

@@ -8,6 +8,10 @@ type IssuePrinter interface {
 	IssueViews(views []IssueView)
 	// IssueSelection prints the fields issue view --field selected.
 	IssueSelection(view IssueSelectionView)
+	// ViewConversionIssue reports, on stderr like ConversionIssue, content
+	// that reading an issue for issue view dropped or degraded, attributed to
+	// the issue.
+	ViewConversionIssue(issue ViewConversionIssue)
 	Issues(view IssueListView)
 	Comment(view CommentView)
 	Transitions(key string, ts []*Transition)

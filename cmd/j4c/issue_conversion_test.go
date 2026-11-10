@@ -418,12 +418,16 @@ func TestIssueViewCmd_UnsupportedNodesWarn(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, printer.IssueCalls, 1)
 	assert.Equal(t, "Before", printer.IssueCalls[0].Description)
-	require.Len(t, printer.ConversionIssueCalls, 1)
-	assert.Equal(t, jira4claude.ConversionIssue{
-		Kind:   jira4claude.ConversionDropped,
-		Node:   "inlineCard",
-		Detail: "skipped unsupported node type 'inlineCard'",
-	}, printer.ConversionIssueCalls[0])
+	// View warnings carry the issue they are about (jir-hodd).
+	require.Len(t, printer.ViewConversionIssueCalls, 1)
+	assert.Equal(t, jira4claude.ViewConversionIssue{
+		ConversionIssue: jira4claude.ConversionIssue{
+			Kind:   jira4claude.ConversionDropped,
+			Node:   "inlineCard",
+			Detail: "skipped unsupported node type 'inlineCard'",
+		},
+		Key: "TEST-1",
+	}, printer.ViewConversionIssueCalls[0])
 }
 
 func TestWriteCommands_KongForceFlag(t *testing.T) {

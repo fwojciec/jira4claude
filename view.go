@@ -125,7 +125,7 @@ const customFieldPrefix = "customfield_"
 func ViewFieldNames() []string {
 	return []string{
 		"key", "project", "summary", "description", "status", "type", "priority",
-		"assignee", "reporter", "labels", "relatedIssues", "comments",
+		"assignee", "reporter", "labels", "relatedIssues", "comments", "attachments",
 		"created", "updated", "url",
 	}
 }
@@ -179,7 +179,7 @@ func canonicalViewField(name string, builtin []string) (string, bool) {
 
 // ViewFieldValue is one selected field of an issue view. Value is a string
 // for the scalar fields, []string for labels, []CommentView for comments,
-// []RelatedIssueView for relatedIssues, and the raw API json.RawMessage for a
+// []AttachmentView for attachments, []RelatedIssueView for relatedIssues, and the raw API json.RawMessage for a
 // custom field (nil, which encodes as null, when the issue does not set it).
 type ViewFieldValue struct {
 	Name  string
@@ -235,6 +235,30 @@ type IssueSelectionView struct {
 	Several bool
 }
 
+// ToSelectedIssueView converts issue for issue view --field: it converts, and
+// passes to warn the conversion issues of, only the Markdown fields selected
+// (description, comments), then picks fields out of the view.
+func ToSelectedIssueView(issue *Issue, fields []string, conv Converter, warn func(ConversionIssue), serverURL string) SelectedIssueView {
+	read := *issue
+	if !slices.Contains(fields, "description") {
+		read.Description = nil
+	}
+	if !slices.Contains(fields, "comments") {
+		read.Comments = nil
+	}
+	return SelectViewFields(ToIssueView(&read, conv, warn, serverURL), fields)
+}
+
+// ViewConversionIssue is a conversion issue met while reading an issue for
+// issue view. Key is the issue's key as Jira returned it. Several records
+// whether more than one key was asked: the text printer names the issue only
+// then, so that one-key output stays as it was.
+type ViewConversionIssue struct {
+	ConversionIssue
+	Key     string
+	Several bool
+}
+
 // SelectViewFields picks fields, as returned by ParseViewFields, out of view.
 // List values are never nil, so that they encode as [].
 func SelectViewFields(view IssueView, fields []string) SelectedIssueView {
@@ -271,6 +295,8 @@ func viewFieldValue(view IssueView, field string) any {
 		return nonNil(view.RelatedIssues)
 	case "comments":
 		return nonNil(view.Comments)
+	case "attachments":
+		return nonNil(view.Attachments)
 	case "created":
 		return view.Created
 	case "updated":
