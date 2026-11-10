@@ -377,3 +377,137 @@ func TestToADF_BlockquoteWithOnlyDroppedChild(t *testing.T) {
 	assert.Empty(t, result.Content)
 	assert.Equal(t, []jira4claude.ConversionIssue{droppedIssue("HTMLBlock")}, issues)
 }
+
+// TestRoundTrip_CodeBlockBlankOnlyLineInContainer asserts that a code block
+// line made only of blanks keeps them inside every container (#163). Inside a
+// list item the Markdown parser drops a blank line's indentation along with
+// its content, so the write side takes the blanks back from the source.
+func TestRoundTrip_CodeBlockBlankOnlyLineInContainer(t *testing.T) {
+	t.Parallel()
+
+	containers := []struct {
+		name string
+		wrap func(t *testing.T, block jira4claude.ADFNode) *jira4claude.ADFNode
+	}{
+		{"bullet item", func(t *testing.T, block jira4claude.ADFNode) *jira4claude.ADFNode {
+			t.Helper()
+			return doc(bullets(item(para("item"), block)))
+		}},
+		{"bullet item opening with the code block", func(t *testing.T, block jira4claude.ADFNode) *jira4claude.ADFNode {
+			t.Helper()
+			return doc(bullets(item(block)))
+		}},
+		{"two-digit ordered item", func(t *testing.T, block jira4claude.ADFNode) *jira4claude.ADFNode {
+			t.Helper()
+			return doc(numbered(t, 10, item(para("item"), block)))
+		}},
+		{"nested bullet item", func(t *testing.T, block jira4claude.ADFNode) *jira4claude.ADFNode {
+			t.Helper()
+			return doc(bullets(item(para("outer"), bullets(item(para("inner"), block)))))
+		}},
+		{"bullet item in a blockquote", func(t *testing.T, block jira4claude.ADFNode) *jira4claude.ADFNode {
+			t.Helper()
+			return doc(quote(bullets(item(para("item"), block))))
+		}},
+		{"bullet item in an expand", func(t *testing.T, block jira4claude.ADFNode) *jira4claude.ADFNode {
+			t.Helper()
+			return doc(expandNode(t, "T", bullets(item(para("item"), block))))
+		}},
+		{"blockquote", func(t *testing.T, block jira4claude.ADFNode) *jira4claude.ADFNode {
+			t.Helper()
+			return doc(quote(block))
+		}},
+		{"expand", func(t *testing.T, block jira4claude.ADFNode) *jira4claude.ADFNode {
+			t.Helper()
+			return doc(expandNode(t, "T", block))
+		}},
+	}
+	texts := []string{" ", "  ", "     ", "a\n \nb", "a\n   \n\n  \nb", "\t", "a\n \t \nb", "  \na"}
+
+	for _, c := range containers {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			for _, text := range texts {
+				original := c.wrap(t, code(text))
+				conv := markdown.New()
+				md, readIssues := conv.ToMarkdown(original)
+				back, writeIssues := conv.ToADF(md)
+
+				assert.Empty(t, readIssues, "code %q", text)
+				assert.Empty(t, writeIssues, "code %q", text)
+				assert.Equal(t, original, back, "code %q read as %q", text, md)
+			}
+		})
+	}
+}
+
+// A panel takes no code block on write, so its Markdown is checked directly:
+// the code lines keep their blanks under the quote prefix.
+func TestToMarkdown_CodeBlockBlankOnlyLineInPanel(t *testing.T) {
+	t.Parallel()
+
+	attrs, err := json.Marshal(map[string]any{"panelType": "info"})
+	require.NoError(t, err)
+	panel := doc(jira4claude.ADFNode{Type: "panel", Attrs: attrs, Content: []jira4claude.ADFNode{code("a\n  \nb")}})
+
+	md, issues := markdown.New().ToMarkdown(panel)
+
+	assert.Empty(t, issues)
+	assert.Equal(t, "> [!NOTE]\n> ```\n> a\n>   \n> b\n> ```", md)
+}
+
+// TestToADF_CodeBlockBlankOnlyLineInListItem asserts that the blanks of a
+// code line past the opening fence's column are kept inside a list item,
+// where the Markdown parser drops a blank line whole (#163).
+func TestToADF_CodeBlockBlankOnlyLineInListItem(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		markdown string
+		code     string
+	}{
+		{"blanks past the fence column", "- item\n\n  ```\n     \n  ```", "   "},
+		{"indentation only", "- item\n\n  ```\n  a\n  \n  b\n  ```", "a\n\nb"},
+		{"less than the indentation", "- item\n\n  ```\n  a\n \n  b\n  ```", "a\n\nb"},
+		{"no indentation", "- item\n\n  ```\n  a\n\n  b\n  ```", "a\n\nb"},
+		{"fence on the marker line", "- ```\n   \n  ```", " "},
+		{"indented fence", "- item\n\n    ```\n      \n    ```", "  "},
+		{"tab across the fence column", "- ```\n\t \n  ```", "   "},
+		{"list in a blockquote", "> - ```\n>     \n>   ```", "  "},
+		{"quote marker indented on later lines", "> - ~~~\n >   \n >   x\n >   ~~~", "\nx"},
+		{"quote marker indented further on later lines", ">  - ~~~\n  >      \n  >    ~~~", "  "},
+		{"nested quotes", "> > - ~~~\n> >      \n> >   ~~~", "   "},
+		{"nested quotes without spaces", ">> - ~~~\n>>     \n>>   ~~~", "  "},
+		{"list in a quote in a list", "- > - ~~~\n  >      \n  >   ~~~", "   "},
+		{"tab after the quote marker", "> - ~~~\n>\t   \n>   ~~~", "   "},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			// Only the code text is checked: some of these containers are
+			// reshaped on write (a blockquote in a blockquote is unwrapped),
+			// and that is reported.
+			adf, _ := markdown.New().ToADF(tt.markdown)
+
+			var found []string
+			var walk func(n jira4claude.ADFNode)
+			walk = func(n jira4claude.ADFNode) {
+				if n.Type == "codeBlock" {
+					text := ""
+					for _, c := range n.Content {
+						text += c.Text
+					}
+					found = append(found, text)
+				}
+				for _, c := range n.Content {
+					walk(c)
+				}
+			}
+			walk(*adf)
+			assert.Equal(t, []string{tt.code}, found)
+		})
+	}
+}

@@ -2,7 +2,6 @@ package markdown_test
 
 import (
 	"encoding/json"
-	"strings"
 	"testing"
 
 	jira4claude "github.com/fwojciec/jira4claude"
@@ -28,17 +27,6 @@ func stringsOver(alphabet string, maxLen int) []string {
 		level = next
 	}
 	return all
-}
-
-// hasBlankOnlyLine reports whether a line of text is not empty but holds
-// only spaces.
-func hasBlankOnlyLine(text string) bool {
-	for _, line := range strings.Split(text, "\n") {
-		if line != "" && strings.Trim(line, " ") == "" {
-			return true
-		}
-	}
-	return false
 }
 
 func codeText(text string) jira4claude.ADFNode {
@@ -226,29 +214,33 @@ func TestToMarkdown_CodeBlockFences(t *testing.T) {
 }
 
 // TestRoundTrip_CodeBlockText reads every short code block from Jira, at top
-// level and in a list item, and writes it back: it must come back unchanged,
-// with no issue.
+// level and in a list item, a blockquote and an expand, and writes it back: it
+// must come back unchanged, with no issue. A panel takes no code block on
+// write, so there the Markdown must be the blockquote's under the alert line.
 func TestRoundTrip_CodeBlockText(t *testing.T) {
 	t.Parallel()
+
+	panelAttrs, err := json.Marshal(map[string]any{"panelType": "info"})
+	require.NoError(t, err)
+	wrap := func(container jira4claude.ADFNode) *jira4claude.ADFNode {
+		return &jira4claude.ADFNode{Type: "doc", Version: 1, Content: []jira4claude.ADFNode{container}}
+	}
 
 	languages := []string{"", "go", "a`b", "~", "~`", "`~"}
 	for _, language := range languages {
 		for _, text := range append([]string{""}, stringsOver("`~ \na", 4)...) {
 			doc := codeBlockDoc(language, text)
-			inList := &jira4claude.ADFNode{Type: "doc", Version: 1, Content: []jira4claude.ADFNode{{
+			block := doc.Content[0]
+			inList := wrap(jira4claude.ADFNode{
 				Type: "bulletList",
 				Content: []jira4claude.ADFNode{{
 					Type:    "listItem",
-					Content: []jira4claude.ADFNode{{Type: "paragraph", Content: []jira4claude.ADFNode{txt("item")}}, doc.Content[0]},
+					Content: []jira4claude.ADFNode{{Type: "paragraph", Content: []jira4claude.ADFNode{txt("item")}}, block},
 				}},
-			}}}
-			docs := []*jira4claude.ADFNode{doc}
-			if !hasBlankOnlyLine(text) {
-				// In a list item, a line of only blanks inside a fence
-				// reads back empty (container indentation, not fences).
-				docs = append(docs, inList)
-			}
-			for _, d := range docs {
+			})
+			inQuote := wrap(jira4claude.ADFNode{Type: "blockquote", Content: []jira4claude.ADFNode{block}})
+			inExpand := wrap(expandNode(t, "T", block))
+			for _, d := range []*jira4claude.ADFNode{doc, inList, inQuote, inExpand} {
 				conv := markdown.New()
 				md, readIssues := conv.ToMarkdown(d)
 				back, writeIssues := conv.ToADF(md)
@@ -257,6 +249,12 @@ func TestRoundTrip_CodeBlockText(t *testing.T) {
 				assert.Empty(t, writeIssues, "language %q code %q", language, text)
 				assert.Equal(t, d, back, "language %q code %q read as %q", language, text, md)
 			}
+
+			conv := markdown.New()
+			quoteMD, _ := conv.ToMarkdown(inQuote)
+			panelMD, panelIssues := conv.ToMarkdown(wrap(jira4claude.ADFNode{Type: "panel", Attrs: panelAttrs, Content: []jira4claude.ADFNode{block}}))
+			assert.Empty(t, panelIssues, "language %q code %q", language, text)
+			assert.Equal(t, "> [!NOTE]\n"+quoteMD, panelMD, "language %q code %q", language, text)
 		}
 	}
 }

@@ -177,6 +177,10 @@ var propertySeeds = []string{
 	"<https://x.com/b>\\\\. <http://www.x.com/a@b.co>\\\\~~;~~",
 	"&#120;**&#10;a**",
 	"**a&#10;**&#120;",
+	// #163 blank-only code lines in a list item
+	"- item\n\n  ```\n   \n  ```",
+	"> - ```\n>     \n>   ```",
+	"- ```\n\t \n  ```",
 }
 
 // addPropertySeeds adds propertySeeds and the Markdown fixtures in testdata

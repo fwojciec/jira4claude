@@ -1,6 +1,7 @@
 package markdown
 
 import (
+	"bytes"
 	"crypto/rand"
 	"encoding/json"
 	"fmt"
@@ -263,9 +264,18 @@ func convertHeading(node *ast.Heading, source []byte, skipped *skippedCollector)
 func convertFencedCodeBlock(node *ast.FencedCodeBlock, source []byte) jira4claude.ADFNode {
 	var codeText string
 	lines := node.Lines()
+	containers := blockContainers(node)
+	inListItem := false
+	for _, c := range containers {
+		inListItem = inListItem || c.Kind() == ast.KindListItem
+	}
 	for i := range lines.Len() {
 		line := lines.At(i)
-		codeText += string(line.Value(source))
+		value := line.Value(source)
+		if inListItem && (len(value) == 0 || string(value) == "\n") {
+			codeText += blankLineBlanks(source, line.Start, lines.At(0).Start, containers)
+		}
+		codeText += string(value)
 	}
 	// Remove trailing newline
 	if len(codeText) > 0 && codeText[len(codeText)-1] == '\n' {
@@ -284,6 +294,158 @@ func convertFencedCodeBlock(node *ast.FencedCodeBlock, source []byte) jira4claud
 	}
 
 	return result
+}
+
+// blockContainers returns the blockquotes and list items that hold node,
+// outermost first: the containers whose markers or indentation open each of
+// its lines.
+func blockContainers(node ast.Node) []ast.Node {
+	var containers []ast.Node
+	for p := node.Parent(); p != nil; p = p.Parent() {
+		if k := p.Kind(); k == ast.KindBlockquote || k == ast.KindListItem {
+			containers = append([]ast.Node{p}, containers...)
+		}
+	}
+	return containers
+}
+
+// blankLineBlanks returns the blanks of a code line that goldmark read as
+// empty. Inside a list item goldmark drops a blank line whole, indentation
+// and all (parser/list_item.go), so a code line of only blanks would come
+// back empty (#163). The blanks are taken back from the source.
+//
+// Each line's container prefix is stripped as the parser strips it: for a
+// blockquote, up to three blanks, ">" and one optional blank; for a list
+// item, its content offset in columns (on the fence line that includes the
+// marker). The fence's indentation past the fence line's prefix is stripped
+// from every code line too, so the blanks kept are those past the blank
+// line's own prefix plus that indentation. at is where goldmark left the
+// blank line's segment, and first that of the first code line, which comes
+// right after the fence line.
+func blankLineBlanks(source []byte, at, first int, containers []ast.Node) string {
+	lineStart := func(pos int) int {
+		return bytes.LastIndexByte(source[:min(pos, len(source))], '\n') + 1
+	}
+	lineAt := func(start int) []byte {
+		end := bytes.IndexByte(source[start:], '\n')
+		if end < 0 {
+			return source[start:]
+		}
+		return source[start : start+end]
+	}
+	firstStart := lineStart(first)
+	if firstStart == 0 {
+		return ""
+	}
+	fenceLine := lineAt(lineStart(firstStart - 1))
+	fenceContent, ok := stripContainers(fenceLine, containers, true)
+	if !ok {
+		return ""
+	}
+	fence := bytes.IndexAny(fenceLine, "`~")
+	if fence < 0 {
+		return ""
+	}
+	indent := columnAfter(fenceLine[:fence], 0) - fenceContent
+
+	line := lineAt(lineStart(at))
+	content, ok := stripContainers(line, containers, false)
+	if !ok {
+		return ""
+	}
+	target := content + indent
+	var b strings.Builder
+	col := 0
+	for _, c := range line {
+		next := columnAfter([]byte{c}, col)
+		switch {
+		case next <= target:
+		case c != ' ' && c != '\t':
+			return ""
+		case c == '\t' && col < target:
+			// A tab that spans the target column counts as the spaces past it.
+			b.WriteString(strings.Repeat(" ", next-target))
+		default:
+			b.WriteByte(c)
+		}
+		col = next
+	}
+	return b.String()
+}
+
+// stripContainers returns the column where line's content starts once the
+// prefixes of containers (outermost first) are stripped, and whether line has
+// them. A blockquote takes up to three blanks, ">" and one optional blank;
+// a list item takes its content offset in columns, blanks only unless
+// marker is set (the fence line may hold list markers). A line that ends
+// first still has them: a blank line needs no indentation.
+func stripContainers(line []byte, containers []ast.Node, marker bool) (int, bool) {
+	i, col := 0, 0
+	// start is the column where line[i] begins; col may be inside a tab.
+	start := 0
+	advance := func() {
+		start = columnAfter(line[i:i+1], start)
+		col = start
+		i++
+	}
+	// take moves n columns over blanks (any character when any is set).
+	take := func(n int, any bool) bool {
+		for n > 0 && i < len(line) {
+			c := line[i]
+			if c == '\t' {
+				end := columnAfter([]byte{'\t'}, start)
+				step := min(n, end-col)
+				col += step
+				n -= step
+				if col == end {
+					i++
+					start = col
+				}
+				continue
+			}
+			if c != ' ' && !any {
+				return false
+			}
+			advance()
+			n--
+		}
+		return true
+	}
+	for _, c := range containers {
+		if item, ok := c.(*ast.ListItem); ok {
+			if !take(item.Offset, marker) {
+				return 0, false
+			}
+			continue
+		}
+		// Up to three columns of indentation, a tab the previous marker
+		// only partly took included.
+		from := col
+		for i < len(line) && (line[i] == ' ' || line[i] == '\t') {
+			advance()
+		}
+		if i >= len(line) || line[i] != '>' || col-from > 3 {
+			return 0, false
+		}
+		advance()
+		if i < len(line) && (line[i] == ' ' || line[i] == '\t') {
+			take(1, false)
+		}
+	}
+	return col, true
+}
+
+// columnAfter returns the column reached by writing s from column col, with
+// tab stops every four columns, as CommonMark counts indentation.
+func columnAfter(s []byte, col int) int {
+	for _, c := range s {
+		if c == '\t' {
+			col += 4 - col%4
+		} else {
+			col++
+		}
+	}
+	return col
 }
 
 // infoLanguage returns the language of a fenced code block: the first word
