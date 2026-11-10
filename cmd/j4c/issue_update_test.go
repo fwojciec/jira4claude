@@ -393,6 +393,44 @@ func TestRun_IssueUpdateReattachesDescription(t *testing.T) {
 	})
 }
 
+func TestRun_TokenTextOutsideADescriptionSet(t *testing.T) {
+	t.Parallel()
+
+	const tokenText = "As before: {{mention:2 Jane Doe}}"
+
+	t.Run("a comment writes token text as plain text and warns", func(t *testing.T) {
+		t.Parallel()
+
+		var sent *jira4claude.ADFNode
+		svc := &mock.IssueService{
+			AddCommentFn: func(ctx context.Context, key string, body *jira4claude.ADFNode) (*jira4claude.Comment, error) {
+				sent = body
+				return &jira4claude.Comment{ID: "1"}, nil
+			},
+		}
+
+		res := runCLI(t, testDeps(svc, &mock.UserService{}), "issue", "comment", "TEST-1", "--body="+tokenText)
+
+		require.Equal(t, 0, res.code, "stderr: %s", res.stderr)
+		assert.Contains(t, res.stderr, "[warn] degraded {{mention:2 Jane Doe}}")
+		assert.Contains(t, marshal(t, sent), "{{mention:2 Jane Doe}}")
+	})
+
+	t.Run("an append keeps the existing nodes and warns about token text", func(t *testing.T) {
+		t.Parallel()
+
+		svc := newGuardedService(guardedIssue())
+
+		res := runCLI(t, testDeps(svc, &mock.UserService{}), "issue", "update", "TEST-1", "--append-description="+tokenText)
+
+		require.Equal(t, 0, res.code, "stderr: %s", res.stderr)
+		assert.Contains(t, res.stderr, "[warn] degraded {{mention:2 Jane Doe}}")
+		doc := svc.Sent().Description.Document()
+		assert.Len(t, findNodes(doc, "mention"), 1)
+		assert.Contains(t, marshal(t, doc), "{{mention:2 Jane Doe}}")
+	})
+}
+
 func TestRun_IssueUpdateClearDescription(t *testing.T) {
 	t.Parallel()
 

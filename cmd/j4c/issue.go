@@ -325,7 +325,7 @@ func (c *IssueUpdateCmd) Run(ctx *IssueContext) error {
 		if err != nil {
 			return err
 		}
-		addition, warnings = doc, issues
+		addition, warnings = doc, append(issues, jira4claude.LiteralTokens(ctx.Converter, doc)...)
 	}
 
 	// Resolve assignee if provided
@@ -626,11 +626,14 @@ func (c *IssueDeleteCommentCmd) Run(ctx *IssueContext) error {
 // is reported as a warning. If any content was dropped and force is false, it
 // returns a validation error naming the dropped nodes instead, so the caller
 // writes nothing. field names the input in that error (e.g. "description").
+// It is for new content (a create or a comment), so text that reads as a
+// protected-node token is also reported: nothing restores it there.
 func convertForWrite(ctx *IssueContext, field, md string, force bool) (*jira4claude.ADFNode, error) {
 	doc, issues, err := convert(ctx, field, md, force)
 	if err != nil {
 		return nil, err
 	}
+	issues = append(issues, jira4claude.LiteralTokens(ctx.Converter, doc)...)
 	for _, issue := range issues {
 		ctx.Printer.ConversionIssue(issue)
 	}

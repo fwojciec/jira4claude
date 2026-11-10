@@ -224,6 +224,25 @@ func CheckClearDescription(conv Converter, current *ADFNode, force bool) ([]Conv
 	return removed, nil
 }
 
+// LiteralTokens reports text in doc, converted from new Markdown for a
+// create, a comment or an append, that reads as a protected-node token. Only a
+// description set restores tokens; anywhere else a token is written as the
+// plain text it is, so each one is reported as degraded: a token copied from
+// issue view does not carry its image or mention along.
+func LiteralTokens(conv Converter, doc *ADFNode) []ConversionIssue {
+	_, found := conv.Reattach(nil, doc)
+	dropped := DroppedIssues(found)
+	issues := make([]ConversionIssue, 0, len(dropped))
+	for _, f := range dropped {
+		issues = append(issues, ConversionIssue{
+			Kind:   ConversionDegraded,
+			Node:   f.Node,
+			Detail: "written as plain text; a token restores existing content only in issue update --description",
+		})
+	}
+	return issues
+}
+
 // timestampLayout is how timestamps compared by --if-updated are printed:
 // RFC 3339 with exactly three fractional digits, Jira's own precision.
 const timestampLayout = "2006-01-02T15:04:05.000Z07:00"

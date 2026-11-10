@@ -267,6 +267,37 @@ func TestReplaceDescription(t *testing.T) {
 	})
 }
 
+func TestLiteralTokens(t *testing.T) {
+	t.Parallel()
+
+	doc := &jira4claude.ADFNode{Type: "doc", Version: 1, Content: []jira4claude.ADFNode{paragraph("see {{media:1 shot.png}}")}}
+
+	t.Run("token text with no node to restore is a degraded warning", func(t *testing.T) {
+		t.Parallel()
+
+		conv := reattachingConverter(t, nil, doc, []jira4claude.ConversionIssue{{
+			Kind:   jira4claude.ConversionDropped,
+			Node:   "{{media:1 shot.png}}",
+			Detail: "the token names no protected node of the original document, so it is left as text",
+		}})
+
+		issues := jira4claude.LiteralTokens(conv, doc)
+
+		require.Len(t, issues, 1)
+		assert.Equal(t, jira4claude.ConversionDegraded, issues[0].Kind)
+		assert.Equal(t, "{{media:1 shot.png}}", issues[0].Node)
+		assert.Contains(t, issues[0].Detail, "plain text")
+	})
+
+	t.Run("text without tokens has no issues", func(t *testing.T) {
+		t.Parallel()
+
+		conv := reattachingConverter(t, nil, doc, nil)
+
+		assert.Empty(t, jira4claude.LiteralTokens(conv, doc))
+	})
+}
+
 func TestCheckClearDescription(t *testing.T) {
 	t.Parallel()
 
