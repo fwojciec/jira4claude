@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 
 	"github.com/alecthomas/kong"
 	"github.com/fwojciec/jira4claude"
@@ -225,17 +226,29 @@ func parse(cli *CLI, args []string, stdout, stderr io.Writer, versionText string
 
 // requestsJSON reports whether args ask for --json output. It is consulted
 // only when parsing failed: kong stops at the first bad token, so a --json
-// after it never reaches the CLI struct. Arguments after "--" are positional.
+// after it never reaches the CLI struct. It follows kong's rules: the last
+// occurrence wins, --json=VALUE takes true, 1 or yes (any case) as true, and
+// arguments after "--" are positional.
 func requestsJSON(args []string) bool {
+	requested := false
 	for _, a := range args {
-		switch a {
-		case "--":
-			return false
-		case "--json", "--json=true", "-j":
-			return true
+		if a == "--" {
+			break
+		}
+		if a == "--json" || a == "-j" {
+			requested = true
+			continue
+		}
+		if value, ok := strings.CutPrefix(a, "--json="); ok {
+			switch strings.ToLower(value) {
+			case "true", "1", "yes":
+				requested = true
+			case "false", "0", "no":
+				requested = false
+			}
 		}
 	}
-	return false
+	return requested
 }
 
 // newHTTPServices builds the Jira services backed by the HTTP client.

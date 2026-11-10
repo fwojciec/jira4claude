@@ -702,6 +702,28 @@ func TestRun_UsageError(t *testing.T) {
 		assertJSONError(t, res.stderr, jira4claude.EValidation, `expected "<key>"`)
 	})
 
+	t.Run("--json with a value follows the parser's boolean values", func(t *testing.T) {
+		t.Parallel()
+
+		for _, value := range []string{"1", "yes", "TRUE"} {
+			res := runCLI(t, unreachableDeps(t), "--json="+value, "issue", "view", "TEST-1", "--bogus")
+
+			assert.Equal(t, 1, res.code, value)
+			assert.Empty(t, res.stdout, value)
+			assertJSONError(t, res.stderr, jira4claude.EValidation, "unknown flag --bogus")
+		}
+	})
+
+	t.Run("the last --json wins", func(t *testing.T) {
+		t.Parallel()
+
+		res := runCLI(t, unreachableDeps(t), "--json", "--json=no", "issue", "view", "TEST-1", "--bogus")
+
+		assert.Equal(t, 1, res.code)
+		assert.Empty(t, res.stdout)
+		assert.True(t, strings.HasPrefix(res.stderr, "Usage: j4c "), "stderr: %q", res.stderr)
+	})
+
 	t.Run("--json after -- is an argument, not the flag", func(t *testing.T) {
 		t.Parallel()
 
