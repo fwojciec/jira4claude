@@ -45,7 +45,10 @@ import (
 //     of a line, count as unknown, because the neighbour there may be a
 //     delimiter emitted for another node.
 //   - A run of exactly two "~" (only "~~" strikes, see strikethrough.go);
-//     at the start of a line, any run of three or more (a code fence).
+//     at the start of a line, any run of three or more (a code fence); and a
+//     run at a text node's edge when the neighbouring text node's adjacent
+//     edge is also "~", since the two meet in the Markdown. "~5" with no
+//     tilde next to it stays bare.
 //   - At the start of a line only: "#" that would open a heading, ">", a
 //     "-" or "+" list marker, a line made of only "-" or "=" (setext
 //     underline, thematic break), and the "." or ")" of an ordered list
@@ -158,6 +161,32 @@ type textContext struct {
 	// because a line head or another inline construct (a delimiter, a tag)
 	// comes right before it.
 	linkifyAtStart bool
+	// tildeBefore, tildeAfter: the neighbouring text node ends (or starts)
+	// with "~" right against this one, so an edge tilde here would join its
+	// run in the Markdown.
+	tildeBefore, tildeAfter bool
+}
+
+// tildeEdge reports whether nodes[k] is a text node whose Markdown starts
+// (atStart) or ends with a literal "~". Code text is wrapped in backticks, so
+// its tildes never meet a neighbour's.
+func tildeEdge(nodes []jira4claude.ADFNode, k int, atStart bool) bool {
+	if k < 0 || k >= len(nodes) {
+		return false
+	}
+	n := nodes[k]
+	if n.Type != "text" || n.Text == "" {
+		return false
+	}
+	for _, m := range n.Marks {
+		if m.Type == "code" {
+			return false
+		}
+	}
+	if atStart {
+		return n.Text[0] == '~'
+	}
+	return n.Text[len(n.Text)-1] == '~'
 }
 
 // renderedMarks are the marks applyMarks writes as Markdown or HTML syntax.
@@ -173,9 +202,11 @@ func hasRenderedMark(marks []jira4claude.ADFMark) bool {
 
 // escapeTextNode returns the text of an ADF text node escaped for Markdown
 // output. Code text is verbatim, and link text equal to its href is left as
-// is so that it is still read out as a bare URL. afterConstruct is true when
-// the previous inline node ends in syntax (a closing delimiter or tag).
-func escapeTextNode(node *jira4claude.ADFNode, lineStart, afterConstruct bool) string {
+// is so that it is still read out as a bare URL. The node is siblings[i];
+// its neighbours decide what may join its edges.
+func escapeTextNode(siblings []jira4claude.ADFNode, i int, lineStart bool) string {
+	node := &siblings[i]
+	afterConstruct := i > 0 && siblings[i-1].Type == "text" && hasRenderedMark(siblings[i-1].Marks)
 	inLink := false
 	for _, mark := range node.Marks {
 		switch mark.Type {
@@ -193,6 +224,8 @@ func escapeTextNode(node *jira4claude.ADFNode, lineStart, afterConstruct bool) s
 		inLink:         inLink,
 		bareStart:      lineStart && len(node.Marks) == 0,
 		linkifyAtStart: lineStart || afterConstruct || hasRenderedMark(node.Marks),
+		tildeBefore:    tildeEdge(siblings, i-1, false),
+		tildeAfter:     tildeEdge(siblings, i+1, true),
 	})
 }
 
@@ -250,7 +283,7 @@ func escapeText(s string, ctx textContext) string {
 			// "*", "_" and "~" runs at the start of a line are handled below
 			// with an unknown left neighbour.
 			if c == '*' || c == '_' || c == '~' {
-				i += escapeRun(&b, s, i, true)
+				i += escapeRun(&b, s, i, true, ctx)
 				continue
 			}
 		}
@@ -274,7 +307,7 @@ func escapeText(s string, ctx textContext) string {
 				b.WriteByte('\\')
 			}
 		case '*', '_', '~':
-			i += escapeRun(&b, s, i, false)
+			i += escapeRun(&b, s, i, false, ctx)
 			continue
 		}
 		b.WriteByte(c)
@@ -407,7 +440,7 @@ func escapeLineStart(b *strings.Builder, s string, i int) int {
 // escapeRun writes the run of "*", "_" or "~" that starts at s[i], escaping
 // every character in it when the run could open or close formatting, and
 // returns the length of the run. lineStart marks a run that begins a line.
-func escapeRun(b *strings.Builder, s string, i int, lineStart bool) int {
+func escapeRun(b *strings.Builder, s string, i int, lineStart bool, ctx textContext) int {
 	c := s[i]
 	j := i
 	for j < len(s) && s[j] == c {
@@ -418,7 +451,9 @@ func escapeRun(b *strings.Builder, s string, i int, lineStart bool) int {
 	var escape bool
 	switch c {
 	case '~':
-		escape = run == 2 || (lineStart && run >= 3)
+		// A run at a node edge also joins a neighbour's edge tilde.
+		escape = run == 2 || (lineStart && run >= 3) ||
+			(i == 0 && ctx.tildeBefore) || (j == len(s) && ctx.tildeAfter)
 	default:
 		before, beforeKnown := rune(0), i > 0 && !lineStart
 		if beforeKnown {

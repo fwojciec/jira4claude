@@ -537,6 +537,65 @@ func TestRoundTrip_EntityAcrossTextNodes(t *testing.T) {
 	}
 }
 
+func TestRoundTrip_TildesAcrossTextNodes(t *testing.T) {
+	t.Parallel()
+
+	// Tildes at the edges of adjacent text nodes meet in the Markdown, so a
+	// "~~" can form across nodes and strike the text between two such pairs.
+	color := []jira4claude.ADFMark{{Type: "textColor", Attrs: []byte(`{"color":"#ff0000"}`)}}
+
+	for _, texts := range [][]string{
+		{"a~", "~b~", "~c"},
+		{"a~", "~b"},
+		{"x ~", "~y~", "~ z"},
+	} {
+		for _, marked := range []struct {
+			name  string
+			marks []jira4claude.ADFMark
+		}{{"unrendered mark", color}, {"no marks", nil}} {
+			t.Run(strings.Join(texts, "+")+"/"+marked.name, func(t *testing.T) {
+				t.Parallel()
+
+				var inline []jira4claude.ADFNode
+				for k, s := range texts {
+					n := jira4claude.ADFNode{Type: "text", Text: s}
+					if k%2 == 1 {
+						n.Marks = marked.marks
+					}
+					inline = append(inline, n)
+				}
+
+				converter := markdown.New()
+				md, _ := converter.ToMarkdown(paragraphDoc(inline...))
+				result, _ := converter.ToADF(md)
+
+				var text string
+				for _, n := range result.Content[0].Content {
+					text += n.Text
+					for _, m := range n.Marks {
+						assert.NotEqual(t, "strike", m.Type, "markdown was %q", md)
+					}
+				}
+				assert.Equal(t, strings.Join(texts, ""), text, "markdown was %q", md)
+			})
+		}
+	}
+
+	t.Run("lone tilde at a node start stays bare", func(t *testing.T) {
+		t.Parallel()
+
+		converter := markdown.New()
+		md, _ := converter.ToMarkdown(paragraphDoc(
+			jira4claude.ADFNode{Type: "text", Text: "about "},
+			jira4claude.ADFNode{Type: "text", Text: "~5 minutes", Marks: color},
+		))
+		assert.Equal(t, "about ~5 minutes", md)
+
+		md, _ = converter.ToMarkdown(paragraphDoc(jira4claude.ADFNode{Type: "text", Text: "~5"}))
+		assert.Equal(t, "~5", md)
+	})
+}
+
 func TestToADF_DecodesTextAroundLiteralInlineTag(t *testing.T) {
 	t.Parallel()
 

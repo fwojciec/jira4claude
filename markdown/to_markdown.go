@@ -501,8 +501,7 @@ func adfInlineLineToGFM(node *jira4claude.ADFNode, skipped *skippedCollector, si
 		switch child.Type {
 		case "text":
 			lineStart := i == 0 || node.Content[i-1].Type == "hardBreak"
-			afterConstruct := i > 0 && node.Content[i-1].Type == "text" && hasRenderedMark(node.Content[i-1].Marks)
-			text := escapeTextNode(child, lineStart, afterConstruct)
+			text := escapeTextNode(node.Content, i, lineStart)
 			if len(child.Marks) == 0 {
 				result.WriteString(text)
 			} else {
