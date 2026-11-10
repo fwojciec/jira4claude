@@ -124,6 +124,15 @@ func everyCommand() []commandCase {
 			t.Helper()
 			return attachmentDeps(t, attachmentLister(nil, err))
 		}},
+		// The file exists, so the upload request is made, and fails.
+		{"attachment upload", []string{"attachment", "upload", "TEST-1", uploadFixture()}, func(t *testing.T, err error) main.Deps {
+			t.Helper()
+			return attachmentDeps(t, &mock.AttachmentService{
+				UploadFn: func(context.Context, string, jira4claude.AttachmentFile) (*jira4claude.Attachment, error) {
+					return nil, err
+				},
+			})
+		}},
 		{"init", []string{"init", "--server=https://test.atlassian.net", "--project=TEST"}, func(t *testing.T, err error) main.Deps {
 			t.Helper()
 			deps := unreachableDeps(t)

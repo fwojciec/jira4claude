@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"strconv"
 	"strings"
 
 	"github.com/fwojciec/jira4claude"
@@ -14,6 +15,7 @@ import (
 type AttachmentCmd struct {
 	List     AttachmentListCmd     `cmd:"" help:"List the attachments of an issue"`
 	Download AttachmentDownloadCmd `cmd:"" help:"Save attachments of an issue into a directory; prints one saved path per line"`
+	Upload   AttachmentUploadCmd   `cmd:"" help:"Attach local files to an issue; prints one line per new attachment: ID, bytes, MIME type, filename"`
 }
 
 // AttachmentContext provides dependencies for attachment commands.
@@ -196,5 +198,110 @@ func (c *AttachmentDownloadCmd) selectAttachments(attachments []*jira4claude.Att
 					len(matches), c.Key, c.Name, strings.Join(ids, ", ")),
 			}
 		}
+	}
+}
+
+// AttachmentUploadCmd attaches local files to an issue.
+type AttachmentUploadCmd struct {
+	Key   string   `arg:"" help:"Issue key (e.g., PROJ-123)"`
+	Files []string `arg:"" name:"file" help:"Local files to attach, each sent under its base name; symlinks are followed"`
+}
+
+// Run executes the attachment upload command.
+//
+// Every file is checked and opened before Jira is asked anything (see
+// fs.OpenUploads): a missing, unreadable or non-regular file, or a file given
+// twice, fails the command with nothing sent. Two files with the same base
+// name are both sent, with a warning: Jira keeps each as its own attachment.
+//
+// Each file is its own request, in the order given, so that a failure is
+// reported for its file and a retry never sends again a file that was
+// attached. As attachment download --all does, a failure is printed as its
+// own error and the other files are still tried, except after an
+// unauthorized, forbidden, not-found or rate-limit error, which would repeat
+// for each (the issue is the same for all of them; see stopsUpload). The
+// attachments created are printed as one result, and a summary error naming
+// the failed files is returned with the code of the first failure. A single
+// file that fails is returned as it is. With nothing attached, nothing is
+// printed on stdout.
+func (c *AttachmentUploadCmd) Run(ctx *AttachmentContext) error {
+	uploads, err := fs.OpenUploads(c.Files)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		// Error ignored: the files were only read.
+		_ = uploads.Close()
+	}()
+	warnSameNames(ctx.Printer, uploads)
+
+	added := make([]*jira4claude.Attachment, 0, len(uploads.Files))
+	var failed, notTried []string
+	var firstErr, stopErr error
+	for i, file := range uploads.Files {
+		path := uploads.Paths[i]
+		if stopErr != nil {
+			notTried = append(notTried, strconv.Quote(path))
+			continue
+		}
+		a, err := ctx.Service.Upload(context.Background(), c.Key, file)
+		if err != nil {
+			if len(uploads.Files) == 1 {
+				return err
+			}
+			ctx.Printer.Error(&jira4claude.Error{
+				Code:    jira4claude.ErrorCode(err),
+				Message: fmt.Sprintf("file %q", path),
+				Inner:   err,
+			})
+			failed = append(failed, strconv.Quote(path))
+			if firstErr == nil {
+				firstErr = err
+			}
+			if stopsUpload(err) {
+				stopErr = err
+			}
+			continue
+		}
+		added = append(added, a)
+	}
+
+	if len(added) > 0 {
+		result := newResult(ctx.Config, c.Key, jira4claude.ActionAttachmentAdded)
+		result.Attachments = jira4claude.ToAttachmentViews(added)
+		ctx.Printer.Mutation(result)
+	}
+	if len(failed) == 0 {
+		return nil
+	}
+	msg := fmt.Sprintf("could not upload %d of %d files: %s",
+		len(failed)+len(notTried), len(uploads.Files), strings.Join(failed, ", "))
+	if stopErr != nil {
+		msg += fmt.Sprintf("; stopped after a %s error, not tried: %s",
+			jira4claude.ErrorCode(stopErr), strings.Join(notTried, ", "))
+	}
+	return &jira4claude.Error{Code: jira4claude.ErrorCode(firstErr), Message: msg}
+}
+
+// stopsUpload reports whether a failure to upload one file would repeat for
+// every other one: those of stopsRun, and not found, which is about the issue
+// (or the permission to see it) that every file goes to.
+func stopsUpload(err error) bool {
+	return stopsRun(err) || jira4claude.ErrorCode(err) == jira4claude.ENotFound
+}
+
+// warnSameNames warns about files sent under the same name: Jira accepts
+// them, each as its own attachment, but a script matching by name cannot
+// tell them apart.
+func warnSameNames(printer jira4claude.MessagePrinter, uploads *fs.Uploads) {
+	first := make(map[string]int, len(uploads.Files))
+	for i, file := range uploads.Files {
+		j, ok := first[file.Name]
+		if !ok {
+			first[file.Name] = i
+			continue
+		}
+		printer.Warning(fmt.Sprintf("%q and %q are both sent as %q; Jira keeps each as its own attachment with its own ID",
+			uploads.Paths[j], uploads.Paths[i], file.Name))
 	}
 }

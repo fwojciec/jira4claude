@@ -539,8 +539,15 @@ func escapeControl(s string) string {
 // indented line per changed field (sorted by field), the removed content and
 // the updated time when there are any, and the issue's URL. A dry run says so
 // on its first line, which names the project for a create (there is no key
-// yet), and ends with the text Jira would hold after a blank line.
+// yet), and ends with the text Jira would hold after a blank line. Attachments
+// added are printed as attachment list prints them, and nothing else.
 func (p *Printer) Mutation(result jira4claude.MutationResult) {
+	if result.Action == jira4claude.ActionAttachmentAdded {
+		// One attachment-list line per attachment and nothing else, so
+		// that every line is an attachment, its ID first.
+		fmt.Fprint(p.out, attachmentLines(result.Attachments))
+		return
+	}
 	changes := result.Changes
 	switch {
 	case result.DryRun:

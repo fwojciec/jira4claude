@@ -16,6 +16,7 @@ var _ jira4claude.AttachmentService = (*AttachmentService)(nil)
 type AttachmentService struct {
 	ListFn     func(ctx context.Context, key string) ([]*jira4claude.Attachment, error)
 	DownloadFn func(ctx context.Context, id string, w io.Writer) (int64, error)
+	UploadFn   func(ctx context.Context, key string, file jira4claude.AttachmentFile) (*jira4claude.Attachment, error)
 }
 
 func (s *AttachmentService) List(ctx context.Context, key string) ([]*jira4claude.Attachment, error) {
@@ -24,4 +25,8 @@ func (s *AttachmentService) List(ctx context.Context, key string) ([]*jira4claud
 
 func (s *AttachmentService) Download(ctx context.Context, id string, w io.Writer) (int64, error) {
 	return s.DownloadFn(ctx, id, w)
+}
+
+func (s *AttachmentService) Upload(ctx context.Context, key string, file jira4claude.AttachmentFile) (*jira4claude.Attachment, error) {
+	return s.UploadFn(ctx, key, file)
 }

@@ -1,8 +1,10 @@
-// Package fs saves downloaded files to the local file system.
+// Package fs saves downloaded files to the local file system and opens local
+// files for upload.
 //
 // It is the file-system dependency of the application, kept out of the root
 // package as the HTTP client is: the root decides which name a file gets
-// (jira4claude.SafeFilename), this package decides how it is written safely.
+// (jira4claude.SafeFilename), this package decides how it is written safely,
+// and which local files may be read for an upload (OpenUploads).
 package fs
 
 import (

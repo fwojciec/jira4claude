@@ -202,7 +202,19 @@ func (c *Client) NewJSONRequest(ctx context.Context, method, path string, body a
 //
 // The request body is rewound (via req.GetBody) before every retry.
 func (c *Client) DoRequest(req *http.Request, expectedStatus int) ([]byte, error) {
+	body, _, err := c.doRequest(req, expectedStatus)
+	if err != nil {
+		return nil, err
+	}
+	return body, nil
+}
+
+// doRequest is DoRequest, also returning the status code of the last
+// response (0 when the last attempt got none), so that a caller can word the
+// error of a particular status itself.
+func (c *Client) doRequest(req *http.Request, expectedStatus int) ([]byte, int, error) {
 	var lastErr error
+	lastStatus := 0
 	idempotent := req.Method != http.MethodPost
 
 	for attempt := 0; attempt <= c.maxRetries; attempt++ {
@@ -211,14 +223,14 @@ func (c *Client) DoRequest(req *http.Request, expectedStatus int) ([]byte, error
 			select {
 			case <-time.After(delay):
 			case <-req.Context().Done():
-				return nil, &jira4claude.Error{
+				return nil, lastStatus, &jira4claude.Error{
 					Code:    jira4claude.EInternal,
 					Message: "request cancelled during retry backoff",
 					Inner:   req.Context().Err(),
 				}
 			}
 			if err := rewindBody(req); err != nil {
-				return nil, err
+				return nil, lastStatus, err
 			}
 		}
 
@@ -229,15 +241,17 @@ func (c *Client) DoRequest(req *http.Request, expectedStatus int) ([]byte, error
 				Message: "request failed",
 				Inner:   err,
 			}
+			lastStatus = 0
 			if !idempotent {
-				return nil, mayHaveBeenApplied(req, connErr)
+				return nil, lastStatus, mayHaveBeenApplied(req, connErr)
 			}
 			lastErr = connErr
 			continue
 		}
 
+		lastStatus = statusCode
 		if statusCode == expectedStatus {
-			return body, nil
+			return body, statusCode, nil
 		}
 
 		statusErr := statusError(statusCode, body)
@@ -251,13 +265,27 @@ func (c *Client) DoRequest(req *http.Request, expectedStatus int) ([]byte, error
 			lastErr = statusErr
 			continue
 		case isRetryableStatus(statusCode):
-			return nil, mayHaveBeenApplied(req, statusErr)
+			return nil, statusCode, mayHaveBeenApplied(req, statusErr)
 		default:
-			return nil, statusErr
+			// The body goes back with the error, for a caller that words
+			// the error of this status itself.
+			return body, statusCode, statusErr
 		}
 	}
 
-	return nil, lastErr
+	return nil, lastStatus, lastErr
+}
+
+// withoutRedirects returns a copy of c whose requests never follow a
+// redirect: the 3xx response is returned to the caller as it is. A request
+// whose body can be rewound (GetBody) would otherwise send that body again to
+// the redirect target on a 307 or 308, whatever its host.
+func (c *Client) withoutRedirects() *Client {
+	hc := *c.httpClient
+	hc.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	cp := *c
+	cp.httpClient = &hc
+	return &cp
 }
 
 // maxStreamRedirects caps the redirects one Stream attempt follows.
@@ -602,13 +630,30 @@ type ErrorResponse struct {
 // a domain error with the appropriate error code based on the HTTP status.
 // Returns nil if no errors are present in the response body.
 func ParseErrorResponse(statusCode int, body []byte) error {
-	var errResp ErrorResponse
-	if err := json.Unmarshal(body, &errResp); err != nil {
+	messages, err := errorMessages(body)
+	if err != nil {
 		return &jira4claude.Error{
 			Code:    statusCodeToErrorCode(statusCode),
 			Message: "failed to parse error response",
 			Inner:   err,
 		}
+	}
+	if len(messages) == 0 {
+		return nil
+	}
+
+	return &jira4claude.Error{
+		Code:    statusCodeToErrorCode(statusCode),
+		Message: strings.Join(messages, "; "),
+	}
+}
+
+// errorMessages returns the messages of a Jira error body: the general ones
+// first, then the field errors as "field: message", sorted.
+func errorMessages(body []byte) ([]string, error) {
+	var errResp ErrorResponse
+	if err := json.Unmarshal(body, &errResp); err != nil {
+		return nil, err
 	}
 
 	// Collect general error messages first.
@@ -622,16 +667,7 @@ func ParseErrorResponse(statusCode int, body []byte) error {
 		fieldMessages = append(fieldMessages, field+": "+msg)
 	}
 	sort.Strings(fieldMessages)
-	messages = append(messages, fieldMessages...)
-
-	if len(messages) == 0 {
-		return nil
-	}
-
-	return &jira4claude.Error{
-		Code:    statusCodeToErrorCode(statusCode),
-		Message: strings.Join(messages, "; "),
-	}
+	return append(messages, fieldMessages...), nil
 }
 
 // statusCodeToErrorCode maps HTTP status codes to domain error codes.
@@ -647,6 +683,9 @@ func statusCodeToErrorCode(statusCode int) string {
 		return jira4claude.ENotFound
 	case http.StatusConflict:
 		return jira4claude.EConflict
+	case http.StatusRequestEntityTooLarge:
+		// The request is too large for the server: the input must change.
+		return jira4claude.EValidation
 	case http.StatusTooManyRequests:
 		return jira4claude.ERateLimit
 	default:

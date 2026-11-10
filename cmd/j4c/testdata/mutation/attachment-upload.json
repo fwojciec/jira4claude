@@ -1,0 +1,20 @@
+{
+  "key": "TEST-1",
+  "url": "https://test.atlassian.net/browse/TEST-1",
+  "action": "attachment_added",
+  "changes": {},
+  "attachments": [
+    {
+      "id": "10001",
+      "filename": "a.txt",
+      "mimeType": "text/plain",
+      "size": 5
+    },
+    {
+      "id": "10002",
+      "filename": "b.txt",
+      "mimeType": "text/plain",
+      "size": 6
+    }
+  ]
+}

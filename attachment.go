@@ -25,13 +25,19 @@ type Attachment struct {
 	Created  time.Time
 }
 
+// AttachmentFile is a local file to upload as an attachment.
+type AttachmentFile struct {
+	// Name is the filename sent to Jira: the base name of the local path.
+	Name string
+	// Size is the number of bytes sent.
+	Size int64
+	// Open returns the content from its first byte. It is called once for
+	// each attempt, so that a retried upload sends the whole file again; the
+	// caller closes what it returns.
+	Open func() (io.ReadCloser, error)
+}
+
 // AttachmentService defines operations on issue attachments.
-//
-// Upload and delete are expected to join it, by attachment ID where the API
-// addresses attachments by ID:
-//
-//	Upload(ctx context.Context, key string, files []AttachmentFile) ([]*Attachment, error)
-//	Delete(ctx context.Context, id string) error
 type AttachmentService interface {
 	// List returns the attachments of the issue with the given key, in the
 	// order Jira reports them. An issue without attachments gives an empty
@@ -42,6 +48,10 @@ type AttachmentService interface {
 	// and returns the number of bytes written. On error, w may already hold
 	// part of the content: the caller owns cleaning it up.
 	Download(ctx context.Context, id string, w io.Writer) (int64, error)
+
+	// Upload attaches one file to the issue with the given key and returns
+	// the attachment Jira created.
+	Upload(ctx context.Context, key string, file AttachmentFile) (*Attachment, error)
 }
 
 // maxFilenameBytes bounds a local file name. Most file systems allow 255

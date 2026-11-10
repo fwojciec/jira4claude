@@ -362,6 +362,19 @@ func mutationCases() []mutationCase {
 			},
 			text: "Created .jira4claude.yaml\nAdded .jira4claude.yaml to .gitignore\n",
 		},
+		{
+			name: "attachment-upload",
+			args: func(t *testing.T) []string {
+				t.Helper()
+				dir := t.TempDir()
+				return []string{"attachment", "upload", "TEST-1", localFile(t, dir, "a.txt", "alpha"), localFile(t, dir, "b.txt", "bravo!")}
+			},
+			deps: func(t *testing.T) main.Deps {
+				t.Helper()
+				return attachmentDeps(t, (&uploader{}).service(t))
+			},
+			text: "10001\t5\ttext/plain\ta.txt\n10002\t6\ttext/plain\tb.txt\n",
+		},
 	}
 }
 

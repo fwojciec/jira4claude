@@ -1030,6 +1030,20 @@ func TestPrinter_Mutation(t *testing.T) {
 
 		assert.JSONEq(t, `{"project":"TEST","action":"would_create","dryRun":true,"changes":{},"text":"Some *text*"}`, out.String())
 	})
+
+	t.Run("attachments are listed as attachment list prints them", func(t *testing.T) {
+		t.Parallel()
+		var out bytes.Buffer
+		p := jsonpkg.NewPrinter(&out)
+
+		p.Mutation(jira4claude.MutationResult{
+			Key: "TEST-1", Action: jira4claude.ActionAttachmentAdded,
+			Attachments: []jira4claude.AttachmentView{{ID: "10001", Filename: "a.txt", MimeType: "text/plain", Size: 5}},
+		})
+
+		assert.JSONEq(t, `{"key":"TEST-1","action":"attachment_added","changes":{},
+			"attachments":[{"id":"10001","filename":"a.txt","mimeType":"text/plain","size":5}]}`, out.String())
+	})
 }
 
 func TestPrinter_Initialized(t *testing.T) {

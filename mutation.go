@@ -18,6 +18,9 @@ const (
 	ActionCommentDeleted = "comment_deleted"
 	ActionLinked         = "linked"
 	ActionUnlinked       = "unlinked"
+	// ActionAttachmentAdded reports files attached to an issue; the
+	// attachments Jira created are in Attachments.
+	ActionAttachmentAdded = "attachment_added"
 
 	// Actions of a dry run (--dry-run): what the command would do. They
 	// differ from the actions of real writes, so that a script testing for
@@ -73,6 +76,9 @@ type MutationResult struct {
 	// for a clear) or the comment body. It is nil when the command writes no
 	// text.
 	Text *string `json:"text,omitempty"`
+	// Attachments are the attachments added or deleted, in the order the
+	// files were given.
+	Attachments []AttachmentView `json:"attachments,omitempty"`
 }
 
 // Change is one field's value before (From) and after (To) a write. Values

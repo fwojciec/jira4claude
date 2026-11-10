@@ -731,6 +731,19 @@ func TestPrinter_Mutation(t *testing.T) {
 			},
 			want: "TEST-1: would add comment (dry run; nothing was written)\n" + url + "\n\nHello\n",
 		},
+		{
+			// Only attachment lines, as attachment list prints them, so that
+			// every line of stdout is one attachment for a script to split.
+			name: "attachment added",
+			result: jira4claude.MutationResult{
+				Key: "TEST-1", URL: url, Action: jira4claude.ActionAttachmentAdded,
+				Attachments: []jira4claude.AttachmentView{
+					{ID: "10001", Filename: "a.txt", MimeType: "text/plain", Size: 5},
+					{ID: "10002", Filename: "tab\there.png", MimeType: "image/png", Size: 2048},
+				},
+			},
+			want: "10001\t5\ttext/plain\ta.txt\n10002\t2048\timage/png\ttab\\there.png\n",
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

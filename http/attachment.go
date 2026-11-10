@@ -5,9 +5,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/fwojciec/jira4claude"
@@ -83,6 +86,128 @@ func (s *AttachmentService) Download(ctx context.Context, id string, w io.Writer
 		}
 	}
 	return s.client.Stream(ctx, "/rest/api/3/attachment/content/"+id+"?redirect=false", w)
+}
+
+// Upload attaches one file to an issue with a multipart/form-data POST to
+// /rest/api/3/issue/{key}/attachments, as Atlassian's REST v3 OpenAPI
+// document describes operation addAttachment (version
+// 1001.0.0-SNAPSHOT-37bdb440188c5b94db5486d134b4d3bbf7517e25, fetched
+// 2026-11-10): the X-Atlassian-Token: no-check header, one part named "file"
+// per file, a 200 answered with an array of Attachment, and a 413 when the
+// attachments exceed the site's size limit, more than 60 files are sent, or
+// the issue's attachment limit is reached. Not verified against a live site.
+//
+// One file per request: the body is the part header, the file's first
+// file.Size bytes and the closing delimiter, streamed, never held in memory,
+// with an exact Content-Length (no chunked encoding). The boundary is random
+// per call and the same for every attempt. GetBody calls file.Open again, so
+// a POST retried after a 429 (the only status DoRequest retries a POST on)
+// sends the whole file again. A 5xx or a connection error is not retried and
+// says the upload may have been applied.
+//
+// Redirects are not followed: a 307 or 308 would send the file again to
+// whatever host the Location header names.
+//
+// The part's Content-Type is application/octet-stream, as curl -F and
+// Go's multipart.Writer send for a file of unknown type; Jira is assumed to
+// set the attachment's MIME type itself (the document's Python example sends
+// "application-type").
+func (s *AttachmentService) Upload(ctx context.Context, key string, file jira4claude.AttachmentFile) (*jira4claude.Attachment, error) {
+	head, tail, contentType := multipartFrame(file.Name)
+	open := func() (io.ReadCloser, error) {
+		content, err := file.Open()
+		if err != nil {
+			return nil, err
+		}
+		return &uploadBody{
+			Reader: io.MultiReader(bytes.NewReader(head), io.LimitReader(content, file.Size), bytes.NewReader(tail)),
+			closer: content,
+		}, nil
+	}
+	body, err := open()
+	if err != nil {
+		return nil, &jira4claude.Error{
+			Code:    jira4claude.EInternal,
+			Message: fmt.Sprintf("cannot read %q", file.Name),
+			Inner:   err,
+		}
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, issuePath(key, "attachments"), body)
+	if err != nil {
+		// Error ignored: the request failed already.
+		_ = body.Close()
+		return nil, &jira4claude.Error{Code: jira4claude.EInternal, Message: "failed to create request", Inner: err}
+	}
+	req.ContentLength = int64(len(head)) + file.Size + int64(len(tail))
+	req.GetBody = open
+	req.Header.Set("Content-Type", contentType)
+	req.Header.Set("X-Atlassian-Token", "no-check")
+
+	respBody, status, err := s.client.withoutRedirects().doRequest(req, http.StatusOK)
+	switch {
+	case status == http.StatusRequestEntityTooLarge:
+		return nil, tooLargeError(file, respBody)
+	case isRedirectStatus(status):
+		return nil, &jira4claude.Error{
+			Code: jira4claude.EInternal,
+			Message: fmt.Sprintf("Jira answered the upload of %q with a redirect (HTTP %d); it was not followed and the file was sent nowhere else",
+				file.Name, status),
+		}
+	case err != nil:
+		return nil, err
+	}
+
+	var entries []attachmentResponse
+	err = json.Unmarshal(respBody, &entries)
+	if err != nil || len(entries) != 1 || entries[0].ID == "" {
+		return nil, &jira4claude.Error{
+			Code: jira4claude.EInternal,
+			Message: fmt.Sprintf("Jira accepted %q (HTTP 200), but its response does not name the one attachment created; check with attachment list %s before uploading again",
+				file.Name, key),
+			Inner: err,
+		}
+	}
+	return mapAttachments(entries)[0], nil
+}
+
+// multipartFrame returns what a multipart/form-data body of one file part
+// named "file" holds before the file's content (the boundary and part header)
+// and after it (the closing delimiter), with the request's Content-Type. The
+// boundary is random, so that it cannot be predicted from earlier requests.
+// multipart.Writer quotes the filename, escaping '"' and '\' and writing CR
+// and LF as %0D and %0A.
+func multipartFrame(filename string) (head, tail []byte, contentType string) {
+	var buf bytes.Buffer
+	w := multipart.NewWriter(&buf)
+	// Errors ignored: a bytes.Buffer does not fail to write.
+	_, _ = w.CreateFormFile("file", filename)
+	head = bytes.Clone(buf.Bytes())
+	buf.Reset()
+	_ = w.Close()
+	tail = bytes.Clone(buf.Bytes())
+	return head, tail, w.FormDataContentType()
+}
+
+// uploadBody is one attempt's request body; closing it closes the file.
+type uploadBody struct {
+	io.Reader
+	closer io.Closer
+}
+
+func (b *uploadBody) Close() error {
+	return b.closer.Close()
+}
+
+// tooLargeError reports a 413, with Jira's own message when the body holds
+// one. The causes are those the OpenAPI document lists for addAttachment,
+// except more than 60 files, which one file per request cannot cause.
+func tooLargeError(file jira4claude.AttachmentFile, body []byte) error {
+	msg := fmt.Sprintf("Jira refused %q (%d bytes) as too large (HTTP 413): it exceeds the site's attachment size limit, or the issue has reached its attachment limit",
+		file.Name, file.Size)
+	if messages, err := errorMessages(body); err == nil && len(messages) > 0 {
+		msg += "; Jira says: " + strings.Join(messages, "; ")
+	}
+	return &jira4claude.Error{Code: jira4claude.EValidation, Message: msg}
 }
 
 // isPlainID reports whether id is non-empty and holds only ASCII letters,

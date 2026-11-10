@@ -186,7 +186,15 @@ j4c attachment list PROJ-123               # One line each: ID, bytes, MIME type
 j4c attachment download PROJ-123 --all --dir ./files      # Prints one saved path per line
 j4c attachment download PROJ-123 --id 10000 --dir ./files
 j4c attachment download PROJ-123 --name "log.txt" --dir ./files --overwrite
+j4c attachment upload PROJ-123 shot.png logs/run.txt   # One line per new attachment: ID, bytes, MIME type, filename
 ```
+
+Uploads check every file before sending anything: a missing, unreadable or
+non-regular file, or the same file given twice, fails the command with
+nothing sent. Each file is sent under its base name (symlinks are followed),
+one request per file; a file that fails is reported and the others are still
+sent. An upload is not retried after a server error, which may already have
+attached the file: check with `attachment list` before sending it again.
 
 Downloads keep only the base name of Jira's filename (a repeated name gets
 the attachment ID: `report-10001.pdf`), never write outside `--dir` (which

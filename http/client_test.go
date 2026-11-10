@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -934,4 +935,27 @@ func TestClient_DoRequest_RetryPolicy(t *testing.T) {
 			assert.Len(t, server.receivedBodies(), 2)
 		})
 	}
+}
+
+func TestClient_DoRequest_TooLarge(t *testing.T) {
+	t.Parallel()
+
+	var attempts atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempts.Add(1)
+		w.WriteHeader(http.StatusRequestEntityTooLarge)
+		_, _ = w.Write([]byte(`{"errorMessages":["too big"]}`))
+	}))
+	defer server.Close()
+
+	client := newTestClient(t, server.URL, "user", "pass", jirahttp.WithRetryBaseDelay(0))
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodPut, "/test", nil)
+	require.NoError(t, err)
+
+	_, err = client.DoRequest(req, http.StatusOK)
+
+	require.Error(t, err)
+	assert.Equal(t, int32(1), attempts.Load(), "a 413 is not retried")
+	assert.Equal(t, jira4claude.EValidation, jira4claude.ErrorCode(err), "the input must change, so it is a validation error")
+	assert.Equal(t, "too big", err.Error())
 }
