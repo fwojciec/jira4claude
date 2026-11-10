@@ -790,22 +790,17 @@ func adfInlineLineToGFM(node *jira4claude.ADFNode, skipped *skippedCollector, si
 	// holds only nodes that emit something, with label nodes already turned
 	// into the text they read as.
 	items := emittingInline(node.Content, skipped)
+	texts := renderTextItems(items, skipped)
 
 	var result strings.Builder
 	for i := range items {
 		child := &items[i]
 		switch child.Type {
 		case "text":
-			lineStart := i == 0 || items[i-1].Type == "hardBreak"
-			text := escapeTextNode(items, i, lineStart)
 			if skipped != nil && hasCodeMark(child.Marks) && strings.Contains(child.Text, "\n") {
 				skipped.degrade("text", "a line break inside inline code cannot be written in a Markdown code span; it is read as a space")
 			}
-			if len(child.Marks) == 0 {
-				result.WriteString(text)
-			} else {
-				result.WriteString(applyMarks(text, child.Marks))
-			}
+			result.WriteString(texts[i])
 		case "hardBreak":
 			switch {
 			case onlyHardBreaksFrom(items, i):
@@ -838,6 +833,7 @@ func adfInlineLineToGFM(node *jira4claude.ADFNode, skipped *skippedCollector, si
 		}
 	}
 
+	checkMarksReadBack(items, result.String(), singleLine, skipped)
 	return result.String()
 }
 
@@ -852,8 +848,10 @@ func adfInlineLineToGFM(node *jira4claude.ADFNode, skipped *skippedCollector, si
 func emittingInline(content []jira4claude.ADFNode, skipped *skippedCollector) []jira4claude.ADFNode {
 	items := make([]jira4claude.ADFNode, 0, len(content))
 	// label appends text, merging it into the previous item when that is
-	// text with the same marks: written separately, the two would get
-	// delimiters between them ("**a\***" + "**b**") that do not read back.
+	// text with the same written marks, in any order: written separately,
+	// the two would get delimiters between them ("**a\***" + "**b**") that
+	// do not read back. Marks Markdown does not carry (textColor) are left
+	// out of the comparison, since they are not written either way.
 	// Label nodes merge too: they are written as plain text with no syntax
 	// of their own, so merging changes nothing but the delimiters. Code
 	// merges too: two code spans written side by side would join their
@@ -863,7 +861,7 @@ func emittingInline(content []jira4claude.ADFNode, skipped *skippedCollector) []
 			return
 		}
 		if last := len(items) - 1; last >= 0 && items[last].Type == "text" &&
-			marksEqual(items[last].Marks, marks) {
+			sameWrittenMarks(items[last].Marks, marks) {
 			items[last].Text += text
 			return
 		}
@@ -916,9 +914,10 @@ func onlyHardBreaksFrom(nodes []jira4claude.ADFNode, i int) bool {
 //
 // Code is exclusive: when present it suppresses em, strong, and strike
 // because Markdown doesn't support emphasis inside backticks.
-// Whitespace expulsion: leading/trailing whitespace is moved outside all
-// mark delimiters to avoid producing broken syntax like "**bold **".
-func applyMarks(text string, marks []jira4claude.ADFMark) string {
+// text is already escaped, with any edge blank or tilde that would stop a
+// delimiter run from opening or closing encoded (see inline_marks.go); it is
+// wrapped as is. delim is the emphasis character, '*' or '_' (0 means '*').
+func applyMarks(text string, marks []jira4claude.ADFMark, delim byte) string {
 	var hasStrong, hasEm, hasCode, hasStrike, hasUnderline bool
 	var linkHref string
 	var subsupType string // "sub" or "sup"
@@ -956,7 +955,10 @@ func applyMarks(text string, marks []jira4claude.ADFMark) string {
 		}
 	}
 
-	var leading, trailing, result string
+	if delim == 0 {
+		delim = '*'
+	}
+	var result string
 
 	// Apply marks innermost → outermost.
 	// Code is exclusive: suppresses em/strong/strike. A code span keeps its
@@ -964,24 +966,15 @@ func applyMarks(text string, marks []jira4claude.ADFMark) string {
 	if hasCode {
 		result = codeSpan(text)
 	} else {
-		// Expel leading/trailing whitespace so delimiters hug content.
-		// If text is whitespace-only, skip all marks to avoid empty delimiters.
-		trimmed := strings.Trim(text, " \t")
-		if trimmed == "" {
-			return text
-		}
-		leading = text[:len(text)-len(strings.TrimLeft(text, " \t"))]
-		trailing = text[len(strings.TrimRight(text, " \t")):]
-		result = trimmed
-
+		result = text
 		if hasStrike {
 			result = "~~" + result + "~~"
 		}
 		if hasEm {
-			result = "*" + result + "*"
+			result = string(delim) + result + string(delim)
 		}
 		if hasStrong {
-			result = "**" + result + "**"
+			result = strings.Repeat(string(delim), 2) + result + strings.Repeat(string(delim), 2)
 		}
 	}
 	if hasUnderline {
@@ -997,7 +990,7 @@ func applyMarks(text string, marks []jira4claude.ADFMark) string {
 		result = "[" + result + "](" + linkHref + ")"
 	}
 
-	return leading + result + trailing
+	return result
 }
 
 // adfEmojiToGFM converts an ADF emoji node to its Unicode character or :shortName:.

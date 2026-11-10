@@ -175,6 +175,10 @@ type textContext struct {
 	// lineEnd: the text is unmarked and its end is the end of the inline
 	// content, where a paragraph, heading or cell loses trailing blanks.
 	lineEnd bool
+	// encodeFirst, encodeLast: write the first (or last) character as a
+	// numeric character reference, because it meets a mark delimiter that
+	// it would stop from opening or closing, or join (see inline_marks.go).
+	encodeFirst, encodeLast bool
 }
 
 // tildeEdge reports whether nodes[k] is a text node whose Markdown starts
@@ -207,7 +211,8 @@ func hasCodeMark(marks []jira4claude.ADFMark) bool {
 	return false
 }
 
-// renderedMarks are the marks applyMarks writes as Markdown or HTML syntax.
+// hasRenderedMark reports whether marks include one that applyMarks writes
+// as Markdown or HTML syntax.
 func hasRenderedMark(marks []jira4claude.ADFMark) bool {
 	for _, m := range marks {
 		switch m.Type {
@@ -223,7 +228,7 @@ func hasRenderedMark(marks []jira4claude.ADFMark) bool {
 // is so that it is still read out as a bare URL. The node is siblings[i],
 // where siblings holds only nodes that emit output (see emittingInline), so
 // its neighbours there are the ones that meet its edges in the Markdown.
-func escapeTextNode(siblings []jira4claude.ADFNode, i int, lineStart bool) string {
+func escapeTextNode(siblings []jira4claude.ADFNode, i int, lineStart bool, edges textEdges) string {
 	node := &siblings[i]
 	afterConstruct := i > 0 && (siblings[i-1].Type == "inlineCard" ||
 		siblings[i-1].Type == "text" && hasRenderedMark(siblings[i-1].Marks))
@@ -242,13 +247,15 @@ func escapeTextNode(siblings []jira4claude.ADFNode, i int, lineStart bool) strin
 	return escapeText(node.Text, textContext{
 		lineStart:      lineStart,
 		inLink:         inLink,
-		bareStart:      lineStart && len(node.Marks) == 0,
+		bareStart:      lineStart && !hasRenderedMark(node.Marks),
 		linkifyAtStart: lineStart || afterConstruct || hasRenderedMark(node.Marks),
 		tildeBefore:    tildeEdge(siblings, i-1, false),
 		tildeAfter:     tildeEdge(siblings, i+1, true),
 		textAfter: i+1 < len(siblings) && siblings[i+1].Type == "text" &&
 			!hasRenderedMark(siblings[i+1].Marks),
-		lineEnd: len(node.Marks) == 0 && onlyHardBreaksFrom(siblings, i+1),
+		lineEnd:     !hasRenderedMark(node.Marks) && onlyHardBreaksFrom(siblings, i+1),
+		encodeFirst: edges.first,
+		encodeLast:  edges.last,
 	})
 }
 
@@ -267,6 +274,9 @@ func linkHref(mark jira4claude.ADFMark) string {
 // same text; ctx says where it lands. The rule is described at the top of
 // this file.
 func escapeText(s string, ctx textContext) string {
+	if ctx.encodeFirst || ctx.encodeLast {
+		return escapeTextEncodingEdges(s, ctx)
+	}
 	out, keptAutolink := escapeTextWith(s, ctx, true)
 	if keptAutolink && !readsBackAs(out, s) {
 		// The verbatim autolink span did not survive in its emitted
@@ -275,6 +285,39 @@ func escapeText(s string, ctx textContext) string {
 		out, _ = escapeTextWith(s, ctx, false)
 	}
 	return out
+}
+
+// escapeTextEncodingEdges escapes s with its first or last character, as
+// ctx says, written as a character reference. The rest is escaped as text
+// that begins (or ends) right after (or before) that reference: not at a line
+// start or end, and not next to a tilde.
+func escapeTextEncodingEdges(s string, ctx textContext) string {
+	var head, tail string
+	if ctx.encodeFirst && s != "" {
+		r, n := utf8.DecodeRuneInString(s)
+		head, s = charRef(r), s[n:]
+	}
+	if ctx.encodeLast && s != "" {
+		r, n := utf8.DecodeLastRuneInString(s)
+		tail, s = charRef(r), s[:len(s)-n]
+	}
+	if s == "" {
+		return head + tail
+	}
+	mid := ctx
+	mid.encodeFirst, mid.encodeLast = false, false
+	if head != "" {
+		mid.lineStart, mid.bareStart, mid.linkifyAtStart, mid.tildeBefore = false, false, false, false
+	}
+	if tail != "" {
+		mid.lineEnd, mid.tildeAfter, mid.textAfter = false, false, true
+	}
+	return head + escapeText(s, mid) + tail
+}
+
+// charRef returns the decimal numeric character reference for r.
+func charRef(r rune) string {
+	return "&#" + strconv.Itoa(int(r)) + ";"
 }
 
 // readsBackAs reports whether md, parsed on its own as the write side parses
@@ -328,8 +371,8 @@ func escapeTextWith(s string, ctx textContext, keepAutolinks bool) (string, bool
 		}
 		// The content loses its trailing blanks on parse too, so blanks that
 		// end unmarked text at the end of the content are written as
-		// character references as well. Marked text there is left to
-		// applyMarks.
+		// character references as well. Marked text ends before its
+		// delimiters; see inline_marks.go.
 		if ctx.lineEnd && (c == ' ' || c == '\t') {
 			j := i
 			for j < len(s) && (s[j] == ' ' || s[j] == '\t') {
@@ -337,7 +380,7 @@ func escapeTextWith(s string, ctx textContext, keepAutolinks bool) (string, bool
 			}
 			if j == len(s) {
 				for ; i < j; i++ {
-					b.WriteString("&#" + strconv.Itoa(int(s[i])) + ";")
+					b.WriteString(charRef(rune(s[i])))
 				}
 				afterEncodedBlank = true
 				continue
@@ -345,10 +388,10 @@ func escapeTextWith(s string, ctx textContext, keepAutolinks bool) (string, bool
 		}
 		// A paragraph line loses its leading blanks on parse, so they are
 		// written as character references, which decodeText turns back.
-		// Marked text is left to applyMarks, which moves its blanks outside
-		// the delimiters.
+		// Marked text begins after its delimiters; a blank at its edge is
+		// encoded by the edge rules in inline_marks.go.
 		if atLineStart && (ctx.bareStart || i > 0) && (c == ' ' || c == '\t') {
-			b.WriteString("&#" + strconv.Itoa(int(c)) + ";")
+			b.WriteString(charRef(rune(c)))
 			i++
 			afterEncodedBlank = true
 			continue

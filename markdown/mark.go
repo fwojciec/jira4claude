@@ -6,11 +6,13 @@ import (
 	"github.com/fwojciec/jira4claude"
 )
 
-// markRank gives the canonical order of the marks the converter writes. It
-// follows the mark order of Atlassian's ADF (ProseMirror) schema, so the
-// order matches what Jira itself returns. Marks written in one order compare
-// equal (marksEqual) only when the order is fixed: Markdown nesting
-// ("**_a_**" against "_**a**_") must not decide it.
+// markRank gives the canonical order of the marks the converter writes. The
+// ADF JSON schema does not constrain mark order; this order is meant to
+// follow the mark order of Atlassian's ProseMirror schema (from memory, not
+// verified against Jira), and it keeps the order the existing tests already
+// expected ([em, strong], [strong, strike], [strong, underline]). Marks
+// written in one order compare equal (marksEqual) only when the order is
+// fixed: Markdown nesting ("**_a_**" against "_**a**_") must not decide it.
 func markRank(markType string) int {
 	switch markType {
 	case "link":
@@ -70,9 +72,21 @@ func canonicalMarks(marks []jira4claude.ADFMark) ([]jira4claude.ADFMark, bool) {
 	return out, conflict
 }
 
-// sameMarkSet reports whether a and b hold the same marks in any order.
-func sameMarkSet(a, b []jira4claude.ADFMark) bool {
-	ca, _ := canonicalMarks(a)
-	cb, _ := canonicalMarks(b)
+// sameWrittenMarks reports whether a and b hold the same marks that
+// applyMarks writes, in any order.
+func sameWrittenMarks(a, b []jira4claude.ADFMark) bool {
+	ca, _ := canonicalMarks(writtenMarks(a))
+	cb, _ := canonicalMarks(writtenMarks(b))
 	return marksEqual(ca, cb)
+}
+
+// writtenMarks returns the marks applyMarks writes (see hasRenderedMark).
+func writtenMarks(marks []jira4claude.ADFMark) []jira4claude.ADFMark {
+	var out []jira4claude.ADFMark
+	for _, m := range marks {
+		if hasRenderedMark([]jira4claude.ADFMark{m}) {
+			out = append(out, m)
+		}
+	}
+	return out
 }

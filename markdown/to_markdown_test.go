@@ -2087,7 +2087,7 @@ func TestConverter_ToMarkdown(t *testing.T) {
 		assert.Equal(t, "***~~formatted~~***", result)
 	})
 
-	t.Run("expels trailing whitespace from bold mark", func(t *testing.T) {
+	t.Run("keeps trailing whitespace inside bold mark", func(t *testing.T) {
 		t.Parallel()
 
 		converter := markdown.New()
@@ -2115,10 +2115,15 @@ func TestConverter_ToMarkdown(t *testing.T) {
 		result, warnings := converter.ToMarkdown(adfDoc)
 
 		assert.Empty(t, warnings)
-		assert.Equal(t, "**bold** after", result)
+		// The blank is a character reference inside the delimiters (#159); the
+		// closing run then has punctuation inside, so the letter after it is
+		// one too.
+		assert.Equal(t, "**bold&#32;**&#97;fter", result)
+		back, _ := converter.ToADF(result)
+		assert.Equal(t, adfDoc, back)
 	})
 
-	t.Run("expels leading whitespace from italic mark", func(t *testing.T) {
+	t.Run("keeps leading whitespace inside italic mark", func(t *testing.T) {
 		t.Parallel()
 
 		converter := markdown.New()
@@ -2146,10 +2151,12 @@ func TestConverter_ToMarkdown(t *testing.T) {
 		result, warnings := converter.ToMarkdown(adfDoc)
 
 		assert.Empty(t, warnings)
-		assert.Equal(t, "before *italic*", result)
+		assert.Equal(t, "befor&#101;*&#32;italic*", result)
+		back, _ := converter.ToADF(result)
+		assert.Equal(t, adfDoc, back)
 	})
 
-	t.Run("whitespace-only text with marks produces no delimiters", func(t *testing.T) {
+	t.Run("whitespace-only text with marks keeps its marks", func(t *testing.T) {
 		t.Parallel()
 
 		converter := markdown.New()
@@ -2173,11 +2180,13 @@ func TestConverter_ToMarkdown(t *testing.T) {
 		result, warnings := converter.ToMarkdown(adfDoc)
 
 		assert.Empty(t, warnings)
-		// Whitespace-only text should not produce empty delimiters like "** **"
-		assert.Equal(t, " ", result)
+		// Not "** **", which is not emphasis (#159).
+		assert.Equal(t, "**&#32;**", result)
+		back, _ := converter.ToADF(result)
+		assert.Equal(t, adfDoc, back)
 	})
 
-	t.Run("expels both leading and trailing whitespace", func(t *testing.T) {
+	t.Run("keeps both leading and trailing whitespace", func(t *testing.T) {
 		t.Parallel()
 
 		converter := markdown.New()
@@ -2201,7 +2210,9 @@ func TestConverter_ToMarkdown(t *testing.T) {
 		result, warnings := converter.ToMarkdown(adfDoc)
 
 		assert.Empty(t, warnings)
-		assert.Equal(t, " **bold text** ", result)
+		assert.Equal(t, "**&#32;bold text&#32;**", result)
+		back, _ := converter.ToADF(result)
+		assert.Equal(t, adfDoc, back)
 	})
 
 	t.Run("all marks combined with correct nesting order", func(t *testing.T) {

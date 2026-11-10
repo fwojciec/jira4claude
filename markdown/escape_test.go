@@ -870,11 +870,14 @@ func TestRoundTrip_AdjacentTextNodesWithSameMarks(t *testing.T) {
 		t.Parallel()
 
 		converter := markdown.New()
+		// The blank stays inside the second node's marks, as a character
+		// reference, and its delimiters switch to "_" so the runs do not
+		// join (#159).
 		md, _ := converter.ToMarkdown(paragraphDoc(node("a", strong), node(" b", em)))
-		assert.Equal(t, "**a** *b*", md)
+		assert.Equal(t, "**a**_&#32;b_", md)
 
 		md, _ = converter.ToMarkdown(paragraphDoc(node("a", strong), node(" b", strong, em)))
-		assert.Equal(t, "**a** ***b***", md)
+		assert.Equal(t, "**a**___&#32;b___", md)
 	})
 
 	// Code merges too (#160): two spans side by side would join their

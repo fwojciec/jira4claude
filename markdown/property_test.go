@@ -132,6 +132,21 @@ var propertySeeds = []string{
 	"~~~0`",
 	"~~~0\t 0",
 	"`\n`\n-",
+	// #159 marks: edge whitespace, adjacent runs, struck tildes, duplicate
+	// and reordered marks
+	"**a.**&#97;",
+	"<u>a </u>b",
+	"*_a_*",
+	"**__a__**",
+	"**_0_**",
+	"~~&#126;~~",
+	"~~a&#126;~~",
+	"**bold&#32;**&#97;fter",
+	"befor&#101;*&#32;italic*",
+	"**a**_b_**c**",
+	"~~a~~*~~b~~*",
+	"~~a~~&#126;b",
+	"x**~~a~~**y",
 }
 
 // addPropertySeeds adds propertySeeds and the Markdown fixtures in testdata
@@ -369,22 +384,17 @@ func TestPropertyKnownFailures(t *testing.T) {
 
 	const (
 		// Known before #147 (comments on #147).
-		gapAdjacentMarks   = "adjacent text nodes with different marks and no space between them read back with misplaced delimiters (#147 comments) (read)"
 		gapHrefEscaping    = "link hrefs are not escaped on read (#147 comments) (read)"
 		gapTableAfterBreak = "a table delimiter row after a hard break is not escaped on read (#147 comments) (read)"
 
 		// Found by fuzzing in #147.
-		gapEdgeWhitespace  = "leading or trailing whitespace of marked text is moved outside the mark on read, and marks on whitespace-only text are dropped, with no issue (read)"
 		gapLinkTextIsHref  = "a link whose text equals its href is read as bare text, which only autolinks for real URLs (read)"
 		gapEmptyHref       = "[text]() is written as a link mark with an empty href, which the reader drops (write)"
 		gapUnlinkedURL     = "URL text the writer did not linkify (after an unmatched [) is linkified on rewrite, because the reader's \\[ escape re-enables linkify (read)"
-		gapDuplicateMarks  = "nested emphasis of the same kind gives a text node duplicate marks ([em, em]) (write)"
 		gapCarriageReturn  = "a lone carriage return is not normalised on write and is parsed inconsistently (write)"
 		gapBackslashEntity = "a literal backslash before the reader's &#32; trailing-space entity escapes the entity (read)"
-		gapMarkOrder       = "mark order follows Markdown nesting, so the same marks come back in a different order; no content is lost (write: no canonical mark order)"
 		gapControlEntity   = "a numeric entity for a control character (including CR) puts that character in ADF text, though NormalizeUnicode replaces raw control characters; the reader writes it back raw (write)"
 		gapInvalidUTF8     = "invalid UTF-8 is not replaced before parsing, so emphasis flanking differs between writes (write)"
-		gapStrikeEdgeTilde = "a tilde at the edge of struck text is not escaped on read, so it merges with the ~~ delimiter (read)"
 	)
 
 	tests := []struct {
@@ -392,24 +402,17 @@ func TestPropertyKnownFailures(t *testing.T) {
 		gap   string
 		input string
 	}{
-		{"strong ending in punctuation, then a letter", gapAdjacentMarks, "**a.**&#97;"},
 		{"href with a space", gapHrefEscaping, "[a](<b c>)"},
 		{"href with a parenthesis", gapHrefEscaping, "[0](( )"},
 		{"delimiter row after a hard break", gapTableAfterBreak, "\\\n\\|-"},
-		{"underline with a trailing space", gapEdgeWhitespace, "<u>a </u>b"},
 		{"link text equal to a non-URL href", gapLinkTextIsHref, "a [0](0)"},
 		{"empty href", gapEmptyHref, "[0000]()"},
 		{"URL after an unmatched bracket", gapUnlinkedURL, "[ http://x.com"},
-		{"em inside em", gapDuplicateMarks, "*_a_*"},
-		{"strong inside strong", gapDuplicateMarks, "**__a__**"},
 		{"carriage returns", gapCarriageReturn, "\r#\r0"},
 		{"backslash then trailing space", gapBackslashEntity, "<A>\n\\ "},
-		{"strong around em", gapMarkOrder, "**_0_**"},
 		{"control character entity", gapControlEntity, "&#X1;"},
 		{"carriage return entity", gapControlEntity, "&#Xd;"},
 		{"invalid UTF-8 after a link", gapInvalidUTF8, "*0 []()\x81*"},
-		{"struck tilde", gapStrikeEdgeTilde, "~~&#126;~~"},
-		{"struck text ending in a tilde", gapStrikeEdgeTilde, "~~a&#126;~~"},
 	}
 
 	for _, tt := range tests {
