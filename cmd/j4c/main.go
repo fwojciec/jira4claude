@@ -30,9 +30,10 @@ type CLI struct {
 	JSON    bool             `help:"Output in JSON format" short:"j"`
 	Version kong.VersionFlag `help:"Show version information"`
 
-	Issue IssueCmd `cmd:"" help:"Issue operations"`
-	Link  LinkCmd  `cmd:"" help:"Link operations"`
-	Init  InitCmd  `cmd:"" help:"Initialize config file"`
+	Issue      IssueCmd      `cmd:"" help:"Issue operations"`
+	Link       LinkCmd       `cmd:"" help:"Link operations"`
+	Attachment AttachmentCmd `cmd:"" help:"Attachment operations"`
+	Init       InitCmd       `cmd:"" help:"Initialize config file"`
 }
 
 // IssueContext provides dependencies for issue commands.
@@ -75,6 +76,11 @@ type Deps struct {
 	// only for commands that need Jira, after the config has loaded.
 	NewServices func(cfg *jira4claude.Config) (jira4claude.IssueService, jira4claude.UserService, error)
 
+	// NewAttachmentService builds the attachment service for a loaded
+	// config. It is called only for attachment commands, which do not call
+	// NewServices.
+	NewAttachmentService func(cfg *jira4claude.Config) (jira4claude.AttachmentService, error)
+
 	// ConfigService backs the init command.
 	ConfigService jira4claude.ConfigService
 }
@@ -86,10 +92,11 @@ func main() {
 // defaultDeps returns the production dependencies.
 func defaultDeps() Deps {
 	return Deps{
-		Version:       version + " (" + commit + ")",
-		LoadConfig:    loadConfig,
-		NewServices:   newHTTPServices,
-		ConfigService: yaml.NewService(),
+		Version:              version + " (" + commit + ")",
+		LoadConfig:           loadConfig,
+		NewServices:          newHTTPServices,
+		NewAttachmentService: newHTTPAttachmentService,
+		ConfigService:        yaml.NewService(),
 	}
 }
 
@@ -144,6 +151,10 @@ func Run(args []string, _ io.Reader, stdout, stderr io.Writer, deps Deps) int {
 		mdPrinter.SetServerURL(cfg.Server)
 	}
 
+	if strings.HasPrefix(ctx.Command(), "attachment ") {
+		return runAttachment(ctx, printer, cfg, deps)
+	}
+
 	// Build services
 	svc, userSvc, err := deps.NewServices(cfg)
 	if err != nil {
@@ -158,6 +169,26 @@ func Run(args []string, _ io.Reader, stdout, stderr io.Writer, deps Deps) int {
 
 	// Run command
 	if err := ctx.Run(issueCtx, linkCtx); err != nil {
+		printer.Error(err)
+		return jira4claude.ExitCode(err)
+	}
+	return 0
+}
+
+// runAttachment runs an attachment command with the attachment service built
+// for cfg, and returns the exit code.
+func runAttachment(ctx *kong.Context, printer jira4claude.Printer, cfg *jira4claude.Config, deps Deps) int {
+	if deps.NewAttachmentService == nil {
+		err := &jira4claude.Error{Code: jira4claude.EInternal, Message: "no attachment service is configured"}
+		printer.Error(err)
+		return jira4claude.ExitCode(err)
+	}
+	svc, err := deps.NewAttachmentService(cfg)
+	if err != nil {
+		printer.Error(err)
+		return jira4claude.ExitCode(err)
+	}
+	if err := ctx.Run(&AttachmentContext{Service: svc, Printer: printer, Config: cfg}); err != nil {
 		printer.Error(err)
 		return jira4claude.ExitCode(err)
 	}
@@ -258,6 +289,16 @@ func newHTTPServices(cfg *jira4claude.Config) (jira4claude.IssueService, jira4cl
 		return nil, nil, err
 	}
 	return http.NewIssueService(client), http.NewUserService(client), nil
+}
+
+// newHTTPAttachmentService builds the attachment service backed by the HTTP
+// client.
+func newHTTPAttachmentService(cfg *jira4claude.Config) (jira4claude.AttachmentService, error) {
+	client, err := http.NewClient(cfg.Server)
+	if err != nil {
+		return nil, err
+	}
+	return http.NewAttachmentService(client), nil
 }
 
 func loadConfig(configPath string) (*jira4claude.Config, error) {

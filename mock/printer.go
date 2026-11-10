@@ -16,6 +16,7 @@ type Printer struct {
 	TransitionsFn     func(key string, ts []*jira4claude.Transition)
 	FieldsFn          func(view jira4claude.IssueFieldsView)
 	LinksFn           func(key string, links []jira4claude.RelatedIssueView)
+	AttachmentsFn     func(key string, attachments []jira4claude.AttachmentView)
 	SuccessFn         func(msg string, keys ...string)
 	WarningFn         func(msg string)
 	ConversionIssueFn func(issue jira4claude.ConversionIssue)
@@ -33,6 +34,10 @@ type Printer struct {
 	LinksCalls  []struct {
 		Key   string
 		Links []jira4claude.RelatedIssueView
+	}
+	AttachmentsCalls []struct {
+		Key         string
+		Attachments []jira4claude.AttachmentView
 	}
 	SuccessCalls []struct {
 		Msg  string
@@ -88,6 +93,16 @@ func (p *Printer) Links(key string, links []jira4claude.RelatedIssueView) {
 	}{key, links})
 	if p.LinksFn != nil {
 		p.LinksFn(key, links)
+	}
+}
+
+func (p *Printer) Attachments(key string, attachments []jira4claude.AttachmentView) {
+	p.AttachmentsCalls = append(p.AttachmentsCalls, struct {
+		Key         string
+		Attachments []jira4claude.AttachmentView
+	}{key, attachments})
+	if p.AttachmentsFn != nil {
+		p.AttachmentsFn(key, attachments)
 	}
 }
 

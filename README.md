@@ -172,6 +172,12 @@ j4c link list PROJ-123                     # List links
 j4c link delete PROJ-1 PROJ-2              # Remove link
 ```
 
+### Attachment Operations
+
+```bash
+j4c attachment list PROJ-123               # One line each: ID, bytes, MIME type, filename (tab-separated)
+```
+
 ### Configuration
 
 ```bash

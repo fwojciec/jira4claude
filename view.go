@@ -20,6 +20,7 @@ type IssueView struct {
 	Labels        []string           `json:"labels,omitempty"`
 	RelatedIssues []RelatedIssueView `json:"relatedIssues"`
 	Comments      []CommentView      `json:"comments,omitempty"`
+	Attachments   []AttachmentView   `json:"attachments,omitempty"`
 	Created       string             `json:"created"`
 	Updated       string             `json:"updated"`
 	URL           string             `json:"url,omitempty"`
@@ -104,6 +105,7 @@ func ToIssueView(issue *Issue, conv Converter, warn func(ConversionIssue), serve
 		Labels:        issue.Labels,
 		RelatedIssues: relatedIssues,
 		Comments:      comments,
+		Attachments:   ToAttachmentViews(issue.Attachments),
 		Created:       issue.Created.Format(time.RFC3339),
 		Updated:       FormatTimestamp(issue.Updated),
 		URL:           url,

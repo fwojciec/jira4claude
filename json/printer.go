@@ -85,6 +85,14 @@ func (p *Printer) Links(_ string, links []jira4claude.RelatedIssueView) {
 	p.encode(links)
 }
 
+// Attachments prints attachments as a JSON array, [] (not null) when empty.
+func (p *Printer) Attachments(_ string, attachments []jira4claude.AttachmentView) {
+	if attachments == nil {
+		attachments = []jira4claude.AttachmentView{}
+	}
+	p.encode(attachments)
+}
+
 // Success prints a success message as JSON.
 func (p *Printer) Success(msg string, keys ...string) {
 	result := map[string]any{

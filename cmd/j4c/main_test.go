@@ -634,7 +634,7 @@ func TestRun_UsageError(t *testing.T) {
 		assert.Equal(t, 1, res.code)
 		assert.Empty(t, res.stdout)
 		assert.True(t, strings.HasPrefix(res.stderr, "Usage: j4c <command> [flags]"), "stderr: %q", res.stderr)
-		assert.True(t, strings.HasSuffix(res.stderr, "\nj4c: error: expected one of \"issue\", \"link\", \"init\"\n"), "stderr: %q", res.stderr)
+		assert.True(t, strings.HasSuffix(res.stderr, "\nj4c: error: expected one of \"issue\", \"link\", \"attachment\", \"init\"\n"), "stderr: %q", res.stderr)
 	})
 
 	t.Run("mutually exclusive flags exit 1", func(t *testing.T) {

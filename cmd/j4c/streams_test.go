@@ -107,6 +107,10 @@ func everyCommand() []commandCase {
 		{"link list", []string{"link", "list", "TEST-1"}, failing(func(err error) *mock.IssueService {
 			return issueGetter(nil, err)
 		})},
+		{"attachment list", []string{"attachment", "list", "TEST-1"}, func(t *testing.T, err error) main.Deps {
+			t.Helper()
+			return attachmentDeps(t, attachmentLister(nil, err))
+		}},
 		{"init", []string{"init", "--server=https://test.atlassian.net", "--project=TEST"}, func(t *testing.T, err error) main.Deps {
 			t.Helper()
 			deps := unreachableDeps(t)
@@ -348,6 +352,19 @@ type emptyCase struct {
 	svc     func() *mock.IssueService
 	notice  string // the text-mode [info] line on stderr
 	jsonOut string // the --json data on stdout
+
+	// deps, when set, builds the dependencies instead of svc, for a command
+	// that does not use the issue service.
+	deps func(t *testing.T) main.Deps
+}
+
+// build returns the dependencies of an empty case.
+func (tc emptyCase) build(t *testing.T) main.Deps {
+	t.Helper()
+	if tc.deps != nil {
+		return tc.deps(t)
+	}
+	return testDeps(tc.svc(), &mock.UserService{})
 }
 
 func emptyCases() []emptyCase {
@@ -410,6 +427,15 @@ func emptyCases() []emptyCase {
 			notice:  "[info] No links for TEST-1\n",
 			jsonOut: `[]`,
 		},
+		{
+			name: "attachment list", args: []string{"attachment", "list", "TEST-1"},
+			deps: func(t *testing.T) main.Deps {
+				t.Helper()
+				return attachmentDeps(t, attachmentLister(nil, nil))
+			},
+			notice:  "[info] No attachments for TEST-1\n",
+			jsonOut: `[]`,
+		},
 	}
 }
 
@@ -420,7 +446,7 @@ func TestRun_EmptyResultStreams(t *testing.T) {
 		t.Run(tc.name+"/text", func(t *testing.T) {
 			t.Parallel()
 
-			res := runCLI(t, testDeps(tc.svc(), &mock.UserService{}), tc.args...)
+			res := runCLI(t, tc.build(t), tc.args...)
 
 			assert.Equal(t, 0, res.code)
 			assert.Empty(t, res.stdout, "an empty result prints no data")
@@ -430,7 +456,7 @@ func TestRun_EmptyResultStreams(t *testing.T) {
 		t.Run(tc.name+"/json", func(t *testing.T) {
 			t.Parallel()
 
-			res := runCLI(t, testDeps(tc.svc(), &mock.UserService{}), append([]string{"--json"}, tc.args...)...)
+			res := runCLI(t, tc.build(t), append([]string{"--json"}, tc.args...)...)
 
 			assert.Equal(t, 0, res.code)
 			assert.JSONEq(t, tc.jsonOut, res.stdout)

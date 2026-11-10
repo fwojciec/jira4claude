@@ -415,6 +415,7 @@ type issueResponse struct {
 		Subtasks    []linkedIssueResponse `json:"subtasks"`
 		Comment     *commentsResponse     `json:"comment"`
 		Parent      *linkedIssueResponse  `json:"parent"`
+		Attachment  []attachmentResponse  `json:"attachment"`
 		Created     string                `json:"created"`
 		Updated     string                `json:"updated"`
 	} `json:"fields"`
@@ -546,6 +547,7 @@ func parseIssueResponse(body []byte) (*jira4claude.Issue, error) {
 	issue.Links = mapIssueLinks(resp.Fields.IssueLinks)
 	issue.Subtasks = mapSubtasks(resp.Fields.Subtasks)
 	issue.Comments = mapComments(resp.Fields.Comment)
+	issue.Attachments = mapAttachments(resp.Fields.Attachment)
 
 	// Populate read-only custom fields when the response carries a names map
 	// (Get requests expand=names). List responses have neither names nor

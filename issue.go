@@ -80,6 +80,7 @@ type Issue struct {
 	Comments     []*Comment     // Comments on the issue
 	Parent       *LinkedIssue   // Parent issue (for subtasks or epic children); nil otherwise
 	Subtasks     []*LinkedIssue // Subtasks or epic children; nil if none
+	Attachments  []*Attachment  // read-only: populated by Get; nil if none
 	Created      time.Time
 	Updated      time.Time
 	CustomFields map[string]json.RawMessage // write-only on Create/Update; populated from --field-json.

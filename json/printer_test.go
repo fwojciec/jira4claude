@@ -937,3 +937,38 @@ func TestPrinter_Fields(t *testing.T) {
 		assert.NotContains(t, out.String(), `"fields": null`)
 	})
 }
+
+func TestPrinter_Attachments(t *testing.T) {
+	t.Parallel()
+
+	t.Run("prints the attachments as an array", func(t *testing.T) {
+		t.Parallel()
+		var out, errOut bytes.Buffer
+		p := jsonpkg.NewPrinterWithIO(&out, &errOut)
+
+		p.Attachments("TEST-1", []jira4claude.AttachmentView{
+			{ID: "10000", Filename: "picture.jpg", MimeType: "image/jpeg", Size: 23123, Author: "Mia Krystof", Created: "2022-10-06T07:32:47Z"},
+		})
+
+		assert.JSONEq(t, `[{
+			"id": "10000",
+			"filename": "picture.jpg",
+			"mimeType": "image/jpeg",
+			"size": 23123,
+			"author": "Mia Krystof",
+			"created": "2022-10-06T07:32:47Z"
+		}]`, out.String())
+		assert.Empty(t, errOut.String())
+	})
+
+	t.Run("no attachments is an empty array, not null, and nothing on stderr", func(t *testing.T) {
+		t.Parallel()
+		var out, errOut bytes.Buffer
+		p := jsonpkg.NewPrinterWithIO(&out, &errOut)
+
+		p.Attachments("TEST-1", nil)
+
+		assert.JSONEq(t, `[]`, out.String())
+		assert.Empty(t, errOut.String())
+	})
+}

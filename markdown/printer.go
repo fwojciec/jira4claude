@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"unicode"
 
 	"github.com/fwojciec/jira4claude"
 )
@@ -96,6 +97,8 @@ func (p *Printer) Issue(view jira4claude.IssueView) {
 			p.renderComment(comment)
 		}
 	}
+
+	p.renderAttachmentsSection(view.Attachments)
 
 	// URL as markdown link at end
 	if view.URL != "" {
@@ -339,6 +342,70 @@ func (p *Printer) Links(key string, links []jira4claude.RelatedIssueView) {
 	}
 
 	p.renderRelatedIssuesGrouped(links)
+}
+
+// Attachments prints one line per attachment for a script to split on tabs:
+// ID, exact size in bytes, MIME type and filename. The filename, the only
+// free-form field, comes last, with control characters escaped (see
+// escapeControl) so that it cannot break the line or add a column.
+func (p *Printer) Attachments(key string, attachments []jira4claude.AttachmentView) {
+	if len(attachments) == 0 {
+		fmt.Fprintf(p.err, "[info] No attachments for %s\n", key)
+		return
+	}
+
+	for _, a := range attachments {
+		fmt.Fprintf(p.out, "%s\t%d\t%s\t%s\n",
+			escapeControl(a.ID), a.Size, escapeControl(a.MimeType), escapeControl(a.Filename))
+	}
+}
+
+// renderAttachmentsSection prints the "## Attachments" section of an issue,
+// one "- ID filename (size, type)" line per attachment, with a human-readable
+// size. It prints nothing when there are no attachments.
+func (p *Printer) renderAttachmentsSection(attachments []jira4claude.AttachmentView) {
+	if len(attachments) == 0 {
+		return
+	}
+	fmt.Fprint(p.out, "\n## Attachments\n\n")
+	for _, a := range attachments {
+		fmt.Fprintf(p.out, "- %s %s (%s, %s)\n",
+			escapeControl(a.ID), escapeControl(a.Filename), humanSize(a.Size), escapeControl(a.MimeType))
+	}
+}
+
+// humanSize formats a byte count in binary units with one decimal, such as
+// "22.6 KiB"; counts under 1 KiB are shown exactly, such as "512 B".
+func humanSize(n int64) string {
+	const unit = 1024
+	if n < unit {
+		return strconv.FormatInt(n, 10) + " B"
+	}
+	div, exp := int64(unit), 0
+	for m := n / unit; m >= unit && exp < 4; m /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.1f %ciB", float64(n)/float64(div), "KMGTP"[exp])
+}
+
+// escapeControl replaces control characters (tab, newline, escape and the
+// like) with their Go escape sequences, so that a server-supplied string
+// stays on one line and in one column.
+func escapeControl(s string) string {
+	if !strings.ContainsFunc(s, unicode.IsControl) {
+		return s
+	}
+	var b strings.Builder
+	for _, r := range s {
+		if !unicode.IsControl(r) {
+			b.WriteRune(r)
+			continue
+		}
+		quoted := strconv.QuoteRune(r)
+		b.WriteString(quoted[1 : len(quoted)-1])
+	}
+	return b.String()
 }
 
 // Success prints a success message to stdout.

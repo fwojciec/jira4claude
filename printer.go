@@ -14,6 +14,12 @@ type LinkPrinter interface {
 	Links(key string, links []RelatedIssueView)
 }
 
+// AttachmentPrinter handles attachment command output.
+type AttachmentPrinter interface {
+	// Attachments prints the attachments of the issue with the given key.
+	Attachments(key string, attachments []AttachmentView)
+}
+
 // MessagePrinter handles success/error/warning output. Success is written
 // with the data, to stdout. Warning, ConversionIssue and Error are diagnostics:
 // an implementation writes them to stderr, never stdout, so that stdout holds
@@ -31,5 +37,6 @@ type MessagePrinter interface {
 type Printer interface {
 	IssuePrinter
 	LinkPrinter
+	AttachmentPrinter
 	MessagePrinter
 }

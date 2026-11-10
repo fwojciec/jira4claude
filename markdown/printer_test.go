@@ -978,3 +978,96 @@ func TestPrinter_Fields(t *testing.T) {
 		assert.Empty(t, errOut.String())
 	})
 }
+
+func TestPrinter_Attachments(t *testing.T) {
+	t.Parallel()
+
+	t.Run("prints one tab-separated line per attachment: ID, bytes, type, filename", func(t *testing.T) {
+		t.Parallel()
+		var out, errOut bytes.Buffer
+		p := markdown.NewPrinterWithIO(&out, &errOut)
+
+		p.Attachments("J4C-100", []jira4claude.AttachmentView{
+			{ID: "10000", Filename: "picture.jpg", MimeType: "image/jpeg", Size: 23123},
+			{ID: "10001", Filename: "debug log.txt", MimeType: "text/plain", Size: 2460},
+		})
+
+		assert.Equal(t, "10000\t23123\timage/jpeg\tpicture.jpg\n10001\t2460\ttext/plain\tdebug log.txt\n", out.String())
+		assert.Empty(t, errOut.String())
+	})
+
+	t.Run("escapes control characters so a filename cannot forge a line or a column", func(t *testing.T) {
+		t.Parallel()
+		var out bytes.Buffer
+		p := markdown.NewPrinter(&out)
+
+		p.Attachments("J4C-100", []jira4claude.AttachmentView{
+			{ID: "1", Filename: "a\tb\nc\rd\x1be", MimeType: "text/plain", Size: 1},
+		})
+
+		assert.Equal(t, "1\t1\ttext/plain\ta\\tb\\nc\\rd\\x1be\n", out.String())
+	})
+
+	t.Run("no attachments prints nothing on stdout and a notice on stderr", func(t *testing.T) {
+		t.Parallel()
+		var out, errOut bytes.Buffer
+		p := markdown.NewPrinterWithIO(&out, &errOut)
+
+		p.Attachments("J4C-100", nil)
+
+		assert.Empty(t, out.String())
+		assert.Equal(t, "[info] No attachments for J4C-100\n", errOut.String())
+	})
+}
+
+func TestPrinter_Issue_Attachments(t *testing.T) {
+	t.Parallel()
+
+	t.Run("adds an attachments section with ID, filename, size and type", func(t *testing.T) {
+		t.Parallel()
+		var out bytes.Buffer
+		p := markdown.NewPrinter(&out)
+
+		p.Issue(jira4claude.IssueView{
+			Key:     "J4C-100",
+			Summary: "With files",
+			Type:    "Task",
+			Status:  "To Do",
+			Attachments: []jira4claude.AttachmentView{
+				{ID: "10000", Filename: "picture.jpg", MimeType: "image/jpeg", Size: 23123},
+				{ID: "10001", Filename: "notes.txt", MimeType: "text/plain", Size: 512},
+				{ID: "10002", Filename: "video.mp4", MimeType: "video/mp4", Size: 5 * 1024 * 1024},
+			},
+			URL: "https://test.atlassian.net/browse/J4C-100",
+		})
+
+		assert.Contains(t, out.String(), "\n## Attachments\n\n"+
+			"- 10000 picture.jpg (22.6 KiB, image/jpeg)\n"+
+			"- 10001 notes.txt (512 B, text/plain)\n"+
+			"- 10002 video.mp4 (5.0 MiB, video/mp4)\n"+
+			"\n[View in Jira]")
+	})
+
+	t.Run("escapes control characters in a filename", func(t *testing.T) {
+		t.Parallel()
+		var out bytes.Buffer
+		p := markdown.NewPrinter(&out)
+
+		p.Issue(jira4claude.IssueView{
+			Key:         "J4C-100",
+			Attachments: []jira4claude.AttachmentView{{ID: "1", Filename: "a\nb", MimeType: "text/plain", Size: 1}},
+		})
+
+		assert.Contains(t, out.String(), "- 1 a\\nb (1 B, text/plain)\n")
+	})
+
+	t.Run("has no attachments section without attachments", func(t *testing.T) {
+		t.Parallel()
+		var out bytes.Buffer
+		p := markdown.NewPrinter(&out)
+
+		p.Issue(jira4claude.IssueView{Key: "J4C-100", Summary: "Plain", Type: "Task", Status: "To Do", Attachments: []jira4claude.AttachmentView{}})
+
+		assert.NotContains(t, out.String(), "Attachments")
+	})
+}
