@@ -445,11 +445,14 @@ func (c *Client) streamOnce(ctx context.Context, rt http.RoundTripper, start *ur
 			return 0, true, hopError(ctx, "request to "+target.Host+" failed", err, redirected)
 		}
 		kick()
+		// Every body counts as progress, a redirect's or an error's as well
+		// as the file's: draining one must not look like silence.
+		resp.Body = &progressReader{rc: resp.Body, kick: kick}
 
 		switch {
 		case resp.StatusCode == http.StatusOK:
 			sw := &sinkWriter{w: w}
-			n, err := io.Copy(sw, &progressReader{rc: resp.Body, kick: kick})
+			n, err := io.Copy(sw, resp.Body)
 			resp.Body.Close()
 			if sw.err != nil {
 				return n, false, &jira4claude.Error{Code: jira4claude.EInternal, Message: "failed to write the download", Inner: sw.err}

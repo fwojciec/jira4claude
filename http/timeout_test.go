@@ -153,26 +153,38 @@ func TestTimeout_Download(t *testing.T) {
 
 	t.Run("a slow download that keeps moving is not cut", func(t *testing.T) {
 		t.Parallel()
-		const chunks = 24 // about 4 x the limit in total
+		// A limit far above the pause between chunks: this test must pass,
+		// so a loaded machine that delays one chunk must not cut it.
+		const limit = time.Second
+		const redirectChunks = 25 // the redirect's body alone outlasts the limit
+		const chunks = 15
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			w.WriteHeader(http.StatusOK)
-			for i := 0; i < chunks; i++ {
+			// The redirect's body trickles too: draining it is progress.
+			count := chunks
+			if r.URL.Path != "/blob" {
+				count = redirectChunks
+				w.Header().Set("Location", "/blob")
+				w.WriteHeader(http.StatusSeeOther)
+			}
+			for i := 0; i < count; i++ {
 				if _, err := w.Write([]byte("x")); err != nil {
 					return
 				}
 				w.(http.Flusher).Flush()
-				time.Sleep(testTimeout / 6)
+				time.Sleep(limit / 20)
 			}
 		}))
 		defer server.Close()
+		client := newTestClient(t, server.URL, "user@example.com", "api-token",
+			jirahttp.WithTimeout(limit), jirahttp.WithRetryBaseDelay(time.Millisecond))
 
 		var buf bytes.Buffer
 		start := time.Now()
-		n, err := jirahttp.NewAttachmentService(timeoutClient(t, server.URL)).Download(context.Background(), "10000", &buf)
+		n, err := jirahttp.NewAttachmentService(client).Download(context.Background(), "10000", &buf)
 
 		require.NoError(t, err)
 		assert.Equal(t, int64(chunks), n)
-		assert.Greater(t, time.Since(start), 2*testTimeout, "the download outlasted the limit")
+		assert.Greater(t, time.Since(start), limit, "the download outlasted the limit")
 	})
 
 	t.Run("a download that stalls mid-body fails without a retry", func(t *testing.T) {
