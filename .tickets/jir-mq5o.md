@@ -1,6 +1,6 @@
 ---
 id: jir-mq5o
-status: open
+status: in_progress
 deps: [jir-bhhg]
 links: []
 created: 2026-11-10T07:47:17Z
