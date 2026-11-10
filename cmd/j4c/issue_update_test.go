@@ -393,6 +393,101 @@ func TestRun_IssueUpdateReattachesDescription(t *testing.T) {
 	})
 }
 
+// readLossIssue returns an issue whose description holds content the read
+// reports as dropped: a smart link without a URL, and a paragraph directly in
+// a task list. Neither has a Markdown form, so no edit can keep them.
+func readLossIssue() *jira4claude.Issue {
+	issue := guardedIssue()
+	issue.Description = &jira4claude.ADFNode{Type: "doc", Version: 1, Content: []jira4claude.ADFNode{
+		{Type: "paragraph", Content: []jira4claude.ADFNode{
+			{Type: "text", Text: "Card: "},
+			{Type: "inlineCard", Attrs: json.RawMessage(`{"data":{"@type":"Document","name":"Spec"}}`)},
+		}},
+		{Type: "taskList", Attrs: json.RawMessage(`{"localId":"l"}`), Content: []jira4claude.ADFNode{
+			{Type: "taskItem", Attrs: json.RawMessage(`{"localId":"a","state":"TODO"}`), Content: []jira4claude.ADFNode{{Type: "text", Text: "task"}}},
+			{Type: "paragraph", Content: []jira4claude.ADFNode{{Type: "text", Text: "stray"}}},
+		}},
+	}}
+	return issue
+}
+
+func TestRun_IssueUpdateReadTimeLosses(t *testing.T) {
+	t.Parallel()
+
+	t.Run("a set that would remove content the read could not show is refused", func(t *testing.T) {
+		t.Parallel()
+
+		md, _ := viewJSON(t, readLossIssue())
+		svc := newGuardedService(readLossIssue())
+
+		res := runCLI(t, testDeps(svc, &mock.UserService{}), "issue", "update", "TEST-1", "--description="+md)
+
+		assert.Equal(t, 1, res.code)
+		assert.Contains(t, res.stderr, "inlineCard")
+		assert.Contains(t, res.stderr, "paragraph")
+		assert.Contains(t, res.stderr, "--append-description")
+		assert.Contains(t, res.stderr, "--force")
+		assert.Equal(t, []string{"get TEST-1"}, svc.Calls())
+	})
+
+	t.Run("--force writes it and warns", func(t *testing.T) {
+		t.Parallel()
+
+		md, _ := viewJSON(t, readLossIssue())
+		svc := newGuardedService(readLossIssue())
+
+		res := runCLI(t, testDeps(svc, &mock.UserService{}), "issue", "update", "TEST-1", "--force", "--description="+md)
+
+		require.Equal(t, 0, res.code, "stderr: %s", res.stderr)
+		assert.Contains(t, res.stderr, "[warn] dropped inlineCard")
+	})
+
+	t.Run("a clear is refused and names it", func(t *testing.T) {
+		t.Parallel()
+
+		svc := newGuardedService(readLossIssue())
+
+		res := runCLI(t, testDeps(svc, &mock.UserService{}), "issue", "update", "TEST-1", "--clear-description")
+
+		assert.Equal(t, 1, res.code)
+		assert.Contains(t, res.stderr, "inlineCard")
+		assert.Equal(t, []string{"get TEST-1"}, svc.Calls())
+	})
+
+	t.Run("an append is unaffected", func(t *testing.T) {
+		t.Parallel()
+
+		svc := newGuardedService(readLossIssue())
+
+		res := runCLI(t, testDeps(svc, &mock.UserService{}), "issue", "update", "TEST-1", "--append-description=More")
+
+		require.Equal(t, 0, res.code, "stderr: %s", res.stderr)
+		assert.Len(t, findNodes(svc.Sent().Description.Document(), "inlineCard"), 1)
+	})
+
+	t.Run("a mention in a block task item is kept", func(t *testing.T) {
+		t.Parallel()
+
+		issue := guardedIssue()
+		issue.Description = &jira4claude.ADFNode{Type: "doc", Version: 1, Content: []jira4claude.ADFNode{
+			{Type: "taskList", Attrs: json.RawMessage(`{"localId":"l"}`), Content: []jira4claude.ADFNode{
+				{Type: "blockTaskItem", Attrs: json.RawMessage(`{"localId":"b","state":"TODO"}`), Content: []jira4claude.ADFNode{
+					{Type: "paragraph", Content: []jira4claude.ADFNode{{Type: "text", Text: "Ask "}, guardedMention()}},
+				}},
+			}},
+		}}
+		md, _ := viewJSON(t, issue)
+		svc := newGuardedService(issue)
+
+		res := runCLI(t, testDeps(svc, &mock.UserService{}), "issue", "update", "TEST-1", "--description="+md+"\n- [ ] another")
+
+		require.Equal(t, 0, res.code, "stderr: %s", res.stderr)
+		mentions := findNodes(svc.Sent().Description.Document(), "mention")
+		require.Len(t, mentions, 1)
+		assert.Equal(t, marshal(t, guardedMention()), marshal(t, mentions[0]))
+	})
+}
+
 func TestRun_TokenTextOutsideADescriptionSet(t *testing.T) {
 	t.Parallel()
 
@@ -414,6 +509,22 @@ func TestRun_TokenTextOutsideADescriptionSet(t *testing.T) {
 		require.Equal(t, 0, res.code, "stderr: %s", res.stderr)
 		assert.Contains(t, res.stderr, "[warn] degraded {{mention:2 Jane Doe}}")
 		assert.Contains(t, marshal(t, sent), "{{mention:2 Jane Doe}}")
+	})
+
+	t.Run("a salted token in a new issue warns", func(t *testing.T) {
+		t.Parallel()
+
+		svc := &mock.IssueService{
+			CreateFn: func(ctx context.Context, issue *jira4claude.Issue) (*jira4claude.Issue, error) {
+				return &jira4claude.Issue{Key: "TEST-2"}, nil
+			},
+		}
+
+		res := runCLI(t, testDeps(svc, &mock.UserService{}),
+			"issue", "create", "--summary=S", "--description=See {{!mention:1 Ann}}")
+
+		require.Equal(t, 0, res.code, "stderr: %s", res.stderr)
+		assert.Contains(t, res.stderr, "[warn] degraded {{!mention:1 Ann}}")
 	})
 
 	t.Run("an append keeps the existing nodes and warns about token text", func(t *testing.T) {

@@ -20,6 +20,9 @@ type ConversionIssue struct {
 	Kind   string `json:"kind"`   // ConversionDropped or ConversionDegraded
 	Node   string `json:"node"`   // e.g. "Image", "HTMLBlock", or a token such as "{{mention:2 Jane Doe}}"
 	Detail string `json:"detail"` // human-readable explanation
+	// Existing marks an issue about content already in the document being
+	// written over, rather than in the new text (see Converter.Reattach).
+	Existing bool `json:"existing,omitempty"`
 }
 
 // String renders the issue as a single human-readable line.
@@ -50,11 +53,14 @@ func DroppedContentError(field string, issues []ConversionIssue) error {
 	if len(dropped) == 0 {
 		return nil
 	}
-	var nodes, tokens []string
+	var nodes, tokens, unreadable []string
 	for _, d := range dropped {
-		if IsProtectedToken(d.Node) {
+		switch {
+		case IsProtectedToken(d.Node):
 			tokens = append(tokens, d.Node)
-		} else {
+		case d.Existing:
+			unreadable = append(unreadable, d.Node)
+		default:
 			nodes = append(nodes, d.Node)
 		}
 	}
@@ -66,6 +72,10 @@ func DroppedContentError(field string, issues []ConversionIssue) error {
 	if len(tokens) > 0 {
 		parts = append(parts, field+" would lose existing content ("+strings.Join(tokens, ", ")+
 			"); put each token back, unchanged and on a line of its own for a block, where the content belongs")
+	}
+	if len(unreadable) > 0 {
+		parts = append(parts, "rewriting the "+field+" would remove existing content that has no Markdown form ("+
+			strings.Join(unreadable, ", ")+"); use --append-description to add to it without rewriting it")
 	}
 	return &Error{
 		Code: EValidation,
@@ -119,7 +129,17 @@ type Converter interface {
 	// not allowed. Such tokens other than the missing ones stay in the result
 	// as text.
 	//
+	// Content of original that ToMarkdown reports as dropped has no token, so
+	// no edit keeps it: each is reported again as ConversionDropped with
+	// Existing set.
+	//
 	// edited is not modified. A nil document counts as an empty one. Always
 	// returns a non-nil *ADFNode.
 	Reattach(original, edited *ADFNode) (*ADFNode, []ConversionIssue)
+
+	// FindTokens returns the text in doc, in document order, that reads as
+	// a protected-node token, whatever its salt. It is for new content (a
+	// create, a comment, an append), where nothing restores a token. Text in
+	// code is not read. A nil doc has none.
+	FindTokens(doc *ADFNode) []string
 }

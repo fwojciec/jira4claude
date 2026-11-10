@@ -694,7 +694,11 @@ func adfTaskListMarkerToGFM(node *jira4claude.ADFNode, skipped *skippedCollector
 			items[len(items)-1] += indentContinuation("\n"+nested, "  ")
 			continue
 		}
-		if taskItem.Type != "taskItem" {
+		if taskItem.Type == "blockTaskItem" {
+			// Schema-valid: a task item holding paragraphs (or extensions),
+			// read as a task item. The writer makes a taskItem of it.
+			skipped.degrade("blockTaskItem", "a task item holding paragraphs is written back as a taskItem")
+		} else if taskItem.Type != "taskItem" {
 			// An item without a checkbox would not read back as part of
 			// the task list.
 			skipped.dropMisplaced(taskItem, node.Type)

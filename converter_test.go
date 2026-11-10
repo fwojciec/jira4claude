@@ -85,6 +85,22 @@ func TestDroppedContentError(t *testing.T) {
 		assert.Contains(t, msg, "--force")
 		assert.NotContains(t, msg, "Remove it")
 	})
+
+	t.Run("existing content without a Markdown form points to append", func(t *testing.T) {
+		t.Parallel()
+		issues := []jira4claude.ConversionIssue{
+			{Kind: jira4claude.ConversionDropped, Node: "paragraph", Existing: true},
+		}
+
+		msg := jira4claude.ErrorMessage(jira4claude.DroppedContentError("description", issues))
+
+		assert.Contains(t, msg, "paragraph")
+		assert.Contains(t, msg, "existing content")
+		assert.Contains(t, msg, "--append-description")
+		assert.Contains(t, msg, "--force")
+		assert.NotContains(t, msg, "remove it")
+		assert.NotContains(t, msg, "put each token back")
+	})
 }
 
 func TestDroppedIssues(t *testing.T) {

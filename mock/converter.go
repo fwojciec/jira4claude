@@ -12,6 +12,11 @@ type Converter struct {
 	ToADFFn      func(markdown string) (*jira4claude.ADFNode, []jira4claude.ConversionIssue)
 	ToMarkdownFn func(adf *jira4claude.ADFNode) (string, []jira4claude.ConversionIssue)
 	ReattachFn   func(original, edited *jira4claude.ADFNode) (*jira4claude.ADFNode, []jira4claude.ConversionIssue)
+	FindTokensFn func(doc *jira4claude.ADFNode) []string
+}
+
+func (c *Converter) FindTokens(doc *jira4claude.ADFNode) []string {
+	return c.FindTokensFn(doc)
 }
 
 func (c *Converter) ToADF(markdown string) (*jira4claude.ADFNode, []jira4claude.ConversionIssue) {

@@ -230,13 +230,12 @@ func CheckClearDescription(conv Converter, current *ADFNode, force bool) ([]Conv
 // plain text it is, so each one is reported as degraded: a token copied from
 // issue view does not carry its image or mention along.
 func LiteralTokens(conv Converter, doc *ADFNode) []ConversionIssue {
-	_, found := conv.Reattach(nil, doc)
-	dropped := DroppedIssues(found)
-	issues := make([]ConversionIssue, 0, len(dropped))
-	for _, f := range dropped {
+	found := conv.FindTokens(doc)
+	issues := make([]ConversionIssue, 0, len(found))
+	for _, token := range found {
 		issues = append(issues, ConversionIssue{
 			Kind:   ConversionDegraded,
-			Node:   f.Node,
+			Node:   token,
 			Detail: "written as plain text; a token restores existing content only in issue update --description",
 		})
 	}

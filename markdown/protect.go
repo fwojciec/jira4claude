@@ -203,8 +203,17 @@ func tokenMarkdown(salt, kind string, n int, label string) string {
 // tokenPattern matches the tokens of the given salt. Submatch 1 is the kind,
 // 2 the number.
 func tokenPattern(salt string) *regexp.Regexp {
-	return regexp.MustCompile(`\{\{` + regexp.QuoteMeta(salt) + `([A-Za-z][A-Za-z0-9]*):([0-9]+)(?: [^{}\n]*)?\}\}`)
+	return regexp.MustCompile(`\{\{` + regexp.QuoteMeta(salt) + tokenBody)
 }
+
+// anySaltTokenPattern matches the tokens of every salt, for text that was not
+// read from a document and so has no salt of its own.
+func anySaltTokenPattern() *regexp.Regexp {
+	return regexp.MustCompile(`\{\{` + regexp.QuoteMeta(tokenSaltChar) + `*` + tokenBody)
+}
+
+// tokenBody is a token after its "{{" and salt.
+const tokenBody = `([A-Za-z][A-Za-z0-9]*):([0-9]+)(?: [^{}\n]*)?\}\}`
 
 // tokenLabel returns the label of a protected node's token: a name a reader
 // recognises the node by. It is never read back.
@@ -529,6 +538,21 @@ func reattach(original, edited *jira4claude.ADFNode) (*jira4claude.ADFNode, []ji
 		if !r.seen[i] {
 			r.drop(p.token, fmt.Sprintf("the token is not in the new text, so the %s would be removed", nodeName(p.node.Type)))
 		}
+	}
+	// Content the read left out has no token: no edit of the Markdown can
+	// keep it, so a write of the edited document would remove it. Tokens that
+	// do not read back are reported above, as missing. Degraded content was
+	// read in another form, which the Markdown keeps, so it is no loss here.
+	for _, d := range jira4claude.DroppedIssues(skipped.issues()) {
+		if jira4claude.IsProtectedToken(d.Node) {
+			continue
+		}
+		r.issues = append(r.issues, jira4claude.ConversionIssue{
+			Kind:     jira4claude.ConversionDropped,
+			Node:     d.Node,
+			Detail:   "existing content with no Markdown form (" + d.Detail + "); writing the description would remove it",
+			Existing: true,
+		})
 	}
 	return &out, r.issues
 }

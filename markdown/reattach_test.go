@@ -479,7 +479,77 @@ func TestReattach_MisplacedChildren(t *testing.T) {
 			require.Len(t, dropped, 1, "markdown was %q", md)
 			assert.Equal(t, tt.node, dropped[0].Node)
 		})
+		t.Run(tt.name+" is reported again by the write that would remove it", func(t *testing.T) {
+			t.Parallel()
+			_, _, issues := readEditWrite(t, tt.doc, nil)
+			dropped := jira4claude.DroppedIssues(issues)
+			require.Len(t, dropped, 1)
+			assert.Equal(t, tt.node, dropped[0].Node)
+			assert.True(t, dropped[0].Existing)
+			assert.Contains(t, dropped[0].Detail, "would remove it")
+
+			err := jira4claude.DroppedContentError("description", issues)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "--append-description")
+			assert.NotContains(t, err.Error(), "remove it")
+			assert.NotContains(t, err.Error(), "put each token back")
+		})
 	}
+}
+
+func TestReattach_BlockTaskItem(t *testing.T) {
+	t.Parallel()
+
+	// A blockTaskItem (a task item holding paragraphs) is schema-valid: it
+	// reads as a task item, with tokens for what it holds, and is written
+	// back as a taskItem.
+	doc := docOf(jira4claude.ADFNode{Type: "taskList", Attrs: json.RawMessage(`{"localId":"l"}`), Content: []jira4claude.ADFNode{
+		{Type: "taskItem", Attrs: json.RawMessage(`{"localId":"a","state":"TODO"}`), Content: []jira4claude.ADFNode{plainText("first")}},
+		{Type: "blockTaskItem", Attrs: json.RawMessage(`{"localId":"b","state":"DONE"}`), Content: []jira4claude.ADFNode{
+			paraOf(plainText("ping "), mention("u1", "Ann")),
+		}},
+	}})
+
+	md, readIssues := markdown.New().ToMarkdown(doc)
+
+	assert.Empty(t, jira4claude.DroppedIssues(readIssues), "markdown was %q", md)
+	assert.Contains(t, md, "- [x] ping {{mention:1 Ann}}")
+	require.Len(t, readIssues, 1)
+	assert.Equal(t, jira4claude.ConversionDegraded, readIssues[0].Kind)
+	assert.Equal(t, "blockTaskItem", readIssues[0].Node)
+
+	_, got, issues := readEditWrite(t, doc, nil)
+
+	assert.Empty(t, issues)
+	assert.Equal(t, jsonOf(t, protectedNodes(doc)), jsonOf(t, protectedNodes(got)))
+}
+
+func TestFindTokens(t *testing.T) {
+	t.Parallel()
+
+	conv := markdown.New()
+
+	t.Run("finds tokens of every salt, in order", func(t *testing.T) {
+		t.Parallel()
+
+		doc, _ := conv.ToADF("see {{!mention:1 Ann}} and\n\n{{mediaSingle:2 shot.png}}\n\n- {{!!!status:3}}")
+
+		assert.Equal(t, []string{"{{!mention:1 Ann}}", "{{mediaSingle:2 shot.png}}", "{{!!!status:3}}"}, conv.FindTokens(doc))
+	})
+
+	t.Run("ignores code and text that is not a token", func(t *testing.T) {
+		t.Parallel()
+
+		doc, _ := conv.ToADF("`{{mention:1 Ann}}` and {{ not one }} and {mention:1}\n\n```\n{{mention:2 Bob}}\n```")
+
+		assert.Empty(t, conv.FindTokens(doc))
+	})
+
+	t.Run("a nil document has none", func(t *testing.T) {
+		t.Parallel()
+
+		assert.Empty(t, conv.FindTokens(nil))
+	})
 }
 
 func TestReattach_MovedTokens(t *testing.T) {

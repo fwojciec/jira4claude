@@ -55,3 +55,12 @@ func (c *Converter) ToMarkdown(adfDoc *jira4claude.ADFNode) (string, []jira4clau
 func (c *Converter) Reattach(original, edited *jira4claude.ADFNode) (*jira4claude.ADFNode, []jira4claude.ConversionIssue) {
 	return reattach(original, edited)
 }
+
+// FindTokens returns the text in doc that reads as a protected-node token of
+// any salt. See jira4claude.Converter.
+func (c *Converter) FindTokens(doc *jira4claude.ADFNode) []string {
+	if doc == nil {
+		return nil
+	}
+	return scanTokens(doc, anySaltTokenPattern())
+}

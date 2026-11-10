@@ -51,6 +51,7 @@ func mockConverter() *mock.Converter {
 			}
 			return edited, nil
 		},
+		FindTokensFn: func(doc *jira4claude.ADFNode) []string { return nil },
 	}
 }
 
