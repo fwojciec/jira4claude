@@ -96,6 +96,51 @@ status are refused (exit 1) with their IDs listed.
 Migration: pass `--id` where the status is ambiguous; a name that is not also
 a target status still works.
 
+**`issue transition --id` refuses an ID that is not available.** The ID used
+to be sent to Jira as given, and Jira's answer decided the result. Now an ID
+that is not among the issue's transitions is refused (exit 1) before any
+write, with the available ones listed.
+
+```text
+before: j4c issue transition PROJ-123 --id 99  ->  POST sent; Jira's error, exit 1
+after:  j4c issue transition PROJ-123 --id 99  ->  [error] transition id "99" is not available; available: "Start work" (id 11) → In Progress, ...   (nothing sent)
+```
+
+Migration: none, unless a script relied on Jira's own message.
+
+**A 413 from Jira is a validation error on every command.** Jira's "request
+too large" answer was an internal error; it now means the input must change.
+
+```text
+before: Jira answers 413  ->  exit 7, code "internal"
+after:  Jira answers 413  ->  exit 1, code "validation"
+```
+
+Migration: treat 413 as you treat other refused input (exit 1); do not retry
+it unchanged.
+
+**`init --json` prints one object.** It printed one success object per file
+written or found; it now prints one object of three booleans. In text mode
+the lines lost their `[ok] ` prefix.
+
+```text
+before: {"message": "Created .jira4claude.yaml", "success": true}
+        {"message": "Added .jira4claude.yaml to .gitignore", "success": true}   (each indented over several lines)
+after:  {"configCreated": true, "gitignoreAdded": true, "gitignoreExists": false}   (indented)
+```
+
+Migration: read the booleans.
+
+**`issue update` and `issue transition` read the issue before every write,
+and `issue assign` before and after.** The read gives the old value of each
+change reported. An update that leaves the description alone (v0.3.0 read
+the issue only to edit a description) and a transition make one more request
+than before, a GET before the write, and an assign two, a GET before and
+after; a failed read before the write now stops the command with nothing
+written.
+
+Migration: none for output; count the extra requests against rate limits.
+
 **`issue comment --body ""` is an error.** An empty or blank body (inline or
 from a file) exits 1. It used to be sent to Jira.
 
@@ -170,6 +215,12 @@ one.
 
 ### Fixed
 
+- A server that accepted a connection and never answered hung any command
+  forever. `--timeout DURATION` (default `30s`, `0` for none) now bounds each
+  request: an API call must be answered in full within it; an attachment
+  download or upload fails only after that long with nothing moving, never
+  for its total time. A timed-out request is not retried, exits 7, and a
+  timed-out write says it may have been applied.
 - In `--json` mode a usage error was printed as text even when `--json` was
   given; it is now a JSON error line, also when `--json` comes after the bad
   argument.
@@ -186,7 +237,6 @@ one.
   types come from Atlassian's API reference only.
 - An upload is not retried after a server error, which may have attached the
   file anyway. Check with `attachment list` before sending it again.
-- Downloads have no timeout.
 - A new image cannot be placed in a description; upload it as an attachment.
 - `attachment delete` results have no issue key: Jira's attachment data does
   not name the issue.
@@ -217,7 +267,8 @@ media, mentions and unknown nodes appear as tokens such as
 disappearing. Text is escaped so that it reads back exactly: `&#32;` for an
 edge space, `&#104;ttps://` for a URL that is not a link, `\<`, and a
 backslash at the end of a line for a hard break. `<br>` and HTML comments
-show as text.
+show as text: `<!-- note -->` in Jira's text reads as `\<!-- note -->`, and
+one written in Markdown reaches Jira as that text.
 
 ```text
 before: Ping  before merging.
@@ -234,6 +285,22 @@ images or mentions, and rewriting one that holds content with no Markdown form.
 
 Migration: edit the text `issue view --field description` prints; use
 `--append-description` to add text without rewriting.
+
+**A bare email address is written as text.** Jira does not link an address
+typed into it, so the write side no longer does either. A bare URL still
+becomes a link, and so does an address in angle brackets, to `mailto:`.
+
+```text
+before: --description "Mail a@b.co"    ->  "a@b.co" linked to mailto:a@b.co
+after:  --description "Mail a@b.co"    ->  "a@b.co" as plain text
+        --description "Mail <a@b.co>"  ->  "a@b.co" linked to mailto:a@b.co (unchanged)
+```
+
+On read, an address in plain text reads as it is, and a `mailto:` link whose
+text is its address reads as `<a@b.co>` (as `[a@b.co](mailto:a@b.co)` where
+that form would not read back), which writes back as the same link.
+
+Migration: write `<a@b.co>` where you want a link.
 
 **`--description ""` is an error.** It used to do nothing and print
 `[ok] Updated: KEY`.

@@ -322,6 +322,15 @@ Referencing an uploaded file from Markdown, for example
 | Do comments or transitions change an issue's `updated` value? | 1.4 | Document that `--if-updated` can report a conflict after any activity |
 | Does Jira accept a `taskItem` rewritten as `blockTaskItem`, and task items with new `localId`s? | 1.4 | Refuse block tokens in task items |
 | Redirect status and auth of `/attachment/content/{id}` | M3 | Use `redirect=false` |
+| Does `/attachment/content/{id}?redirect=false` return the bytes directly (200), or still redirect? | `attachment download` | None needed: a redirect is followed under `Client.Stream`'s credential rules; only the docs comment on `Download` changes |
+| Does upload accept a non-chunked body with a `Content-Length`? | `attachment upload` | Send chunked (`ContentLength` -1); the body is already streamed |
+| Does upload accept an empty file? | `attachment upload` | Refuse an empty file locally, before any request, with a clear message |
+| Does upload accept two files with the same name on one issue, each kept as its own attachment? | `attachment upload` (the duplicate-name warning) | If Jira replaces or refuses the second, make the warning an error unless `--force` |
+| Which MIME type does Jira assign to an upload sent as `application/octet-stream`? | `attachment upload` and `list` output | If it keeps `application/octet-stream`, send a type guessed from the extension in the part header |
+| Types of `id` and `created` in the issue's `attachment` field (the OpenAPI example and schema disagree) | `attachment list`, `download`, `delete` | None needed: both forms of each are accepted; drop the unused one |
+| Does `expand=schema` on issue get return a per-field schema, and are `gh-lexo-rank` and `devsummarycf` the custom keys of rank and development summary? | `issue view` hiding machine-only fields | Hide those fields by name instead, or show them |
+| What counts toward the 32,767-character description limit (characters of text, or of the ADF JSON)? | `issue create` / `update`, which do not check it (input is capped at 1 MiB) | Leave the check to Jira (a 400 or 413 is exit 1) and document the measured rule |
+| Does Jira keep the order of marks on a text node, or reorder them? | Read-back of a written description (`--dry-run` preview, `issue view` after a write) | If reordered, normalise mark order on read so a rewrite shows no spurious change |
 | Do ADF media IDs match attachment IDs? | Follow-up | Join by filename |
 | Are API tokens available on the Free plan? | All live testing | Paid trial for the smoke test |
 
