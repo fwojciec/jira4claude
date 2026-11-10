@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -340,7 +341,7 @@ func TestRun_MutationJSON(t *testing.T) {
 
 			require.Equal(t, 0, res.code, "stderr: %s", res.stderr)
 			assertOneJSONValue(t, res.stdout)
-			assertGolden(t, filepath.Join("testdata", "mutation", tc.name+".json"), res.stdout)
+			assertGolden(t, filepath.Join(goldenDir(t), tc.name+".json"), res.stdout)
 		})
 	}
 }
@@ -352,6 +353,16 @@ func assertOneJSONValue(t *testing.T, s string) {
 	var v any
 	require.NoError(t, dec.Decode(&v), "stdout: %q", s)
 	assert.False(t, dec.More(), "stdout must hold one JSON value: %q", s)
+}
+
+// goldenDir is the absolute path of testdata/mutation, found from this source
+// file rather than the working directory, which a parallel test in this
+// package changes (TestInitCmd_CreatesConfigAndUpdatesGitignore).
+func goldenDir(t *testing.T) string {
+	t.Helper()
+	_, file, _, ok := runtime.Caller(0)
+	require.True(t, ok, "cannot locate the test source")
+	return filepath.Join(filepath.Dir(file), "testdata", "mutation")
 }
 
 // assertGolden compares got with the golden file at path, or rewrites the
@@ -547,7 +558,7 @@ func TestRun_IssueUpdateRemovedUnderForce(t *testing.T) {
 func TestMutationGoldenFilesEndWithNewline(t *testing.T) {
 	t.Parallel()
 
-	paths, err := filepath.Glob(filepath.Join("testdata", "mutation", "*.json"))
+	paths, err := filepath.Glob(filepath.Join(goldenDir(t), "*.json"))
 	require.NoError(t, err)
 	require.Len(t, paths, len(mutationCases()))
 	for _, path := range paths {
@@ -596,5 +607,35 @@ func TestRun_MutationReadFailures(t *testing.T) {
 		assert.Equal(t, 4, res.code)
 		assert.Equal(t, "TEST-1: assigned\n  assignee: Jane Doe → u-me\n"+testURL+"TEST-1\n", res.stdout)
 		assert.Equal(t, "[error] assigned TEST-1, but reading it back failed: issue does not exist\n", res.stderr)
+	})
+}
+
+func TestRun_IssueTransitionsShowTargets(t *testing.T) {
+	t.Parallel()
+
+	svc := func() *mock.IssueService {
+		return &mock.IssueService{TransitionsFn: func(context.Context, string) ([]*jira4claude.Transition, error) {
+			return []*jira4claude.Transition{{ID: "11", Name: "Start", To: "In Progress"}, {ID: "31", Name: "Finish", To: "Done"}}, nil
+		}}
+	}
+
+	t.Run("text", func(t *testing.T) {
+		t.Parallel()
+
+		res := runCLI(t, testDeps(svc(), &mock.UserService{}), "issue", "transitions", "TEST-1")
+
+		require.Equal(t, 0, res.code, "stderr: %s", res.stderr)
+		assert.Equal(t, "11\tStart\tIn Progress\n31\tFinish\tDone\n", res.stdout)
+		assert.Empty(t, res.stderr)
+	})
+
+	t.Run("json", func(t *testing.T) {
+		t.Parallel()
+
+		res := runCLI(t, testDeps(svc(), &mock.UserService{}), "--json", "issue", "transitions", "TEST-1")
+
+		require.Equal(t, 0, res.code, "stderr: %s", res.stderr)
+		assert.JSONEq(t, `[{"id":"11","name":"Start","to":"In Progress"},{"id":"31","name":"Finish","to":"Done"}]`, res.stdout)
+		assert.Empty(t, res.stderr)
 	})
 }

@@ -415,23 +415,32 @@ func TestPrinter_Comment(t *testing.T) {
 func TestPrinter_Transitions(t *testing.T) {
 	t.Parallel()
 
-	t.Run("renders transition list", func(t *testing.T) {
+	t.Run("prints id, name and target status, tab-separated, one transition per line", func(t *testing.T) {
+		t.Parallel()
+		var out, errOut bytes.Buffer
+		p := markdown.NewPrinterWithIO(&out, &errOut)
+
+		transitions := []*jira4claude.Transition{
+			{ID: "11", Name: "Start", To: "In Progress"},
+			{ID: "31", Name: "Finish", To: "Done"},
+			{ID: "41", Name: "Odd"},
+		}
+
+		p.Transitions("J4C-100", transitions)
+
+		assert.Equal(t, "11\tStart\tIn Progress\n31\tFinish\tDone\n41\tOdd\t\n", out.String(),
+			"a transition Jira names no target for has an empty last column")
+		assert.Empty(t, errOut.String())
+	})
+
+	t.Run("escapes control characters so a field cannot add a column or a line", func(t *testing.T) {
 		t.Parallel()
 		var out bytes.Buffer
 		p := markdown.NewPrinter(&out)
 
-		transitions := []*jira4claude.Transition{
-			{ID: "1", Name: "In Progress"},
-			{ID: "2", Name: "Done"},
-			{ID: "3", Name: "Blocked"},
-		}
+		p.Transitions("J4C-100", []*jira4claude.Transition{{ID: "1", Name: "Re\topen\\x", To: "To\nDo"}})
 
-		p.Transitions("J4C-100", transitions)
-		result := out.String()
-
-		assert.Contains(t, result, "- In Progress")
-		assert.Contains(t, result, "- Done")
-		assert.Contains(t, result, "- Blocked")
+		assert.Equal(t, "1\tRe\\topen\\\\x\tTo\\nDo\n", out.String())
 	})
 
 	t.Run("empty transitions shows the info message on stderr", func(t *testing.T) {

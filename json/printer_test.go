@@ -298,18 +298,16 @@ func TestPrinter_Transitions(t *testing.T) {
 	p := jsonpkg.NewPrinter(&out)
 
 	transitions := []*jira4claude.Transition{
-		{ID: "1", Name: "In Progress"},
-		{ID: "2", Name: "Done"},
+		{ID: "1", Name: "Start", To: "In Progress"},
+		{ID: "2", Name: "Odd"},
 	}
 
 	p.Transitions("TEST-123", transitions)
 
-	var result []map[string]any
-	err := json.Unmarshal(out.Bytes(), &result)
-	require.NoError(t, err)
-	assert.Len(t, result, 2)
-	assert.Equal(t, "1", result[0]["id"])
-	assert.Equal(t, "In Progress", result[0]["name"])
+	assert.JSONEq(t, `[
+		{"id": "1", "name": "Start", "to": "In Progress"},
+		{"id": "2", "name": "Odd", "to": null}
+	]`, out.String(), "to is null when Jira names no target")
 }
 
 func TestPrinter_Links(t *testing.T) {
@@ -958,4 +956,32 @@ func TestPrinter_Initialized(t *testing.T) {
 
 	assert.JSONEq(t, `{"configCreated":true,"gitignoreAdded":true,"gitignoreExists":false}`, out.String())
 	assert.Empty(t, errOut.String())
+}
+
+func TestPrinter_ViewConversionIssue(t *testing.T) {
+	t.Parallel()
+
+	t.Run("a view warning carries the issue key with every conversion field", func(t *testing.T) {
+		t.Parallel()
+
+		var out, errOut bytes.Buffer
+		p := jsonpkg.NewPrinterWithIO(&out, &errOut)
+
+		p.ViewConversionIssue(jira4claude.ViewConversionIssue{
+			ConversionIssue: jira4claude.ConversionIssue{
+				Kind:     jira4claude.ConversionDropped,
+				Node:     "{{mention:2 Jane Doe}}",
+				Token:    "{{mention:2 Jane Doe}}",
+				Detail:   "the token does not read back",
+				Existing: true,
+			},
+			Key: "TEST-1",
+		})
+
+		assert.Empty(t, out.String())
+		assertJSONLines(t, errOut.String(),
+			`{"level":"warning","message":"dropped {{mention:2 Jane Doe}}: the token does not read back",`+
+				`"kind":"dropped","node":"{{mention:2 Jane Doe}}","token":"{{mention:2 Jane Doe}}",`+
+				`"detail":"the token does not read back","existing":true,"key":"TEST-1"}`)
+	})
 }

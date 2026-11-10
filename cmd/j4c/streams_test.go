@@ -83,7 +83,7 @@ func everyCommand() []commandCase {
 			return &mock.IssueService{
 				GetFn: readsKey,
 				TransitionsFn: func(context.Context, string) ([]*jira4claude.Transition, error) {
-					return []*jira4claude.Transition{{ID: "31", Name: "Done"}}, nil
+					return []*jira4claude.Transition{{ID: "31", Name: "Finish", To: "Done"}}, nil
 				},
 				TransitionFn: func(context.Context, string, string) error { return err },
 			}

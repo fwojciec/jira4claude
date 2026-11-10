@@ -78,11 +78,16 @@ func (p *Printer) Comment(view jira4claude.CommentView) {
 	p.encode(view)
 }
 
-// Transitions prints transitions as JSON array.
+// Transitions prints transitions as a JSON array of {id, name, to}, where to
+// is the status the transition leads to, or null when Jira names none.
 func (p *Printer) Transitions(_ string, ts []*jira4claude.Transition) {
 	result := make([]map[string]any, len(ts))
 	for i, t := range ts {
-		result[i] = map[string]any{"id": t.ID, "name": t.Name}
+		var to any
+		if t.To != "" {
+			to = t.To
+		}
+		result[i] = map[string]any{"id": t.ID, "name": t.Name, "to": to}
 	}
 	p.encode(result)
 }
@@ -195,6 +200,7 @@ func (p *Printer) ViewConversionIssue(issue jira4claude.ViewConversionIssue) {
 		Message:  issue.String(),
 		Kind:     issue.Kind,
 		Node:     issue.Node,
+		Token:    issue.Token,
 		Detail:   issue.Detail,
 		Existing: issue.Existing,
 		Key:      issue.Key,

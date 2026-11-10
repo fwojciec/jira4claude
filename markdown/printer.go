@@ -227,7 +227,10 @@ func (p *Printer) Comment(view jira4claude.CommentView) {
 	p.renderComment(view)
 }
 
-// Transitions prints available transitions for an issue.
+// Transitions prints one line per available transition for a script to split
+// on tabs: ID, name and the status it leads to (empty when Jira names none),
+// each with control characters escaped (see escapeControl) so that no field
+// can break the line or add a column.
 func (p *Printer) Transitions(key string, ts []*jira4claude.Transition) {
 	if len(ts) == 0 {
 		fmt.Fprintf(p.err, "[info] No transitions available for %s\n", key)
@@ -235,7 +238,7 @@ func (p *Printer) Transitions(key string, ts []*jira4claude.Transition) {
 	}
 
 	for _, t := range ts {
-		fmt.Fprintf(p.out, "- %s\n", t.Name)
+		fmt.Fprintf(p.out, "%s\t%s\t%s\n", escapeControl(t.ID), escapeControl(t.Name), escapeControl(t.To))
 	}
 }
 
