@@ -806,6 +806,12 @@ func adfInlineLineToGFM(node *jira4claude.ADFNode, skipped *skippedCollector, si
 				skipped.degrade("text", unwritableTextDetail)
 			}
 		}
+		if marks, changed := writableHrefs(items[i].Marks); changed {
+			items[i].Marks = marks
+			if skipped != nil {
+				skipped.degrade("link", hrefDetail)
+			}
+		}
 	}
 	texts := renderTextItems(items, skipped)
 
@@ -837,7 +843,7 @@ func adfInlineLineToGFM(node *jira4claude.ADFNode, skipped *skippedCollector, si
 		case tokenItemType:
 			result.WriteString(child.Text)
 		case "inlineCard":
-			result.WriteString(adfInlineCardToGFM(child))
+			result.WriteString(adfInlineCardToGFM(child, skipped))
 		}
 	}
 
@@ -926,8 +932,8 @@ func onlyHardBreaksFrom(nodes []jira4claude.ADFNode, i int) bool {
 // delimiter run from opening or closing encoded (see inline_marks.go); it is
 // wrapped as is. delim is the emphasis character, '*' or '_' (0 means '*').
 func applyMarks(text string, marks []jira4claude.ADFMark, delim byte) string {
-	var hasStrong, hasEm, hasCode, hasStrike, hasUnderline bool
-	var linkHref string
+	var hasStrong, hasEm, hasCode, hasStrike, hasUnderline, hasLink bool
+	var href string
 	var subsupType string // "sub" or "sup"
 
 	for _, mark := range marks {
@@ -952,14 +958,8 @@ func applyMarks(text string, marks []jira4claude.ADFMark, delim byte) string {
 				}
 			}
 		case "link":
-			if mark.Attrs != nil {
-				var attrs map[string]any
-				if err := json.Unmarshal(mark.Attrs, &attrs); err == nil {
-					if href, ok := attrs["href"].(string); ok {
-						linkHref = href
-					}
-				}
-			}
+			hasLink = true
+			href = linkHref(mark)
 		}
 	}
 
@@ -994,8 +994,8 @@ func applyMarks(text string, marks []jira4claude.ADFMark, delim byte) string {
 	case "sup":
 		result = "<sup>" + result + "</sup>"
 	}
-	if linkHref != "" && result != linkHref {
-		result = "[" + result + "](" + linkHref + ")"
+	if hasLink && result != href {
+		result = "[" + result + "](" + linkDestination(href) + ")"
 	}
 
 	return result
@@ -1034,10 +1034,15 @@ func inlineCardURL(node *jira4claude.ADFNode) string {
 
 // adfInlineCardToGFM converts an ADF inlineCard node to a markdown link whose
 // text is its URL. Inside the brackets the URL is link text, which the write
-// side decodes, so it is escaped as link text.
-func adfInlineCardToGFM(node *jira4claude.ADFNode) string {
-	url := inlineCardURL(node)
-	return "[" + escapeText(url, textContext{inLink: true}) + "](" + url + ")"
+// side decodes, so it is escaped as link text; the destination is written by
+// linkDestination. A URL the write side would change is written as it would
+// read it, and reported.
+func adfInlineCardToGFM(node *jira4claude.ADFNode, skipped *skippedCollector) string {
+	url, changed := writableText(inlineCardURL(node))
+	if changed && skipped != nil {
+		skipped.degrade("inlineCard", hrefDetail)
+	}
+	return bracketedURL(url)
 }
 
 // adfStatusToGFM returns the label of an ADF status node, which is read out

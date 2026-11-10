@@ -1,6 +1,7 @@
 package markdown
 
 import (
+	"encoding/json"
 	"slices"
 	"strings"
 	"unicode/utf8"
@@ -164,11 +165,8 @@ func renderTextItems(items []jira4claude.ADFNode, skipped *skippedCollector) []s
 	}
 	render := func(i int) {
 		if href, ok := bareURL(&items[i]); ok && edges[i].breakLinks {
-			if md, ok := bracketedURL(href); ok {
-				out[i] = md
-				return
-			}
-			unclosable = true
+			out[i] = bracketedURL(href)
+			return
 		}
 		out[i] = escapeTextNode(items, i, isLineStart(items, i), edges[i])
 		if len(items[i].Marks) > 0 {
@@ -303,41 +301,89 @@ func autolinkCrossings(items []jira4claude.ADFNode, out []string) []int {
 }
 
 // bracketedURL writes a link whose text is its href in brackets rather than
-// as a bare URL. It reports false when the href has no exact destination
-// form (see linkDestination).
-func bracketedURL(href string) (string, bool) {
-	dest, ok := linkDestination(href)
-	if !ok {
-		return "", false
-	}
-	return "[" + escapeText(href, textContext{inLink: true}) + "](" + dest + ")", true
+// as a bare URL.
+func bracketedURL(href string) string {
+	return "[" + escapeText(href, textContext{inLink: true}) + "](" + linkDestination(href) + ")"
 }
 
-// linkDestination writes href as a CommonMark link destination that reads
-// back as href: as it stands, or in angle brackets when it holds a blank, a
-// parenthesis or a backslash, which the brackets allow as they are. The
-// write side takes a destination's characters as they stand (it resolves
-// neither backslash escapes nor character references), so nothing can be
-// escaped: a href holding "<", ">", a line ending or another control
-// character, or ending in "\" (which would escape the closing ">"), has no
-// exact form and reports false.
+// linkDestination writes href as a CommonMark link destination that the
+// write side, which resolves backslash escapes and character references in
+// a destination as in text, reads back as href. href must be writable (see
+// writableText); writableHref makes it so.
 //
-// Only links this file writes in brackets use it; applyMarks still writes
-// other destinations as they are. Escaping hrefs in general, on both sides,
-// is #161's, which should take this function over.
-func linkDestination(href string) (string, bool) {
-	if strings.HasSuffix(href, `\`) || strings.ContainsAny(href, "<>\x7f") {
-		return "", false
-	}
+// The destination is href as it stands, with "\", "<" and ">" escaped, an
+// "&" that would start a character reference escaped, and a line feed or tab
+// written as a character reference. It is put in angle brackets when it is
+// empty, holds a blank, or has parentheses that are not balanced, which a
+// bare destination cannot hold ("[a](<b c>)", "[a](<x(>)"). An ordinary URL,
+// with balanced parentheses or none, is written as it is.
+func linkDestination(href string) string {
+	var b strings.Builder
+	angle := href == ""
+	depth := 0
 	for i := 0; i < len(href); i++ {
-		if href[i] < 0x20 {
-			return "", false
+		switch c := href[i]; c {
+		case ' ':
+			angle = true
+			b.WriteByte(c)
+		case '\n', '\t':
+			b.WriteString(charRef(rune(c)))
+		case '\\', '<', '>':
+			b.WriteByte('\\')
+			b.WriteByte(c)
+		case '&':
+			if _, _, ok := entityAt([]byte(href), i); ok {
+				b.WriteByte('\\')
+			}
+			b.WriteByte(c)
+		case '(', ')':
+			if c == '(' {
+				depth++
+			} else {
+				depth--
+			}
+			angle = angle || depth < 0
+			b.WriteByte(c)
+		default:
+			b.WriteByte(c)
 		}
 	}
-	if href == "" || strings.ContainsAny(href, ` ()\`) {
-		return "<" + href + ">", true
+	if angle || depth != 0 {
+		return "<" + b.String() + ">"
 	}
-	return href, true
+	return b.String()
+}
+
+// hrefDetail explains the degraded issue reported when a link's href holds a
+// character the write side would change.
+const hrefDetail = "a carriage return, control character or invalid UTF-8 in a link's address cannot be written " +
+	"in Markdown; it is written as a line feed, a space or U+FFFD, as the write side would read it"
+
+// writableHrefs returns marks with each link's href made writable (see
+// writableText), and whether any changed. marks itself is not modified.
+func writableHrefs(marks []jira4claude.ADFMark) ([]jira4claude.ADFMark, bool) {
+	changed := false
+	for k, m := range marks {
+		if m.Type != "link" {
+			continue
+		}
+		href, hrefChanged := writableText(linkHref(m))
+		if !hrefChanged {
+			continue
+		}
+		if !changed {
+			marks = slices.Clone(marks)
+			changed = true
+		}
+		var attrs map[string]any
+		_ = json.Unmarshal(m.Attrs, &attrs)
+		if attrs == nil {
+			attrs = map[string]any{}
+		}
+		attrs["href"] = href
+		marks[k].Attrs, _ = json.Marshal(attrs)
+	}
+	return marks, changed
 }
 
 // fitDelimiter makes the edge of items[j] that meets a delimiter run fit it
@@ -373,11 +419,8 @@ func fitDelimiter(items []jira4claude.ADFNode, out []string, edges []textEdges, 
 	}
 	if href, ok := bareURL(&items[j]); ok {
 		// A link written as its bare URL is written in brackets instead.
-		md, ok := bracketedURL(href)
-		if ok {
-			out[j] = md
-		}
-		return ok
+		out[j] = bracketedURL(href)
+		return true
 	}
 	var r rune
 	if atEnd {

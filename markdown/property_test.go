@@ -181,6 +181,13 @@ var propertySeeds = []string{
 	"- item\n\n  ```\n   \n  ```",
 	"> - ```\n>     \n>   ```",
 	"- ```\n\t \n  ```",
+	// #161 links
+	"[a](<b c>)",
+	"[0](( )",
+	"[0000]()",
+	"[]()",
+	"[a](a&amp;b)",
+	"[a](<a\\>b>)",
 }
 
 // addPropertySeeds adds propertySeeds and the Markdown fixtures in testdata
@@ -417,12 +424,8 @@ func TestPropertyKnownFailures(t *testing.T) {
 	t.Parallel()
 
 	const (
-		// Known before #147 (comments on #147).
-		gapHrefEscaping = "link hrefs are not escaped on read (#147 comments) (read)"
-
 		// Found by fuzzing in #147.
 		gapLinkTextIsHref = "a link whose text equals its href is read as bare text, which only autolinks for real URLs (read)"
-		gapEmptyHref      = "[text]() is written as a link mark with an empty href, which the reader drops (write)"
 		gapUnlinkedURL    = "URL text the writer did not linkify (after an unmatched [) is linkified on rewrite, because the reader's \\[ escape re-enables linkify (read)"
 	)
 
@@ -431,10 +434,7 @@ func TestPropertyKnownFailures(t *testing.T) {
 		gap   string
 		input string
 	}{
-		{"href with a space", gapHrefEscaping, "[a](<b c>)"},
-		{"href with a parenthesis", gapHrefEscaping, "[0](( )"},
 		{"link text equal to a non-URL href", gapLinkTextIsHref, "a [0](0)"},
-		{"empty href", gapEmptyHref, "[0000]()"},
 		{"URL after an unmatched bracket", gapUnlinkedURL, "[ http://x.com"},
 	}
 

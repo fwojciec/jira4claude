@@ -440,23 +440,23 @@ func TestRoundTrip_URLThatCannotBeClosed(t *testing.T) {
 	}
 }
 
-// A link written as its bare URL whose href holds ">" has neither a bare form
-// Linkify stops nor a bracketed one (#161 escapes hrefs), so a reference after
-// it is reported.
-func TestToMarkdown_BareLinkThatCannotBeClosed(t *testing.T) {
+// A link written as its bare URL whose href holds ">" cannot be closed in
+// angle brackets, so before a reference Linkify would take in, it is written
+// in brackets, with ">" escaped in the destination (#161).
+func TestRoundTrip_BareLinkThatCannotBeClosed(t *testing.T) {
 	t.Parallel()
 
 	attrs, err := json.Marshal(map[string]any{"href": "https://x.com/a>b"})
 	require.NoError(t, err)
 	link := jira4claude.ADFNode{Type: "text", Text: "https://x.com/a>b", Marks: []jira4claude.ADFMark{{Type: "link", Attrs: attrs}}}
+	doc := paragraphDoc(link, txt("\nnext"))
 
-	md, issues := markdown.New().ToMarkdown(paragraphDoc(link, txt("\nnext")))
+	md, readIssues := markdown.New().ToMarkdown(doc)
+	back, writeIssues := markdown.New().ToADF(md)
 
-	if assert.Len(t, issues, 1, "read as %q", md) {
-		assert.Equal(t, jira4claude.ConversionDegraded, issues[0].Kind)
-		assert.Equal(t, "text", issues[0].Node)
-		assert.Contains(t, issues[0].Detail, "Linkify")
-	}
+	assert.Empty(t, readIssues, "read as %q", md)
+	assert.Empty(t, writeIssues, "read as %q", md)
+	assert.Equal(t, doc, back, "read as %q", md)
 }
 
 // goldmark's Linkify drops an escaping backslash right after an autolink, so

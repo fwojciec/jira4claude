@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"reflect"
+	"slices"
 	"sort"
 	"strings"
 
@@ -1152,12 +1153,20 @@ func convertInlineNode(node ast.Node, source []byte, marks []jira4claude.ADFMark
 		return []jira4claude.ADFNode{textNodeWithMarks(codeText, newMarks, skipped)}
 
 	case *ast.Link:
-		attrs, _ := json.Marshal(map[string]any{"href": string(n.Destination)})
+		// goldmark hands over the destination as written: backslash escapes
+		// and character references in it are resolved here, as in text
+		// (CommonMark 6.3). An autolink's URL is raw, as CommonMark has it.
+		attrs, _ := json.Marshal(map[string]any{"href": decodeText(n.Destination)})
 		newMark := jira4claude.ADFMark{
 			Type:  "link",
 			Attrs: attrs,
 		}
-		return convertChildren(n, source, append(cloneMarks(marks), newMark), skipped)
+		nodes := convertChildren(n, source, append(cloneMarks(marks), newMark), skipped)
+		if !slices.ContainsFunc(nodes, func(c jira4claude.ADFNode) bool { return c.Type == "text" }) && skipped != nil {
+			// A link with no text has nothing in ADF to carry its href.
+			skipped.add("link")
+		}
+		return nodes
 
 	case *ast.AutoLink:
 		url := string(n.URL(source))
